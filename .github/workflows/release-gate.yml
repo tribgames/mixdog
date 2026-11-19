@@ -70,6 +70,7 @@ jobs:
       full: ${{ inputs.ref != '' && 'true' || steps.paths.outputs.full }}
       computer: ${{ steps.paths.outputs.computer }}
       desktop: ${{ steps.paths.outputs.desktop }}
+      desktop_computer: ${{ steps.paths.outputs.desktop_computer }}
       desktop_css_only: ${{ steps.paths.outputs.desktop_css_only }}
       desktop_tests: ${{ steps.paths.outputs.desktop_tests }}
       browser_import: ${{ steps.paths.outputs.browser_import }}
@@ -118,7 +119,7 @@ jobs:
             echo "Release workflow owns validation for this generated version commit."
             echo "release_commit=true" >> "$GITHUB_OUTPUT"
             echo "full=false" >> "$GITHUB_OUTPUT"
-            for name in browser_import computer core_scripts desktop desktop_css_only desktop_tests graph mobile packages patch relay runtime secure_desktop spawn window; do
+            for name in browser_import computer core_scripts desktop desktop_computer desktop_css_only desktop_tests graph mobile packages patch relay runtime secure_desktop spawn window; do
               echo "${name}=false" >> "$GITHUB_OUTPUT"
             done
             exit 0
@@ -145,33 +146,36 @@ jobs:
           WORKFLOW='\.github/workflows/release-gate\.yml$'
           TOOLCHAIN='rust-toolchain\.toml$'
           CORE_WORKSPACE='native/core/Cargo\.(toml|lock)$'
+          COMPUTER_HELPER='native/mixdog-computer/'
+          STANDALONE_NEXTEST_CONFIG='native/\.config/nextest-standalone\.toml$'
+          STANDALONE_NEXTEST_INPUTS="${TOOLCHAIN}|${WORKFLOW}|\.github/actions/install-nextest/action\.yml$|${STANDALONE_NEXTEST_CONFIG}"
           DESKTOP_RE="^(${WORKFLOW}|apps/desktop/|apps/mobile/src/|apps/relay/lib/(feedback-attachments|media-http|relay-close-codes)\.mjs$|native/core/|packages/|src/|vendor/|LICENSES/|README\.md$|NOTICE\.md$|CHANGELOG\.md$|changelog/[^/]*\.md$|${MANIFESTS}|scripts/(prune-desktop-runtime|prune-embedding-runtime|native-binary-arch|native-tool-download|runtime-dependency-cache-key)(\.test)?\.mjs$)"
           # The Rust toolchain pin is not here: it selects the Rust core's jobs (core-select.mjs), the only ones that
           # compile. bin/ is the npm launcher; its test is in the root lane.
           RUNTIME_RE="^(\.github/workflows/|native/|scripts/|src/|packages/|apps/mixdogd-npm/|bin/|benchmarks/terminal-bench-2\.1/analysis/|apps/mobile/fixtures/|${MANIFESTS})"
           # Native patch changes are tested from the checkout, not the published binary.
-          PATCH_RE="^(native/mixdog-patch/|${TOOLCHAIN}|${WORKFLOW}|${MANIFESTS})"
+          PATCH_RE="^(native/mixdog-patch/|${STANDALONE_NEXTEST_INPUTS}|${MANIFESTS})"
           MOBILE_RE="^(apps/mobile/|\.github/workflows/release-gate\.yml$|\.github/workflows/mobile-[^/]*\.yml$)"
           # The protocol packages the desktop, the phone and the smokes import, and their own suites.
           PACKAGES_RE='^(packages/|apps/mixdogd-npm/|scripts/test-tsx\.mjs$|package(-lock)?\.json$|\.github/workflows/release-gate\.yml$)'
           # The core's process manager is the library of native/mixdog-spawn built through crates/mixdog-spawn; its
           # integration tests (the core-test feature) are in no other job. The core crates it compiles are listed.
-          SPAWN_RE="^(native/mixdog-spawn/|native/core/|${TOOLCHAIN}|${WORKFLOW})"
+          SPAWN_RE="^(native/mixdog-spawn/|native/core/|${STANDALONE_NEXTEST_INPUTS})"
           # What scripts/rust-core, benchmarks/token-lang and the terminal-bench harness's Rust-core suites test beyond the
           # crates' own suites (core-real runs them).
           # core-real also builds with the toolchain pin and the core's lockfile, and runs through this workflow.
-          CORE_SCRIPTS_RE="^(scripts/rust-core/|benchmarks/token-lang/|benchmarks/terminal-bench-2\.1/harness/(anthropic_oauth_preflight_rust|prebake-rust)\.|${TOOLCHAIN}|${CORE_WORKSPACE}|${WORKFLOW})"
+          CORE_SCRIPTS_RE="^(scripts/rust-core/|benchmarks/token-lang/|benchmarks/terminal-bench-2\.1/harness/(anthropic_oauth_preflight_rust|prebake-rust)\.|${CORE_WORKSPACE}|${STANDALONE_NEXTEST_INPUTS})"
           # The relay jobs also follow the protocol packages the phone suite and the relay's clients import; relay-rust builds the
           # relay from the core's workspace with the toolchain pin.
           RELAY_RE="^(apps/relay/|apps/mobile/|apps/desktop/src/(renderer/remote-|shared/remote-)|packages/protocol(-client)?/|native/core/crates/(mixdog-relay|mixdog-remote)/|${TOOLCHAIN}|${CORE_WORKSPACE}|${WORKFLOW})"
-          # A mobile workflow change selects the mobile gate only, never the
-          # runtime lanes the `.github/workflows/` prefix would otherwise pull in.
-          grep -Ev '^\.github/workflows/mobile-[^/]*\.yml$' /tmp/changed > /tmp/changed-runtime || true
+          # Neither mobile workflows nor standalone nextest config are root runtime inputs.
+          grep -Ev "^(\.github/workflows/mobile-[^/]*\.yml$|${STANDALONE_NEXTEST_CONFIG})" /tmp/changed > /tmp/changed-runtime || true
           flag() {
             if [[ "$EVENT_NAME" != pull_request ]]; then echo "$1=true" >> "$GITHUB_OUTPUT"; return; fi
             if grep -Eq "$2" "${3:-/tmp/changed}"; then echo "$1=true" >> "$GITHUB_OUTPUT"; else echo "$1=false" >> "$GITHUB_OUTPUT"; fi
           }
           flag desktop "$DESKTOP_RE"
+          flag desktop_computer "^(${COMPUTER_HELPER}|${TOOLCHAIN})"
           if [[ "$EVENT_NAME" == pull_request && -s /tmp/changed ]] && ! grep -qvE '^apps/desktop/src/renderer/.*\.css$' /tmp/changed; then
             echo "desktop_css_only=true" >> "$GITHUB_OUTPUT"
           else
@@ -183,14 +187,12 @@ jobs:
           else
             echo "desktop_tests=false" >> "$GITHUB_OUTPUT"
           fi
-          flag graph "^native/mixdog-graph/|${TOOLCHAIN}|${WORKFLOW}"
-          # The importer's own tests follow its sources; a change to this
-          # workflow or the toolchain re-proves the job it defines.
-          flag browser_import "^native/mixdog-browser-import/|${TOOLCHAIN}|${WORKFLOW}"
-          flag secure_desktop "^native/mixdog-secure-desktop/|${TOOLCHAIN}|${WORKFLOW}"
-          flag window "^native/mixdog-window/|${TOOLCHAIN}|${WORKFLOW}"
+          flag graph "^(native/mixdog-graph/|${STANDALONE_NEXTEST_INPUTS})"
+          flag browser_import "^(native/mixdog-browser-import/|${STANDALONE_NEXTEST_INPUTS})"
+          flag secure_desktop "^(native/mixdog-secure-desktop/|${STANDALONE_NEXTEST_INPUTS})"
+          flag window "^(native/mixdog-window/|${STANDALONE_NEXTEST_INPUTS})"
           flag patch "$PATCH_RE"
-          flag computer "^native/mixdog-computer/|^scripts/computer-backend-smoke\.mjs$|^src/runtime/computer-bridge/actions\.mjs$|${TOOLCHAIN}|${WORKFLOW}"
+          flag computer "^(${COMPUTER_HELPER}|scripts/computer-backend-smoke\.mjs$|src/runtime/computer-bridge/actions\.mjs$|${STANDALONE_NEXTEST_INPUTS})"
           flag relay "$RELAY_RE"
           flag runtime "$RUNTIME_RE" /tmp/changed-runtime
           flag mobile "$MOBILE_RE"
@@ -217,7 +219,7 @@ jobs:
         if: steps.paths.outputs.release_commit != 'true'
         env:
           EVENT_NAME: ${{ github.event_name }}
-          # The dev programs build serves the desktop's slow replays and the root slow lane's npm package check.
+          # The slow Node lanes also need the dev programs; core-select adds them independently for the entry tests.
           MIXDOGD_DEV: ${{ steps.paths.outputs.desktop_tests == 'true' || steps.paths.outputs.runtime == 'true' }}
           RUSTUP_TOOLCHAIN: ${{ steps.rust-pin.outputs.version }}
         shell: bash
@@ -607,7 +609,7 @@ jobs:
         shell: bash
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/computer.json
-        run: node scripts/ci/run-nextest.mjs --junit native/mixdog-computer/target/nextest/ci/junit.xml --list -- --manifest-path native/mixdog-computer/Cargo.toml --locked --config-file native/core/.config/nextest.toml --profile ci -- --no-tests=fail
+        run: node scripts/ci/run-nextest.mjs --junit native/mixdog-computer/target/nextest/ci/junit.xml --list -- --manifest-path native/mixdog-computer/Cargo.toml --locked --config-file native/.config/nextest-standalone.toml --profile ci -- --no-tests=fail
       - name: Check that no ignored test of the Computer Use backend is unreviewed
         shell: bash
         env:
@@ -810,8 +812,7 @@ jobs:
   desktop-tests:
     needs: changes
     if: >-
-      needs.changes.outputs.desktop == 'true'
-      && needs.changes.outputs.desktop_css_only != 'true'
+      needs.changes.outputs.desktop_tests == 'true' || needs.changes.outputs.desktop_computer == 'true'
     timeout-minutes: 15
     runs-on: ${{ matrix.runner }}
     env:
@@ -819,25 +820,11 @@ jobs:
       MIXDOG_LEG_OS: ${{ matrix.lane == 'fast' && 'linux' || 'windows' }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          # The fast lane is split in three (node --test --test-shard, forwarded
-          # by scripts/test.mjs). Every leg is its own machine, so the
-          # electron-lane files never overlap on one.
-          - runner: ubuntu-22.04
-            lane: fast
-            shard: 1
-          - runner: ubuntu-22.04
-            lane: fast
-            shard: 2
-          - runner: ubuntu-22.04
-            lane: fast
-            shard: 3
-          # Computer Use compiles and executes a generated PowerShell input
-          # host, so its only real assertions skip on Linux. Without a Windows
-          # leg the capability ships unverified.
-          - runner: windows-latest
-            lane: computer
+      # A helper-only PR needs the Windows consumer, not the Linux fast shards.
+      matrix: >-
+        ${{ fromJSON(needs.changes.outputs.desktop_tests == 'true'
+        && '{"include":[{"runner":"ubuntu-22.04","lane":"fast","shard":1},{"runner":"ubuntu-22.04","lane":"fast","shard":2},{"runner":"ubuntu-22.04","lane":"fast","shard":3},{"runner":"windows-latest","lane":"computer"}]}'
+        || '{"include":[{"runner":"windows-latest","lane":"computer"}]}') }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -921,11 +908,16 @@ jobs:
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/desktop-fast.json
         run: node scripts/ci/check-skips.mjs receipts "$MIXDOG_RECEIPT"
+      - name: Build the native Computer Use helper
+        if: matrix.lane == 'computer'
+        shell: bash
+        run: cargo build --locked --manifest-path native/mixdog-computer/Cargo.toml --bin mixdog-computer --target-dir native/mixdog-computer/target
       - name: Run the Computer Use suites on Windows
         if: matrix.lane == 'computer'
         shell: bash
         env:
           RECEIPTS: ${{ runner.temp }}/receipts
+          MIXDOG_COMPUTER_BIN: ${{ github.workspace }}/native/mixdog-computer/target/debug/mixdog-computer.exe
         # One receipt per invocation (scripts/ci/receipt.mjs): each command leaves its own, and the check below names all five.
         run: |
           MIXDOG_SLOT=computer-fast MIXDOG_RECEIPT="$RECEIPTS/computer-fast.json" npm test --prefix apps/desktop -- src/main/computer/
@@ -1140,6 +1132,7 @@ jobs:
       - uses: ./.github/actions/setup-node-ci
         with:
           cache-dependency-path: |
+            apps/desktop/package-lock.json
             apps/relay/package-lock.json
             apps/mobile/package-lock.json
             packages/protocol-client/package-lock.json
@@ -1171,7 +1164,7 @@ jobs:
             ~/.cargo/git
             native/core/target
           key: core-deps-linux-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
-      - name: Install the packages the phone suite and the Node relay run (relay, phone, protocol client)
+      - name: Install phone verification and Node relay dependencies
         shell: bash
         run: |
           npm_ci() {
@@ -1188,6 +1181,9 @@ jobs:
           npm_ci --prefix packages/protocol-client &
           pids+=($!)
           npm_ci --prefix apps/mobile &
+          pids+=($!)
+          # Phone source checks follow desktop renderer imports and need React's types, not Electron.
+          npm_ci --prefix apps/desktop --ignore-scripts &
           pids+=($!)
           status=0
           for pid in "${pids[@]}"; do wait "$pid" || status=1; done
@@ -1258,7 +1254,7 @@ jobs:
         shell: bash
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/spawn.json
-        run: node scripts/ci/run-nextest.mjs --junit native/mixdog-spawn/target/nextest/ci/junit.xml --list -- --manifest-path native/mixdog-spawn/Cargo.toml --locked --config-file native/core/.config/nextest.toml --profile ci --features core-test -- --no-tests=fail
+        run: node scripts/ci/run-nextest.mjs --junit native/mixdog-spawn/target/nextest/ci/junit.xml --list -- --manifest-path native/mixdog-spawn/Cargo.toml --locked --config-file native/.config/nextest-standalone.toml --profile ci --features core-test -- --no-tests=fail
       - name: Check that no ignored test of the process manager is unreviewed
         shell: bash
         env:
@@ -1382,7 +1378,7 @@ jobs:
       - name: Test the checked-out patch engine
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/patch.json
-        run: node scripts/ci/run-nextest.mjs --junit native/mixdog-patch/target/nextest/ci/junit.xml --list -- --manifest-path native/mixdog-patch/Cargo.toml --locked --config-file native/core/.config/nextest.toml --profile ci -- --no-tests=fail
+        run: node scripts/ci/run-nextest.mjs --junit native/mixdog-patch/target/nextest/ci/junit.xml --list -- --manifest-path native/mixdog-patch/Cargo.toml --locked --config-file native/.config/nextest-standalone.toml --profile ci -- --no-tests=fail
       - name: Check that no ignored test of the patch engine is unreviewed
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/patch.json
@@ -1438,7 +1434,7 @@ jobs:
       - name: Test the graph engine
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/graph.json
-        run: node scripts/ci/run-nextest.mjs --junit native/mixdog-graph/target/nextest/ci/junit.xml --list -- --manifest-path native/mixdog-graph/Cargo.toml --locked --config-file native/core/.config/nextest.toml --profile ci -- --no-tests=fail
+        run: node scripts/ci/run-nextest.mjs --junit native/mixdog-graph/target/nextest/ci/junit.xml --list -- --manifest-path native/mixdog-graph/Cargo.toml --locked --config-file native/.config/nextest-standalone.toml --profile ci -- --no-tests=fail
       - name: Check that no ignored test of the graph engine is unreviewed
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/graph.json
@@ -1519,7 +1515,7 @@ jobs:
         shell: bash
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/browser-import.json
-        run: node scripts/ci/run-nextest.mjs --junit "$RUNNER_TEMP/browser-import/target/nextest/ci/junit.xml" --list -- --manifest-path "$RUNNER_TEMP/browser-import/Cargo.toml" --config-file native/core/.config/nextest.toml --profile ci -- --no-tests=fail
+        run: node scripts/ci/run-nextest.mjs --junit "$RUNNER_TEMP/browser-import/target/nextest/ci/junit.xml" --list -- --manifest-path "$RUNNER_TEMP/browser-import/Cargo.toml" --config-file native/.config/nextest-standalone.toml --profile ci -- --no-tests=fail
       - name: Check that no ignored test of the importer is unreviewed
         shell: bash
         env:
@@ -1560,7 +1556,7 @@ jobs:
         shell: bash
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/secure-desktop.json
-        run: node scripts/ci/run-nextest.mjs --junit native/mixdog-secure-desktop/target/nextest/ci/junit.xml --list -- --manifest-path native/mixdog-secure-desktop/Cargo.toml --locked --config-file native/core/.config/nextest.toml --profile ci -- --no-tests=fail
+        run: node scripts/ci/run-nextest.mjs --junit native/mixdog-secure-desktop/target/nextest/ci/junit.xml --list -- --manifest-path native/mixdog-secure-desktop/Cargo.toml --locked --config-file native/.config/nextest-standalone.toml --profile ci -- --no-tests=fail
       - name: Check that no ignored test of the secure-desktop helper is unreviewed
         shell: bash
         env:
@@ -1601,7 +1597,7 @@ jobs:
         shell: bash
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/window.json
-        run: node scripts/ci/run-nextest.mjs --junit native/mixdog-window/target/nextest/ci/junit.xml --list -- --manifest-path native/mixdog-window/Cargo.toml --locked --config-file native/core/.config/nextest.toml --profile ci -- --no-tests=fail
+        run: node scripts/ci/run-nextest.mjs --junit native/mixdog-window/target/nextest/ci/junit.xml --list -- --manifest-path native/mixdog-window/Cargo.toml --locked --config-file native/.config/nextest-standalone.toml --profile ci -- --no-tests=fail
       - name: Check that no ignored test of the window library is unreviewed
         shell: bash
         env:
@@ -1710,13 +1706,8 @@ jobs:
           key: core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
           restore-keys: |
             core-deps-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-
-      # The nextest release the local runs use (`native/core/.config/nextest.toml` profiles), as its prebuilt binary.
-      - name: cargo-nextest
+      - uses: ./.github/actions/install-nextest
         if: matrix.tests
-        run: |
-          dest="${CARGO_HOME:-$HOME/.cargo}/bin"
-          if command -v cygpath > /dev/null; then dest=$(cygpath -u "$dest"); fi
-          curl -fsSL --retry 3 --retry-delay 5 "https://get.nexte.st/0.9.151/${{ matrix.nextest }}" | tar -xzf - -C "$dest"
       - name: Build the test binaries once (nextest archive)
         if: matrix.tests
         env:
@@ -1729,7 +1720,7 @@ jobs:
           cd native/core
           cargo nextest archive --manifest-path Cargo.toml --locked $ARCHIVE_ARGS "${features[@]}" --archive-file ../../core-tests.tar.zst
       # The development mixdogd with every replay control (mixdog-cli/dev-controls, the feature set a test build
-      # gives every library, so this adds only the binary): the desktop's slow replays drive it. Built beside the archive in
+      # gives every library, so this adds only the binary): desktop replays and the ignored core entry tests drive it. Built beside the archive in
       # the same target directory; this is the run's one build of it. The terminal program and the ssh helper are built in the same
       # invocation, with the feature on mixdog-cli only: scripts/check-npm-packages.slow.test.mjs packs the three programs into
       # the npm packages and starts them through the launcher, and skips without them (runtime-slow downloads this artifact).
@@ -1822,11 +1813,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: ${{ steps.rust-pin.outputs.version }}
-      - name: cargo-nextest
-        run: |
-          dest="${CARGO_HOME:-$HOME/.cargo}/bin"
-          if command -v cygpath > /dev/null; then dest=$(cygpath -u "$dest"); fi
-          curl -fsSL --retry 3 --retry-delay 5 "https://get.nexte.st/0.9.151/${{ matrix.nextest }}" | tar -xzf - -C "$dest"
+      - uses: ./.github/actions/install-nextest
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: core-tests-${{ env.GATE_KEY }}-${{ matrix.os }}
@@ -1950,6 +1937,12 @@ jobs:
             --archive-file core-tests.tar.zst --workspace-remap native/core \
             --config-file native/core/.config/nextest.toml --profile ci -E "$FILTER" \
             -- --partition "count:${PART}/${OF}" --no-tests=fail
+      - name: Run the doctests of mixdog-image-egress
+        if: matrix.os == 'linux' && matrix.part == 1
+        env:
+          MIXDOG_SLOT: doc-image-egress
+          MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/doc-image-egress.json
+        run: node scripts/ci/run-doctest.mjs -p mixdog-image-egress --manifest-path native/core/Cargo.toml --locked
       - name: Upload the evidence of this leg
         uses: ./.github/actions/upload-evidence
         with:
@@ -2000,10 +1993,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: ${{ steps.rust-pin.outputs.version }}
-      - name: cargo-nextest
-        run: |
-          dest="${CARGO_HOME:-$HOME/.cargo}/bin"
-          curl -fsSL --retry 3 --retry-delay 5 "https://get.nexte.st/0.9.151/${{ matrix.nextest }}" | tar -xzf - -C "$dest"
+      - uses: ./.github/actions/install-nextest
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: core-tests-${{ env.GATE_KEY }}-${{ matrix.os }}
@@ -2164,7 +2154,7 @@ jobs:
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/tree-helper-unit.json
           MIXDOG_SLOT: tree-helper-unit
-        run: node scripts/ci/run-nextest.mjs --junit scripts/rust-core/tree-helper/target/nextest/ci/junit.xml --list -- --manifest-path scripts/rust-core/tree-helper/Cargo.toml --locked --config-file native/core/.config/nextest.toml --profile ci --cargo-profile release -- --no-tests=fail
+        run: node scripts/ci/run-nextest.mjs --junit scripts/rust-core/tree-helper/target/nextest/ci/junit.xml --list -- --manifest-path scripts/rust-core/tree-helper/Cargo.toml --locked --config-file native/.config/nextest-standalone.toml --profile ci --cargo-profile release -- --no-tests=fail
       - name: Process-tree helper (the POSIX process-group and mark sweep, or the Windows job object)
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/process-tree.json
@@ -2271,7 +2261,7 @@ jobs:
           SEL_RUNTIME_MACOS: ${{ needs.changes.outputs.runtime == 'true' }}
           SEL_COMPUTER_BACKEND: ${{ needs.changes.outputs.computer == 'true' }}
           SEL_DESKTOP: ${{ needs.changes.outputs.desktop == 'true' }}
-          SEL_DESKTOP_TESTS: ${{ needs.changes.outputs.desktop == 'true' && needs.changes.outputs.desktop_css_only != 'true' }}
+          SEL_DESKTOP_TESTS: ${{ needs.changes.outputs.desktop_tests == 'true' || needs.changes.outputs.desktop_computer == 'true' }}
           SEL_DESKTOP_SLOW: ${{ needs.changes.outputs.desktop == 'true' && needs.changes.outputs.desktop_css_only != 'true' }}
           SEL_RELAY: ${{ needs.changes.outputs.relay == 'true' }}
           SEL_RELAY_RUST: ${{ needs.changes.outputs.relay == 'true' }}

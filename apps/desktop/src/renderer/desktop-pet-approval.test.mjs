@@ -104,11 +104,11 @@ test('allow and deny from the bubble send the card rows, and a short result foll
 
   // "자세히": the same request, in full, with every card row.
   await ui.press('More details');
-  assert.deepEqual(ui.labels(), ['Allow just once', 'Always allow', 'Deny']);
+  assert.deepEqual(ui.labels(), ['Allow just once', 'Allow for this agent', 'Deny']);
   assert.match(ui.doc.querySelector('[data-full]').textContent, /restarts the app/);
   assert.equal(ui.doc.activeElement.getAttribute('aria-label'), 'Details', 'focus follows to the revealed text');
 
-  await ui.press('Always allow');
+  await ui.press('Allow for this agent');
   assert.deepEqual(ui.calls.decide, [['a1', 1]]);
   assert.equal(ui.doc.querySelector('.skin-companion-bubble').dataset.state, 'decided');
   assert.match(text(), /You allowed it/);

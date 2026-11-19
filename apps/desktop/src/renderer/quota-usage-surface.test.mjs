@@ -17,7 +17,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 // A five-hour Claude window opened at 13:00, read at 13:30 and 14:00, viewed at 14:30.
-const opened = new Date(2026, 8, 30, 13).getTime();
+const opened = Date.parse('2026-09-30T13:00:00+09:00');
 const resetAt = opened + 5 * HOUR;
 const at = (hours, minutes = 0) => opened + hours * HOUR + minutes * MINUTE;
 const now = at(1, 30);
@@ -141,6 +141,13 @@ const button = (label) => [...document.querySelectorAll('button')].find((node) =
 const texts = (selector) => [...document.querySelectorAll(selector)].map((node) => node.textContent);
 
 test('the usage dialog header switches to subscription usage and opens there next time', async (context) => {
+  // The recorded window opened on a whole hour in Seoul; assert every tick in that display zone.
+  const previousZone = process.env.TZ;
+  process.env.TZ = 'Asia/Seoul';
+  context.after(() => {
+    if (previousZone === undefined) delete process.env.TZ;
+    else process.env.TZ = previousZone;
+  });
   const render = harness(context);
   const { calls, responses, api } = quotaApi(context);
   const props = { surface: 'stats', open: true, onClose() {}, api };

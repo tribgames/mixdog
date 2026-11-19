@@ -1,19 +1,20 @@
 import assert from 'node:assert/strict';
-import { register } from 'node:module';
+import { registerHooks } from 'node:module';
 import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
 
-// Reject only the main-thread parser chunk import in this isolated test file.
-register(`data:text/javascript,${encodeURIComponent(`
-  export function resolve(specifier, context, next) {
-    if (context.parentURL?.includes('/markdown-worker-client.ts') && specifier === './markdown-ast') {
-      throw new Error('Parser chunk unavailable');
-    }
-    return next(specifier, context);
-  }
-`)}`);
+// Reject the resolved parser chunk, regardless of how the TS loader spells the import.
+const parserUrl = new URL('./markdown-ast.ts', import.meta.url).href;
+const hooks = registerHooks({
+  resolve(specifier, context, next) {
+    const result = next(specifier, context);
+    if (result.url.split('?')[0] === parserUrl) throw new Error('Parser chunk unavailable');
+    return result;
+  },
+});
+test.after(() => hooks.deregister());
 
 installTestDom(null, {
   html: '<!doctype html><html><body></body></html>',

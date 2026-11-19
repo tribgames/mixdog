@@ -98,8 +98,10 @@ export function useAutoEffortRoute(
   onChange: (enabled: boolean) => unknown,
   modelKnown = false
 ) {
-  const master = useAutoEffort(capable || modelKnown);
-  const masterOn = hostRouteAutoEffort() && masterAutoEffortOn(master);
+  const hostSupportsRouteAuto = hostRouteAutoEffort();
+  const wantsMaster = hostSupportsRouteAuto && (capable || modelKnown);
+  const master = useAutoEffort(wantsMaster);
+  const masterOn = hostSupportsRouteAuto && masterAutoEffortOn(master);
   let autoEffort: { enabled: boolean; pending: boolean; unavailable?: boolean } | null = null;
   if (capable && masterOn) autoEffort = { enabled: routeAutoEffortOn(routeAutoEffort), pending: false };
   // The core says Auto cannot apply to this model: the sheet says so instead of
@@ -111,7 +113,7 @@ export function useAutoEffortRoute(
       void onChange(enabled);
     },
     onOpenSheet: () => {
-      if (capable || modelKnown) void refreshAutoEffort();
+      if (wantsMaster) void refreshAutoEffort();
     },
   };
 }

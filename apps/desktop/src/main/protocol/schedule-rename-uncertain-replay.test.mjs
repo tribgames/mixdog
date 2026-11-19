@@ -1,30 +1,23 @@
-// Replay of the fourth case of native/core/fixtures/schedule-error-wire-cases (record-schedule-error-wire-cases.mjs, Node
-// b6f10295a): a schedule rename whose answer never came back. Node raised SCHEDULE_RENAME_UNCERTAIN when the session runtime's
-// call to its channel worker failed (src/session-runtime/channel-config-api.mjs:63), and the Schedules view showed
-// "the rename may or may not have applied" in Korean. The core has no worker hop; what leaves a K1 user with the same unknown
-// outcome is the rename op cut after it was sent and its reconciliation failing (`op/status` answering an error, client.ts
-// reconcileScope: `opOutcomeUnknown`). That is what runs here, through the product's own pieces: the client library over a
-// scripted core socket, the desktop's protocol connection and capability lane (the Schedules view's `saveSchedule`), the IPC
-// envelope the main process returns (ipc.ts `refusal`), its structured clone, the preload's rebuild and the contextBridge
-// clone (message and stack, as the recorder made it), then `scheduleErrorText` with the Korean bundle.
+// A schedule rename is sent, then its socket drops and reconciliation fails. The uncertainty must reach the
+// Korean Schedules view even though contextBridge strips custom Error properties.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { connect, sessionReducer } from '../../../../../packages/protocol-client/src/index.ts';
 import { MockNetwork } from '../../../../../packages/protocol-client/src/mock.ts';
-import i18n, { t } from '../../renderer/i18n.ts';
+import i18n from '../../renderer/i18n.ts';
 import { scheduleErrorText } from '../../renderer/schedule-error-text.ts';
 import { errorParams, ipcErrorEnvelope, ipcErrorFromEnvelope } from '../../shared/coded-error.ts';
 import { scheduleErrorCode } from '../../shared/schedule-error-codes.ts';
 import { createCapabilityLane } from './capability-route.ts';
 import { createProtocolConnection } from './connection.ts';
 
-const fixture = (path) => new URL(`../../../../../${path}`, import.meta.url);
-const golden = JSON.parse(readFileSync(fixture('native/core/fixtures/schedule-error-wire-cases/golden.json'), 'utf8'));
-const options = JSON.parse(readFileSync(fixture('packages/protocol-client/conformance/options.json'), 'utf8'));
+const options = JSON.parse(readFileSync(new URL('../../../../../packages/protocol-client/conformance/options.json', import.meta.url), 'utf8'));
 const korean = JSON.parse(readFileSync(new URL('../../renderer/locales/ko.json', import.meta.url), 'utf8'));
 const CONTROL = 'thr_control';
+const TRANSLATION_KEY = 'The rename may or may not have applied because the scheduler did not answer. Check the schedule list.';
+const KOREAN_WARNING = '스케줄러가 응답하지 않아 이름 바꾸기가 적용되었는지 알 수 없습니다. 스케줄 목록을 확인해 주세요.';
 /** How long a frame of the scripted core, or the call's settlement, may take. */
 const DEADLINE_MS = 10_000;
 
@@ -36,7 +29,7 @@ const within = (promise, what) => {
   return Promise.race([promise, late]).finally(() => clearTimeout(timer));
 };
 
-/** The recorder's contextBridge clone: the page gets an Error with only the message and stack. */
+/** The page gets an Error with only the message and stack. */
 const acrossContextBridge = (error) => {
   const page = new Error(error.message);
   page.stack = error.stack;
@@ -60,11 +53,15 @@ async function serve(conn, generation, seen) {
         conn.serverSend({ method: 'app/snapshot', params: { sections: [] }, feed: { id: 'app', epoch: `ae${generation}`, seq: 1 } });
         break;
       case 'thread/start':
-        conn.serverSend({ id: frame.id, result: { thread: { id: CONTROL } } });
-        break;
       case 'thread/resume':
         // The client holds the control thread it started and resumes it after a reconnect, before any request naming it.
-        conn.serverSend({ id: frame.id, result: { thread: { id: frame.params.threadId } } });
+        conn.serverSend({
+          id: frame.id,
+          result: {
+            thread: { id: CONTROL },
+            subscription: { id: CONTROL, mode: 'snapshot', epoch: `te${generation}`, startSeq: 1, liveSeq: 1 },
+          },
+        });
         break;
       case 'channel/saveSchedule':
         seen.saves.push(frame.params);
@@ -80,11 +77,8 @@ async function serve(conn, generation, seen) {
   }
 }
 
-test('a rename whose op was cut after sending and could not be reconciled shows Node\'s uncertain-rename text', async () => {
-  const [recorded] = golden.cases;
-  const node = recorded.observed.results[3];
-  assert.equal(node.code, 'SCHEDULE_RENAME_UNCERTAIN');
-  const entry = node.wire[0].request.body.args.args[1][0];
+test('a rename whose op was cut after sending and could not be reconciled shows the uncertain-rename text', async (t) => {
+  const entry = { name: 'Daily report', newName: 'Morning report' };
 
   const net = new MockNetwork();
   const seen = { frames: [], saves: [], statuses: [] };
@@ -107,10 +101,12 @@ test('a rename whose op was cut after sending and could not be reconciled shows 
         newOpId: () => `op-${++ops}`,
       }),
   });
+  t.after(() => connection.close());
   await within(connection.start(), 'the connection to open');
   const lane = createCapabilityLane({ protocol: connection });
 
   i18n.addResourceBundle('ko', 'translation', korean);
+  const previousLanguage = i18n.language;
   await i18n.changeLanguage('ko');
   try {
     const refusal = await within(
@@ -123,39 +119,38 @@ test('a rename whose op was cut after sending and could not be reconciled shows 
     assert.ok(refusal, 'the rename is refused');
     // What happened on the socket: the rename op was sent once, the socket dropped before its answer, and the reconnected
     // client asked for that op's outcome and was refused.
-    assert.equal(seen.saves.length, 1);
+    assert.equal(seen.saves.length, 1, `expected a sent rename before ${refusal.message}; frames: ${seen.frames.join(', ')}`);
     assert.deepEqual(seen.saves[0].entry, entry);
     assert.deepEqual(seen.statuses, [{ scope: `thread:${CONTROL}`, opIds: [seen.saves[0].opId], fence: true }]);
+    await core;
 
     // ipc.ts `refusal`: a coded refusal is returned as an envelope; Electron clones it; the preload rebuilds it.
     const envelope = ipcErrorEnvelope(refusal);
     assert.ok(envelope, 'the refusal carries a code across IPC');
     const received = acrossContextBridge(ipcErrorFromEnvelope(structuredClone(envelope)));
-    const translationKey = node.translationKey;
     const name = errorParams(received)?.name;
-    // Node's message names the cause its worker transport gave (`timeout`); the core's is the client's (`opOutcomeUnknown`):
-    // the one difference, declared in the manifest. The page never shows the message, only `text`.
-    const nodeMessage = node.sentToPage.message.replace('(the scheduler did not answer: timeout)', '(the scheduler did not answer: opOutcomeUnknown)');
     assert.deepEqual(
       {
         sentToPage: { name: received.name, message: received.message },
         sentToPageOwnPropertyNames: Object.getOwnPropertyNames(received),
         code: scheduleErrorCode(received),
         nameParam: name,
-        expectedText: t(translationKey, name ? { name } : {}),
+        expectedText: i18n.t(TRANSLATION_KEY),
         text: scheduleErrorText(received),
       },
       {
-        sentToPage: { name: node.sentToPage.name, message: nodeMessage },
-        sentToPageOwnPropertyNames: node.sentToPageOwnPropertyNames,
-        code: node.code,
-        nameParam: node.nameParam.$exact === 'undefined' ? undefined : node.nameParam,
-        expectedText: node.expectedText,
-        text: node.text,
+        sentToPage: {
+          name: 'Error',
+          message: 'The rename may or may not have applied (the scheduler did not answer: opOutcomeUnknown). Check the schedule list.\n[worktree-details] {"code":"SCHEDULE_RENAME_UNCERTAIN"}',
+        },
+        sentToPageOwnPropertyNames: ['stack', 'message'],
+        code: 'SCHEDULE_RENAME_UNCERTAIN',
+        nameParam: undefined,
+        expectedText: KOREAN_WARNING,
+        text: KOREAN_WARNING,
       }
     );
   } finally {
-    await i18n.changeLanguage('en');
-    await connection.close();
+    await i18n.changeLanguage(previousLanguage);
   }
 });

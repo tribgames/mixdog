@@ -1,12 +1,9 @@
 // The order in which the phone's router starts and ends calls of different feature groups, compared whole with what Node's relay
-// dispatch and call queue did (apps/mobile/fixtures/phone-order/golden.json, recorded by benchmarks/rust-core/recorders/
-// record-phone-order.mjs from b6f10295a). The real router and the real files and terminal adapters run; the chat group is a stand-in adapter that
-// opts into nothing, as a real adapter does not: the router alone puts every group's calls into the connection's one queue.
+// dispatch and call queue did. The committed phone-order fixture contains the scripts as well as the expected traces.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
-import { orderCalls, orderScenarios, play } from '../../../../benchmarks/rust-core/recorders/lib/phone-order-script.mjs';
+import { setImmediate as nextTurn } from 'node:timers/promises';
 import { adapter as filesAdapter } from './remote-protocol-files.ts';
 import { adapter as terminalAdapter } from './remote-protocol-terminal.ts';
 import { bounded } from './remote-protocol-terminal-deadlines.mjs';
@@ -15,7 +12,8 @@ import { createProtocolRouter } from './remote-shim-protocol.ts';
 // The router arms a per-call deadline on the page's window timers. This test is about order, not the deadline: its window never fires one.
 globalThis.window = { setTimeout: () => 0, clearTimeout() {} };
 
-const golden = JSON.parse(readFileSync(fileURLToPath(new URL('../../../mobile/fixtures/phone-order/golden.json', import.meta.url)), 'utf8'));
+const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-order/golden.json', import.meta.url), 'utf8'));
+const orderCalls = golden.calls;
 const nameOf = Object.fromEntries(Object.entries(orderCalls).map(([name, call]) => [call.method, name]));
 // What the files adapter asks the core for each of its calls the script uses.
 const coreMethods = {
@@ -34,16 +32,24 @@ const coreMethods = {
 // it, so the connection is ready before the first call here. Calls held at the gates leave in the order Node's phone sends them, which the
 // lifecycle recording compares (apps/mobile/fixtures/phone-lifecycle: the ungated boot reads leave beside the sync, a fire waits for the
 // connection only); this recording has no gate step to compare them against.
-for (const [scenario, recordedSteps] of Object.entries(orderScenarios)) {
-  const steps = [['ready'], ...recordedSteps];
+for (const [scenario, { steps, events: expectedEvents, answers: expectedAnswers }] of Object.entries(golden.scenarios)) {
   test(`order of calls across groups: ${scenario}`, async () => {
-    let hooks;
+    const events = [];
+    const answers = {};
+    const pending = [];
+    const gates = new Map(Object.keys(orderCalls).map((name) => [name, Promise.withResolvers()]));
     // The connection and the view sync are separate gates: the scenarios open both at once, the test below opens only the connection.
     const connected = Promise.withResolvers();
     const synced = Promise.withResolvers();
-    const ran = (method) => async () => {
-      hooks.started(nameOf[method]);
-      await hooks.gate(nameOf[method]);
+    const ran = (method) => () => {
+      const name = nameOf[method];
+      assert.ok(name, `unscripted method: ${method}`);
+      events.push(['start', name]);
+      const end = () => {
+        events.push(['end', name]);
+        return {};
+      };
+      return orderCalls[name].instant ? end() : gates.get(name).promise.then(end);
     };
     const chat = {
       group: 'chat',
@@ -55,13 +61,34 @@ for (const [scenario, recordedSteps] of Object.entries(orderScenarios)) {
         notify: (method) => void ran(coreMethods[method])(),
       }), declareLane() {} };
     const router = createProtocolRouter([filesAdapter, terminalAdapter, chat], { host, started: () => connected.promise, synced: () => synced.promise, probe() {}, silentSince: () => false });
-    const trace = await play(steps, {
-      begin: (given) => (hooks = given),
-      send: (name) => router.call(orderCalls[name].method, orderCalls[name].params),
-      fire: (name) => router.fire(orderCalls[name].method, orderCalls[name].params),
-      ready: () => (connected.resolve(), synced.resolve()),
-    });
-    assert.deepEqual(trace, { events: golden.scenarios[scenario].events, answers: golden.scenarios[scenario].answers });
+    connected.resolve();
+    synced.resolve();
+    for (const [action, name] of steps) {
+      switch (action) {
+        case 'send': {
+          const { method, params } = orderCalls[name];
+          pending.push(router.call(method, params).then(
+            () => { answers[name] = 'ok'; },
+            (error) => { answers[name] = error.message; }
+          ));
+          break;
+        }
+        case 'fire':
+          router.fire(orderCalls[name].method, orderCalls[name].params);
+          break;
+        case 'release':
+          gates.get(name).resolve();
+          break;
+        case 'settle':
+          // Drain promise continuations for the calls whose gates have opened.
+          await nextTurn();
+          break;
+        default:
+          assert.fail(`unknown script step: ${action}`);
+      }
+    }
+    await bounded(Promise.all(pending), 'all scripted calls to settle', 10_000);
+    assert.deepEqual({ events, answers }, { events: expectedEvents, answers: expectedAnswers });
   });
 }
 

@@ -163,7 +163,11 @@ function mount(t, pool, props = {}, { ordinary = false } = {}) {
 }
 
 test('a group starts collapsed: header and Lead row (with its member badge) show, children are hidden', async (t) => {
-  const { document, render, opened } = mount(t, [lead(running), worker('a', running), worker('b')]);
+  const { document, render, opened } = mount(t, [
+    lead(running),
+    worker('a', { ...running, provider: 'openai', model: 'test-model', routeObserved: true }),
+    worker('b'),
+  ]);
   await render();
   const heading = document.querySelector('.agent-session-heading[data-lead-session-id="lead-a"]');
   assert.equal(heading.getAttribute('aria-expanded'), 'false');
@@ -179,7 +183,7 @@ test('a group starts collapsed: header and Lead row (with its member badge) show
   const child = document.querySelector('[data-agent-session-id="s-a"]');
   assert.ok(child.querySelector('.sidebar-resource-icon'));
   assert.equal(child.getAttribute('aria-label'), 'Worker · a');
-  assert.ok(child.querySelector('.agent-route-summary'));
+  assert.equal(child.querySelector('.agent-route-summary')?.title, 'test-model');
   assert.equal(child.lastElementChild.className, 'agent-activity-status');
   assert.equal(document.querySelector('[data-agent-session-id="s-b"] .agent-activity-elapsed').dataset.state, 'idle');
   await act(async () => child.click());

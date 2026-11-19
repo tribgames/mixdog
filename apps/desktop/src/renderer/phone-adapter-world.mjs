@@ -1,5 +1,6 @@
 // A paired phone with the terminal adapter installed, against the world's scripted protocol core (test-support/phone-world.mjs). The shim keeps module-level state: one world per test file (per process).
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createPhoneWorld, protocolDialect } from './test-support/phone-world.mjs';
 
 const section = (name, value, revision) => ({ section: name, key: null, revision, value });
@@ -38,7 +39,7 @@ export async function adapterWorld() {
       return base.onFrame(current, frame, log);
     },
   };
-  const world = await createPhoneWorld({ tree: decodeURIComponent(repo.pathname.slice(1)), dialect, paired: true });
+  const world = await createPhoneWorld({ tree: fileURLToPath(repo), dialect, paired: true });
   const { adapter } = await import('./remote-protocol-terminal.ts');
   const { installPhoneShim } = await import('./remote-shim-boot.ts');
   installPhoneShim([adapter]);

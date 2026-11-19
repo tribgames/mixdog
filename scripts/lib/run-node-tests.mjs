@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { appendFile, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { appendFile, mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { availableParallelism, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -409,7 +409,10 @@ export async function runNodeTests(nodeArgs, fileArgs, options = {}) {
   // Test processes get a private temp root that is removed after the run, so
   // every fixture directory a test forgets to delete goes with it instead of
   // piling up in the system temp directory.
-  const scratchDir = await mkdtemp(join(tmpdir(), TEST_SCRATCH_PREFIX));
+  // Child tools can report a resolved cwd while retaining the original
+  // spelling of absolute inputs. Start both at the same path (macOS /var
+  // commonly aliases /private/var).
+  const scratchDir = await realpath(await mkdtemp(join(tmpdir(), TEST_SCRATCH_PREFIX)));
   let status = 1;
   try {
     status = await executeRun(nodeArgs, fileArgs, options, { logPath, failureDir, scratchDir });

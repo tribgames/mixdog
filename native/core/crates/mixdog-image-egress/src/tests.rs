@@ -181,7 +181,7 @@ fn batch_accounts_for_every_occurrence_once_and_keeps_order() {
     // Second tool image is missing: the whole batch is NotSent, nothing silently dropped.
     let not_sent = batch.seal().unwrap_err();
     assert_eq!(not_sent.blockers.len(), 1);
-    assert_eq!(not_sent.blockers[0].origin, a);
+    assert_eq!(*not_sent.blockers[0].origin, a);
 
     let mut batch = plan.batch(vec![a.clone(), b.clone()]);
     batch.accept(plan.prepare_local(&b, &f, bytes.clone(), None).unwrap());
@@ -240,8 +240,14 @@ fn refusal_message_names_image_and_actions_without_compact() {
     assert!(text.contains("`scan.heic` in tool result 'Read file', turn 8"), "{text}");
     assert!(text.contains("HEIC") && text.contains("continue without it"), "{text}");
     assert!(!text.contains("compact"));
-    let link = Refusal::new(origin(Role::User, 0), Reason::MutableLink).message();
-    assert!(link.contains("Replace the link with an image file"), "{link}");
+    let link = plan(Column::Chat)
+        .prepare_pointer(&origin(Role::User, 0), SourceForm::Link, Body::Link("https://private.example/image?token=private-token".into()), false, None)
+        .unwrap_err();
+    let message = link.message();
+    assert!(message.contains("Replace the link with an image file"), "{message}");
+    for text in [message, format!("{link:?}")] {
+        assert!(!text.contains("private.example") && !text.contains("private-token"));
+    }
     let all = NotSent::new(vec![refusal]).message();
     assert!(all.starts_with("Nothing was sent."));
 }

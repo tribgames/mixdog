@@ -2829,9 +2829,9 @@ async fn sorted_list_and_find_do_not_certify_followed_symlink_metadata() {
     let ctx = context_over(&root, local_ctx_files()).await;
     let tool = ListTool::new();
     for (args, safe) in [
-        (json!({"sort": "name"}), true),
-        (json!({"sort": "size"}), false),
-        (json!({"mode": "find", "name": "link.txt"}), false),
+        (serde_json::json!({"sort": "name"}), true),
+        (serde_json::json!({"sort": "size"}), false),
+        (serde_json::json!({"mode": "find", "name": "link.txt"}), false),
     ] {
         let answer = tool.call(&ctx, args).await.unwrap();
         let meta = answer.meta.unwrap();

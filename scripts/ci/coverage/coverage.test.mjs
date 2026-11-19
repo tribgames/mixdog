@@ -652,6 +652,24 @@ test('inventory: Rust packages, the files a target reaches, and doctests are ass
   assert.deepEqual(standalone.manifest.units.filter((unit) => unit.listed), [{ id: ['rust', 'tool/Cargo.toml', 'lib', 'tool'], source: 'tool/src/lib.rs', listed: true, requires: [clause('linux/node/1of1#root')] }]);
 });
 
+test('inventory requires image-egress compile-fail doctests to produce their own evidence', () => {
+  const pkg = 'native/core/crates/mixdog-image-egress';
+  const files = {
+    'native/core/Cargo.toml': '[workspace]\nmembers = ["crates/mixdog-image-egress"]',
+    [`${pkg}/Cargo.toml`]: '[package]\nname = "mixdog-image-egress"',
+    [`${pkg}/src/lib.rs`]: '/// ```compile_fail,E0277\n/// let _: i32 = "text".into();\n/// ```\npub fn example() {}\n',
+  };
+  const { manifest, errors } = buildInventory({ tracked: Object.keys(files), plan: loadPlan(), sha: SHA, read: (path) => files[path] });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(manifest.units.filter((unit) => unit.id[2] === 'doctest'), [
+    {
+      id: ['rust', `${pkg}/Cargo.toml`, 'doctest', 'mixdog_image_egress'],
+      source: `${pkg}/Cargo.toml`,
+      requires: [clause('linux/core-tests/1of4#doc-image-egress')],
+    },
+  ]);
+});
+
 test("a standalone crate's targets are expected by name: each needs its own pass, and one that vanished or never ran is an error", () => {
   const tool = { ...RUST_FILES, 'tool/Cargo.toml': '[package]\nname = "tool"\nversion = "0.1.0"\n', 'tool/src/lib.rs': '', 'tool/tests/t.rs': '' };
   const toolPlan = makePlan({ classes: [LIVE_CLASS], rust: { ...makePlan().rust, standalone: [{ manifestDir: 'tool', requires: [clause('linux/node/1of1')] }] } });

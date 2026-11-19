@@ -2,6 +2,9 @@
 // tests make, input -> output, from running them against Node. A call that was not recorded is an error, never a guess.
 import { readFileSync } from 'node:fs';
 
+// These recordings were taken at noon in UTC+09:00, not noon in the runner's time zone.
+export const USAGE_STATS_FIXTURE_NOW = Date.parse('2026-09-13T12:00:00+09:00');
+
 const table = JSON.parse(readFileSync(new URL('./usage-stats-period.recorded.json', import.meta.url), 'utf8'));
 const stable = (v) =>
   JSON.stringify(v, (_k, x) =>

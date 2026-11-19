@@ -37,8 +37,8 @@ const publish = (section, key, value) => {
 window.mixdogDesktop = {
   setTitleBarDimmed() {},
   rendererDiagnostic() {},
-  // A one-shot read must play no part: it answers "not installed" for a config that has not arrived.
-  readSettings: () => Promise.resolve({ browserInstalled: false }),
+  // The settings reader defaults a missing desktop section to false.
+  readSettings: async () => ({ browserInstalled: false }),
   sections: {
     core: async () => false,
     snapshot: async () => ({ status: 'ready', entries: [...latest.values()] }),

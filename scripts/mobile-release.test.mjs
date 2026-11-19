@@ -165,10 +165,30 @@ test('the relay links the newest release whose APK downloads, else the releases 
   }
 });
 
-// Source-text on purpose: workflow YAML runs only on GitHub runners.
+// Inspect the checked-in workflow graph without publishing an APK or uploading to TestFlight.
 const workflow = (name) => parseYaml(readFileSync(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8'));
 
-test('Deploy ships mobile with the release and the relay waits for the Android release', () => {
+function testFlightRuns(condition, { cancelled = false, prepared = 'success', release = 'success', planned = true } = {}) {
+  const expression = /^\$\{\{([\s\S]+)\}\}$/.exec(condition);
+  assert.ok(expression, 'TestFlight needs an explicit workflow condition');
+  const clauses = new Map([
+    ['!cancelled()', !cancelled],
+    ["needs.prepare-app.result == 'success'", prepared === 'success'],
+    ["needs.release.result == 'success'", release === 'success'],
+    ["needs.plan.outputs.mobile_release == 'true'", planned],
+  ]);
+  // Interpret the supported boolean clauses, not arbitrary workflow expressions.
+  const alternatives = expression[1].split('||').map((alternative) =>
+    alternative.split('&&').map((part) => {
+      const clause = part.trim().replace(/\s+/g, ' ').replace(/\s*==\s*/g, ' == ');
+      assert.ok(clauses.has(clause), `Unhandled TestFlight condition: ${clause}`);
+      return clauses.get(clause);
+    }),
+  );
+  return alternatives.some((parts) => parts.every(Boolean));
+}
+
+test('Deploy gates Android and TestFlight publishing and gives the relay the resolved APK link', () => {
   const deploy = workflow('deploy.yml');
   const release = workflow('release.yml');
   const android = workflow('mobile-android.yml');
@@ -180,11 +200,19 @@ test('Deploy ships mobile with the release and the relay waits for the Android r
   assert.deepEqual(inputs.mobile_bump.options, ['patch', 'minor']);
   const planStep = deploy.jobs.plan.steps.find((step) => step.id === 'mobile');
   assert.equal(planStep.run, 'node scripts/mobile-release.mjs plan');
+  assert.equal(deploy.jobs.plan.outputs.mobile_release, '${{ steps.mobile.outputs.mobile_release }}');
   assert.equal(deploy.jobs.plan.outputs.mobile_version, '${{ steps.mobile.outputs.mobile_version }}');
 
-  // iOS runs beside the release: its failure never blocks publish or relay.
+  // TestFlight mutates external state, so it runs after the gated release.
   const iosJob = deploy.jobs['mobile-ios'];
   assert.equal(iosJob.uses, './.github/workflows/mobile-ios.yml');
+  for (const job of ['plan', 'prepare-app', 'release']) assert.ok(iosJob.needs.includes(job));
+  assert.equal(testFlightRuns(iosJob.if), true, 'upload when mobile is planned and the release succeeds');
+  assert.equal(testFlightRuns(iosJob.if, { release: 'failure' }), false, 'skip TestFlight after a failed release even when mobile was planned');
+  assert.equal(testFlightRuns(iosJob.if, { planned: false }), false, 'skip TestFlight when mobile was not planned');
+  assert.equal(testFlightRuns(iosJob.if, { prepared: 'failure' }), false, 'skip TestFlight without a prepared app');
+  assert.equal(testFlightRuns(iosJob.if, { cancelled: true }), false, 'skip TestFlight on cancellation');
+  assert.equal(iosJob.with.version, '${{ needs.plan.outputs.mobile_version }}');
   assert.equal(iosJob.with.ref, '${{ needs.prepare-app.outputs.sha }}');
   assert.deepEqual(Object.keys(iosJob.secrets).sort(), [
     'APPLE_API_ISSUER',
@@ -199,7 +227,9 @@ test('Deploy ships mobile with the release and the relay waits for the Android r
 
   const androidJob = release.jobs['mobile-android'];
   assert.equal(androidJob.uses, './.github/workflows/mobile-android.yml');
+  for (const job of ['coverage-gate', 'push-release-refs']) assert.ok(androidJob.needs.includes(job));
   assert.equal(androidJob.if, "${{ inputs.mobile_version != '' }}");
+  assert.equal(androidJob.with.version, '${{ inputs.mobile_version }}');
   assert.equal(androidJob.with.ref, '${{ inputs.ref }}');
   assert.deepEqual(Object.keys(androidJob.secrets).sort(), [
     'ANDROID_KEYSTORE_B64',
@@ -208,7 +238,11 @@ test('Deploy ships mobile with the release and the relay waits for the Android r
     'ANDROID_KEY_PASSWORD',
     'FIREBASE_GOOGLE_SERVICES_JSON_B64',
   ]);
-  assert.deepEqual(release.jobs['android-link'].needs, ['mobile-android']);
+  const link = release.jobs['android-link'];
+  assert.deepEqual(link.needs, ['mobile-android']);
+  assert.equal(link.if, '${{ !cancelled() }}', 'resolve a working APK link even if Android fails or is skipped');
+  assert.equal(link.outputs.url, '${{ steps.link.outputs.url }}');
+  assert.match(link.steps.find((step) => step.id === 'link').run, /^ *node scripts\/mobile-release\.mjs link$/m);
   assert.ok(!release.jobs.publish.needs.includes('mobile-android'), 'the desktop publish never waits for Android');
   const relay = release.jobs['deploy-relay'];
   assert.deepEqual(relay.needs, ['publish', 'stage-relay', 'android-link']);
@@ -220,14 +254,14 @@ test('Deploy ships mobile with the release and the relay waits for the Android r
     /deploy-release\.sh' '\$RELAY_DOMAIN' '\$RELEASE_TAG' '\$DESKTOP_VERSION' '\$ANDROID_URL'/
   );
 
-  // Both mobile workflows keep their tag and manual triggers.
+  // A tag push or a manual run must not bypass the caller's release gate.
   for (const mobile of [android, ios]) {
-    assert.deepEqual(mobile.on.push.tags, ['mobile-v*']);
-    assert.ok(mobile.on.workflow_dispatch);
+    assert.deepEqual(Object.keys(mobile.on), ['workflow_call']);
     assert.equal(mobile.on.workflow_call.inputs.ref.required, true);
   }
-  assert.equal(android.on.workflow_call.inputs.draft.default, false, "Deploy's Android release is published");
-  assert.equal(android.on.workflow_dispatch.inputs.draft.default, true);
+  const androidInputs = android.on.workflow_call.inputs;
+  assert.equal(androidJob.with.publish ?? androidInputs.publish.default, true);
+  assert.equal(androidJob.with.draft ?? androidInputs.draft.default, false, "Deploy's Android release is public");
   const publish = android.jobs.apk.steps.find((step) => step.name === 'Attach to GitHub Release').run;
   assert.match(publish, /node scripts\/publish-asset-release\.mjs create "\$TAG"/);
   assert.doesNotMatch(publish, /gh release create/, 'every create goes through the Latest guard');

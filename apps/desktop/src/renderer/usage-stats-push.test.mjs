@@ -15,12 +15,12 @@ import {
   refreshStatsDataCache,
   subscribeStatsDataCache,
 } from './command-surface-cache.ts';
-import { resolveUsageStatsPeriod } from './test-support/usage-stats-period.recorded.mjs';
+import { resolveUsageStatsPeriod, USAGE_STATS_FIXTURE_NOW } from './test-support/usage-stats-period.recorded.mjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 function snapshot(tokens) {
-  const now = new Date(2026, 8, 13, 12).getTime();
+  const now = USAGE_STATS_FIXTURE_NOW;
   const period = resolveUsageStatsPeriod({ view: 'hour', now });
   const route = {
     turns: 1,

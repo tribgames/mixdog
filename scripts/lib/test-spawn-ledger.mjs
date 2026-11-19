@@ -45,12 +45,13 @@ if (
   };
   import(pathToFileURL(process.argv[1]).href).then(settle, settle);
   process.on('exit', (code) => {
-    if (settled) return;
+    // A load error can exit before the observer's rejection callback runs.
+    // Diagnose a dropped evaluation only when the file would otherwise pass.
+    if (settled || code !== 0) return;
     console.error(
       `${process.argv[1]}: the process was force-exited before the file's top-level evaluation completed (a top-level await was still pending); tests registered after it never ran, and an await that never settles is treated the same way`
     );
-    // Never replace a failure code the file already set.
-    if (!code) process.exitCode = 1;
+    process.exitCode = 1;
   });
 }
 

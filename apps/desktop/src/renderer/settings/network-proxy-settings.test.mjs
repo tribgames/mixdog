@@ -137,7 +137,7 @@ test('manual mode shows the address and exception rows; a bad address is refused
     await settle();
     assert.equal(input('Proxy address').getAttribute('aria-invalid'), null);
     assert.deepEqual(calls.at(-1), ['setNetworkProxy', [{ mode: 'manual', url: 'http://proxy.company.com:8080' }]]);
-    assert.match(desc('Proxy'), /only through the proxy below/);
+    assert.match(desc('Proxy'), /using the proxy below for destinations that do not match an exception/i);
 
     await type(input('Exceptions'), 'localhost, *.company.local');
     await blur(input('Exceptions'));

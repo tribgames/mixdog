@@ -10,10 +10,15 @@ test lives in the built-in `test-suite` skill, not here.
 package. A file joins the suite by existing; `package.json` lists no test
 paths. The root package also discovers `packages/**` (the workspace packages,
 `*.test.ts` included, run through tsx) and `apps/mixdogd-npm`, so those tests
-run in the root fast and slow lanes. The one exception is
-`packages/protocol-client/test/rows/node-oracle`, which replays the rows tests
-against a checkout of the old Node tree (`MIXDOG_NODE_REFERENCE_REPO`) and is
-run by hand where that checkout exists. The lane comes from the file name:
+run in the root fast and slow lanes. `node-oracle/` directories are for
+explicit comparisons that need the old Node tree (`MIXDOG_NODE_REFERENCE_REPO`)
+or local recordings under `native/core/fixtures/` and
+`benchmarks/rust-core/recorders/`. For example, when those recordings are
+available, run the protocol room and session comparisons with
+`node --import ./scripts/test-tsx.mjs scripts/test-direct.mjs "packages/protocol-client/test/node-oracle/*.test.ts"`.
+The TUI comparisons in `src/tui/node-oracle/` and `src/tui/app/node-oracle/`
+can likewise be named with `scripts/test-direct.mjs`. Regular feature tests
+in the lane do not need those inputs. The lane comes from the file name:
 
 | Name | Lane | Runs |
 | --- | --- | --- |

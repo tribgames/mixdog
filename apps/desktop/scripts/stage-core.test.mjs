@@ -38,7 +38,7 @@ test('a local deploy stages the host core from a plain cargo release build, and 
   const binary = join(dir, 'mixdogd.exe');
   writeFileSync(binary, 'cargo release build');
   writeFileSync(join(dir, 'mixdog-askpass.exe'), 'cargo askpass build');
-  const options = { binary, runtimeDir, host: { platform: 'win32', arch: 'x64' } };
+  const options = { binary, runtimeDir, host: { platform: 'win32', arch: 'x64' }, hostRunnable: true };
   await assert.rejects(stageHostCore({ ...options, version: '1.4.6', reportedVersion: () => '1.4.5' }), /reports version 1\.4\.5/);
   assert.equal(existsSync(join(runtimeDir, 'core', 'mixdogd.exe')), false);
 

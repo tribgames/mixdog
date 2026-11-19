@@ -97,10 +97,17 @@ test('the build\'s own inputs and the gate itself reach every crate', () => {
     'native/core/crates/mixdog-workspace-hack/Cargo.toml',
     'rust-toolchain.toml',
     '.github/workflows/release-gate.yml',
+    '.github/actions/install-nextest/action.yml',
     'scripts/ci/core-select.mjs',
   ]) {
     assert.equal(select([path]).core_scope, 'all', path);
   }
+});
+
+test('the standalone nextest config does not select workspace builds or tests', () => {
+  const config = 'native/.config/nextest-standalone.toml';
+  assert.equal(select([config]).core_build, false);
+  assert.deepEqual(packages(select([config, 'native/core/crates/delta/src/lib.rs'])), ['delta']);
 });
 
 test('unowned and deleted inputs are conservatively whole-workspace until readers are proven', () => {
@@ -163,6 +170,16 @@ test('an empty diff still builds the Linux daemon needed by desktop replay', () 
   const both = select(['native/core/crates/delta/src/lib.rs'], { mixdogdDev: true });
   assert.deepEqual(JSON.parse(both.build_matrix).include.map((entry) => [entry.os, entry.tests, entry.mixdogd]),
     [['linux', true, true], ['macos', true, false], ['windows', true, false]]);
+});
+
+test('an archive with the entry tests requests the Linux dev daemon without either slow Node lane', () => {
+  file('native/core/crates/mixdog-entry/tests/node_free.rs', '#[test]\n#[ignore]\nfn entry() {}\n');
+  const withEntry = { packages: [...metadata.packages, crate('mixdog-entry')] };
+  const legs = (changed) => JSON.parse(select(changed, { metadata: withEntry }).build_matrix).include;
+  const nextest = legs(['.github/actions/install-nextest/action.yml', 'native/.config/nextest-standalone.toml']);
+  assert.deepEqual(nextest.map(({ os, tests, mixdogd }) => [os, tests, mixdogd]),
+    [['linux', true, true], ['macos', true, false], ['windows', true, false]]);
+  assert.ok(legs(['native/core/crates/delta/src/lib.rs']).every((leg) => !leg.mixdogd));
 });
 
 test('the matrices are what the workflow reads: runner, nextest download name and executable suffix per system', () => {

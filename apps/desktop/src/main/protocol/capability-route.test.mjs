@@ -709,13 +709,6 @@ test('noteUserInput is the client/activity notification: it sends no request and
   assert.deepEqual(all.filter((call) => call.method !== 'thread/read'), []);
 });
 
-// `renameSession` on a core connection, against the cases of `desktop-host-work-5`'s `record-session-rename` fixture (Node's
-// real host over 10 titles x 6 session states): the host's `Session title is invalid.` stays in the host, and the core's
-// refusal (a code-less `domainError`, which `thread/name/set` answers exactly where the runtime answered `false`) reaches
-// the window as `Session is not available.`.
-const renameTwin = JSON.parse(
-  readFileSync(new URL('../../../../../native/core/fixtures/desktop/settings/session-rename-twin.json', import.meta.url), 'utf8')
-);
 const notAvailable = Object.assign(new Error('rpc'), {
   detail: { kind: 'rpc', data: { reason: 'domainError', domain: 'thread', message: 'Session is not available.' } },
 });
@@ -744,22 +737,35 @@ test('renameSession on a core connection is thread/name/set with the normalized 
   );
 });
 
-test('renameSession on a core connection raises what Node raised in every recorded case', async () => {
-  assert.equal(renameTwin.cases.length, 60);
-  for (const item of renameTwin.cases) {
-    const { all, client } = renameClient(item.runtime.returned);
-    const outcome = await client.renameSession('sess-1', item.title).then(
-      () => ({ ok: true }),
-      (error) => ({ error: error.message, kind: error.constructor.name })
-    );
-    const expected = item.desktop.ok ? { ok: true } : { error: item.desktop.error, kind: item.desktop.kind };
-    assert.deepEqual(outcome, expected, JSON.stringify(item.title));
-    // The invalid-title refusal is the host's: the core is never reached for it.
-    const sent = all.filter((call) => call.method === 'thread/name/set');
-    assert.equal(sent.length, item.desktop.kind === 'TypeError' ? 0 : 1, JSON.stringify(item.title));
+test('renameSession validates before sending and gives the window the core refusal for valid titles', async () => {
+  const titles = [
+    ['', null],
+    [' \n\t ', null],
+    ['<file>attached text</file>', null],
+    ['[Pasted text #1]', null],
+    ['Roadmap', 'Roadmap'],
+    ['  A\tnew\n title  ', 'A new title'],
+    ['작업 계획', '작업 계획'],
+    ['Issue #42!', 'Issue #42!'],
+    ['a'.repeat(100), 'a'.repeat(100)],
+    ['b'.repeat(101), `${'b'.repeat(99)}…`],
+  ];
+  for (const [title, normalized] of titles) {
+    for (const accepted of [true, false]) {
+      const { all, client } = renameClient(accepted);
+      const rename = client.renameSession('sess-1', title);
+      if (normalized === null) {
+        await assert.rejects(rename, { name: 'TypeError', message: 'Session title is invalid.' });
+        assert.deepEqual(all, []);
+      } else {
+        if (accepted) await rename;
+        else await assert.rejects(rename, { name: 'Error', message: 'Session is not available.' });
+        assert.deepEqual(all.filter((call) => call.method === 'thread/name/set'), [
+          { method: 'thread/name/set', params: { threadId: 'sess-1', title: normalized } },
+        ]);
+      }
+    }
   }
-  const { client } = renameClient(false);
-  await assert.rejects(client.renameSession('sess-1', 'x'), { message: renameTwin.missing.desktop.error });
 });
 
 test('renameSession keeps the host check for the session id before the title', async () => {
@@ -787,38 +793,36 @@ test('a draft skillsStatus names its Project in options, never a folder, and a s
   ]);
 });
 
-// `fixtures/skills-control-cwd/golden.json`: what Node's five skills actions answered on the control session, whole
-// (record-skills-control-cwd.mjs, Node b6f10295a); `cwdAt` is where the session folder is in each answer (`cwd` for the
-// reads, `status.cwd` for the three mutations). The core answers a skills request from its `threadId`'s folder and one without
-// from the folder it was started in. The fake core answers Node's recorded response with the folder put at `cwdAt`.
-test('the skills actions without a session answer the control session folder at the place Node answers it', async () => {
-  const golden = JSON.parse(
-    readFileSync(new URL('../../../../../native/core/fixtures/skills-control-cwd/golden.json', import.meta.url), 'utf8')
-  );
-  const sessionFolder = golden.sessionFolder.replaceAll('/', '\\');
-  const folders = { 'control-1': sessionFolder };
-  const walk = (value, path) => path.split('.').reduce((at, key) => at[key], value);
-  const inputs = {
-    skillsStatus: [],
-    addSkill: [{ name: 'control-skill', description: 'Use when recording the control folder.' }],
-    saveSkill: [{ originalName: 'control-skill', name: 'control-skill', description: 'Use when saved.', instructions: '# Saved' }],
-    removeSkill: [{ name: 'control-skill' }],
-    reloadSkills: [],
+test('the five skills actions without a session use the control folder and preserve the reply shape', async () => {
+  const cwd = 'C:\\work\\skills-project';
+  const skill = { name: 'control-skill', description: 'A test skill.' };
+  const tools = [{ name: 'shell' }, { name: 'task' }];
+  const status = { cwd, count: 1, tools, skills: [{ ...skill, enabled: true }] };
+  const afterRemoval = { cwd, count: 0, tools, skills: [] };
+  const afterReload = {
+    cwd,
+    count: 2,
+    tools,
+    skills: [
+      { ...skill, enabled: true },
+      { name: 'review-notes', description: 'Review draft notes.', enabled: false },
+    ],
   };
-  assert.deepEqual(Object.keys(golden.answered), Object.keys(inputs));
-  for (const [capability, args] of Object.entries(inputs)) {
-    const { cwdAt, response } = golden.answered[capability];
-    const { lane } = recordingLane(async (method, params) => {
+  for (const [capability, args, response] of [
+    ['skillsStatus', [], status],
+    ['addSkill', [skill], { skill, status }],
+    ['saveSkill', [{ originalName: skill.name, ...skill, instructions: '# Saved' }], { skill, status }],
+    ['removeSkill', [{ name: skill.name }], { skill: { name: skill.name }, status: afterRemoval }],
+    ['reloadSkills', [], afterReload],
+  ]) {
+    const { lane, calls } = recordingLane(async (method, params) => {
       assert.equal(method, `skills/${capability}`);
-      const answer = structuredClone(response);
-      const parentPath = cwdAt.split('.').slice(0, -1).join('.');
-      const parent = parentPath ? walk(answer, parentPath) : answer;
-      parent[cwdAt.split('.').at(-1)] = folders[params.threadId] ?? '<daemon process folder>';
-      return answer;
+      assert.equal(params.threadId, 'control-1', capability);
+      return structuredClone(response);
     });
     const { value } = await lane.invoke(capability, args);
-    assert.equal(walk(value, cwdAt), sessionFolder, capability);
-    assert.deepEqual(Object.keys(value), Object.keys(response), `${capability}: the shape Node answers`);
+    assert.equal(calls.length, 1, capability);
+    assert.deepEqual(value, response, capability);
   }
 });
 test('the project-branch capabilities Node resolved through the registry send their projectPath for the core to resolve', () => {
@@ -850,26 +854,20 @@ test('inheritFrom of a missing session is refused with the text Node throws', as
   await assert.rejects(recordingLane(async () => { throw other; }).lane.invoke('inheritFrom', ['src-1'], 'heir-1'), other);
 });
 
-// The recorded Rust wire errors (harness `capabilities-w2b`, `rewindToItem-missing` and `prioritizeQueued-missing`; the busy
-// `preconditionFailed` as `capabilities-w11p` saw it) against Node's recorded replies: `null`, and a count of none.
 const wireRefusal = (reason, data) =>
   Object.assign(new Error(`-32600 ${reason} ${reason}`), { detail: { kind: 'rpc', code: -32600, reason, message: reason, data: { reason, ...data } } });
 
-const refusals = JSON.parse(
-  readFileSync(new URL('../../../../../native/core/fixtures/capability-refusals/golden.json', import.meta.url), 'utf8')
-);
-
-test('rewindToItem answers what Node recorded where the core refuses an unknown item or a busy session', async () => {
-  assert.ok(refusals.rewind.length > 0);
-  for (const recorded of refusals.rewind) {
-    const refusal = recorded.busy
-      ? wireRefusal('preconditionFailed', { expected: 'idle', actual: 'running' })
-      : wireRefusal('itemNotFound', { threadId: 't1', itemId: recorded.itemId });
+test('rewindToItem returns null for a missing item or a busy session, but propagates other failures', async () => {
+  for (const [itemId, refusal] of [
+    ['missing-item', wireRefusal('itemNotFound', { threadId: 't1', itemId: 'missing-item' })],
+    ['agent-item', wireRefusal('itemNotFound', { threadId: 't1', itemId: 'agent-item' })],
+    ['user-item', wireRefusal('preconditionFailed', { expected: 'idle', actual: 'running' })],
+  ]) {
     const { lane, calls } = recordingLane(async () => {
       throw refusal;
     });
-    const { value } = await lane.invoke('rewindToItem', [recorded.itemId], 't1');
-    assert.deepEqual(value, recorded.reply, recorded.name);
+    const { value } = await lane.invoke('rewindToItem', [itemId], 't1');
+    assert.equal(value, null, itemId);
     assert.equal(calls[0].method, 'thread/rewind');
   }
   const other = wireRefusal('turnNotActive', { threadId: 't1' });
@@ -886,38 +884,30 @@ test('a call naming a session the core does not have is refused with the text No
   await assert.rejects(lane.invoke('getTurnReviewDiff', [], 'sess_gone'), { message: 'session sess_gone is not available' });
 });
 
-test('prioritizeQueued answers what Node recorded: a prioritized entry accepted, one Node leaves alone (missing, slash command) a count of none', async () => {
-  assert.ok(refusals.prioritize.length > 0);
-  for (const recorded of refusals.prioritize) {
-    // The core accepts exactly the entries Node's drain was kicked for.
-    const queued = recorded.kicked === 1;
+test('prioritizeQueued reports a count of one for a promoted entry and zero for a missing entry or slash command', async () => {
+  for (const [id, accepted, expected] of [
+    ['queued', true, { count: 1, ids: ['queued'], priority: 'now' }],
+    ['missing', false, { count: 0, ids: [], priority: 'now' }],
+    ['slash-command', false, { count: 0, ids: [], priority: 'now' }],
+  ]) {
     const { lane } = recordingLane(async () => {
-      if (queued) return { accepted: true, queuedId: recorded.selectedId };
-      throw wireRefusal('queuedEntryNotFound', { threadId: 't1', queuedId: recorded.selectedId });
+      if (accepted) return { accepted: true, queuedId: id };
+      throw wireRefusal('queuedEntryNotFound', { threadId: 't1', queuedId: id });
     });
-    const { value } = await lane.invoke('prioritizeQueued', [recorded.selectedId], 't1');
-    assert.deepEqual(value, recorded.reply, `${recorded.name} (busy ${recorded.busy})`);
+    const { value } = await lane.invoke('prioritizeQueued', [id], 't1');
+    assert.deepEqual(value, expected, id);
   }
   const other = new Error('core busy');
   await assert.rejects(recordingLane(async () => { throw other; }).lane.invoke('prioritizeQueued', ['q1'], 't1'), other);
 });
-// The quota auto-resume switch is a published `config` subtree of its own (one section entry per subtree, keyed by the subtree's
-// name), holding the boolean. Node's recorded `quotaAutoResumeEnabled()` over each stored config (`fixtures/quota-auto-resume`,
-// where the switch is `quotaResume.autoResume`; the 1.4.5 migration moves it to `quotaAutoResume`) is what the lane reads, whatever
-// other subtree the section lists first.
-test('getQuotaAutoResume reads the quotaAutoResume subtree and answers what Node recorded for each stored switch', async () => {
-  const golden = JSON.parse(
-    readFileSync(new URL('../../../../../native/core/fixtures/quota-auto-resume/golden.json', import.meta.url), 'utf8')
-  );
-  assert.ok(golden.reads.length > 0);
-  for (const read of golden.reads) {
+test('getQuotaAutoResume finds its own config subtree and is on unless it is explicitly false', async () => {
+  for (const [stored, enabled] of [[false, false], [true, true], [undefined, true], [null, true], [0, true], ['false', true]]) {
     const { world, lane } = recordingLane();
     world.shell.push({ section: 'config', key: 'desktop', value: { editor: {} } });
-    const section = read.config?.quotaResume;
-    if (section && Object.hasOwn(section, 'autoResume')) {
-      world.shell.push({ section: 'config', key: 'quotaAutoResume', value: section.autoResume });
+    if (stored !== undefined) {
+      world.shell.push({ section: 'config', key: 'quotaAutoResume', value: stored });
     }
-    assert.equal(await lane.getQuotaAutoResume(), read.enabled, read.name);
+    assert.equal(await lane.getQuotaAutoResume(), enabled, JSON.stringify(stored));
   }
 });
 

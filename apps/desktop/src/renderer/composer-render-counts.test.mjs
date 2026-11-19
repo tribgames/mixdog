@@ -102,7 +102,7 @@ const composerProps = (id, overrides = {}) => ({
 });
 const capabilities = (voiceInstalled = false) => ({
   invokeCapability: async (request) => {
-    if (request.capability === 'getVoiceStatus') return { value: { installed: voiceInstalled } };
+    if (request.capability === 'getVoiceStatus') return { value: { installed: voiceInstalled, enabled: voiceInstalled } };
     if (request.capability === 'transcribeAudio') return { value: 'first words' };
     if (request.capability === 'skillsStatus') return { value: { skills: [] } };
     return { value: {} };

@@ -1,4 +1,4 @@
-import { nativeWindowNumber, type NativeWindowSource } from '../observation/native-window-id';
+import { nativeWindowId, type NativeWindowSource } from '../observation/native-window-id';
 
 const internalWindowIds = new Set<string>();
 
@@ -6,11 +6,6 @@ function normalizedWindowId(value: unknown): string {
   return String(value || '')
     .trim()
     .toLowerCase();
-}
-
-function nativeWindowId(window: NativeWindowSource): string {
-  const value = nativeWindowNumber(window);
-  return value > 0n ? `hwnd:0x${value.toString(16).toUpperCase()}` : '';
 }
 
 export function registerComputerUseInternalWindow(window: NativeWindowSource): () => void {

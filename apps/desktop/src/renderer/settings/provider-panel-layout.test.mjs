@@ -288,16 +288,18 @@ test('Vertex AI shows the environment region only as a hint and saves a location
   const row = [...document.querySelectorAll('.settings-resource')].find((r) => r.textContent.includes('Vertex AI'));
   await click(buttonIn(row, 'Connect'));
   await click(buttonIn(row, 'gcloud login (ADC)'));
-  const location = row.querySelector('input[aria-label="Vertex AI location"]');
+  const findLocation = () => row.querySelector('input[aria-label="Vertex AI location"]');
+  const location = findLocation();
   assert.equal(location.value, '');
   assert.equal(location.placeholder, 'asia-northeast3');
   assert.equal(location.required, false);
   const submit = () =>
-    act(async () => location.form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+    act(async () => findLocation().form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
   await submit();
+  await click(buttonIn(row, 'Connect'));
+  await click(buttonIn(row, 'gcloud login (ADC)'));
   await act(async () => {
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(location, 'europe-west4');
-    location.dispatchEvent(new window.Event('input', { bubbles: true }));
+    findLocation().value = 'europe-west4';
   });
   await submit();
   assert.deepEqual(

@@ -8,13 +8,13 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { exact } from '../../benchmarks/rust-core/recorders/lib/exact.mjs';
-import { buildSpinnerMeta } from './spinner-meta.mjs';
+import { exact } from '../../../benchmarks/rust-core/recorders/lib/exact.mjs';
+import { buildSpinnerMeta } from '../spinner-meta.mjs';
 
-const goldenBytes = readFileSync(new URL('../../native/core/fixtures/quiet-progress-cases/golden.json', import.meta.url));
+const goldenBytes = readFileSync(new URL('../../../native/core/fixtures/quiet-progress-cases/golden.json', import.meta.url));
 const golden = JSON.parse(goldenBytes.toString('utf8'));
 // The core's half (`mixdog_testkit::chain_output`), refused when it was made from another recording.
-const coreFile = JSON.parse(readFileSync(new URL('quiet-progress-core.json', import.meta.url), 'utf8'));
+const coreFile = JSON.parse(readFileSync(new URL('../quiet-progress-core.json', import.meta.url), 'utf8'));
 assert.equal(coreFile.inputs, createHash('sha256').update(goldenBytes).digest('hex'), 'quiet-progress-core.json was made from another golden.json: run the Rust replay');
 const core = coreFile.core;
 

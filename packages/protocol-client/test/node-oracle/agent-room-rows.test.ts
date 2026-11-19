@@ -12,12 +12,12 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import type { Obj } from '../src/obj.ts';
-import { rowOf } from '../src/rows.ts';
+import type { Obj } from '../../src/obj.ts';
+import { rowOf } from '../../src/rows.ts';
 
 type O = Record<string, any>;
 const read = (url: URL): O => JSON.parse(readFileSync(url, 'utf8'));
-const goldenBytes = readFileSync(new URL('../../../native/core/fixtures/agent-room-cases/golden.json', import.meta.url));
+const goldenBytes = readFileSync(new URL('../../../../native/core/fixtures/agent-room-cases/golden.json', import.meta.url));
 const golden = JSON.parse(goldenBytes.toString('utf8'));
 /** The core's half (`mixdog_testkit::chain_output`), refused when it was made from another recording. */
 function coreOf(name: string): O {
@@ -25,9 +25,9 @@ function coreOf(name: string): O {
   assert.equal(file.inputs, createHash('sha256').update(goldenBytes).digest('hex'), `${name} was made from another golden.json: run the Rust replay`);
   return file.core;
 }
-const core = coreOf('agent-room-core.json');
-const exchange = coreOf('agent-room-core-exchange.json');
-const { exact, fromExact } = (await import(new URL('../../../benchmarks/rust-core/recorders/lib/exact.mjs', import.meta.url).href)) as {
+const core = coreOf('../agent-room-core.json');
+const exchange = coreOf('../agent-room-core-exchange.json');
+const { exact, fromExact } = (await import(new URL('../../../../benchmarks/rust-core/recorders/lib/exact.mjs', import.meta.url).href)) as {
   exact: (value: unknown) => unknown;
   fromExact: (encoded: unknown) => any;
 };

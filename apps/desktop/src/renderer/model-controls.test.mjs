@@ -190,6 +190,16 @@ async function mountedStreamPicker(id, state, body) {
   const oldPosition = window.mixdogDesktop.sessionStreamPosition;
   /** The position the connection has received (every note counted), as `sessionStreamPosition` answers it. */
   const received = () => ({ epoch: epoch.epoch, seq, order: epoch.order });
+  const waitForPosition = (mark) => {
+    if (store.streamReached(id, mark)) return Promise.resolve();
+    return new Promise((resolve) => {
+      const off = store.subscribeStreamPosition(id, () => {
+        if (!store.streamReached(id, mark)) return;
+        off();
+        resolve();
+      });
+    });
+  };
   window.mixdogDesktop.sessionStreamPosition = async (sessionId) => (sessionId === id ? received() : null);
   const settleFrames = () => new Promise((resolve) => window.requestAnimationFrame(() => setTimeout(resolve, 0)));
   const announce = () => {
@@ -202,18 +212,8 @@ async function mountedStreamPicker(id, state, body) {
       fold = sessionReducer.apply(fold, { ...note, params: { threadId: id, ...note.params } });
       announce();
     }
-    if (frame) {
-      const mark = received();
-      if (!store.streamReached(id, mark)) {
-        await new Promise((resolve) => {
-          const off = store.subscribeStreamPosition(id, () => {
-            if (!store.streamReached(id, mark)) return;
-            off();
-            resolve();
-          });
-        });
-      }
-    } else await settleFrames();
+    if (frame) await waitForPosition(received());
+    else await settleFrames();
   });
   /** The subscription is replaced (a resume after a reconnect): a new epoch, received after every earlier one, with its snapshot. */
   const resubscribe = (next) => {
@@ -221,6 +221,8 @@ async function mountedStreamPicker(id, state, body) {
     seq = 1;
     fold = sessionReducer.initial({ thread: { id }, state: next, items: [], hasOlder: false });
     announce();
+    const mark = received();
+    return waitForPosition(mark).then(() => mark);
   };
   function Harness() {
     const snapshot = useSessionLane(id, store, desktopConversationShellSnapshotsEqual);
@@ -466,23 +468,21 @@ test('an answer whose position read races a replaced subscription still ends its
   availableModels = [model];
   const route = { provider: model.provider, model: model.model, effort: 'high', fast: false, autoEffort: false, modelParameters: {} };
   try {
-    await mountedStreamPicker('stream-epoch', { route }, async ({ stream, received, resubscribe, settleFrames }) => {
+    await mountedStreamPicker('stream-epoch', { route }, async ({ stream, resubscribe }) => {
       await act(async () => sheetRow('Speed').click());
       await act(async () => option('Fast').click());
       // While the answered call reads its position, the subscription is replaced (epoch B, whose snapshot already carries
       // another device turning it off) and the lane publishes B; the read then names B.
-      const heldPosition = window.mixdogDesktop.sessionStreamPosition;
-      window.mixdogDesktop.sessionStreamPosition = async () => {
-        resubscribe({ route: { ...route, fast: false } });
-        await settleFrames();
-        return received();
+      const positionRead = deferred();
+      window.mixdogDesktop.sessionStreamPosition = () => {
+        const mark = resubscribe({ route: { ...route, fast: false } });
+        positionRead.resolve(mark);
+        return mark;
       };
-      await act(async () => call.resolve({ ...route, fast: true }));
       await act(async () => {
-        await settleFrames();
-        await Promise.resolve();
+        call.resolve({ ...route, fast: true });
+        await positionRead.promise;
       });
-      window.mixdogDesktop.sessionStreamPosition = heldPosition;
       assert.equal(option('Standard').getAttribute('aria-checked'), 'true', "B's snapshot reached the mark: the stream's value shows");
       await stream([{ method: 'thread/runtime/updated', params: { value: { busy: false } } }]);
       assert.equal(option('Standard').getAttribute('aria-checked'), 'true', 'and a later frame of B keeps it');

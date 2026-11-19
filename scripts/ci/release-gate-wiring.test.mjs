@@ -137,7 +137,16 @@ test('release-gate.yml: the Rust core is built once per system and its tests run
   }
   // Nothing else builds the mixdogd the desktop replays drive.
   assert.doesNotMatch(JSON.stringify(gate.jobs['desktop-slow']), /cargo/);
-  assert.doesNotMatch(JSON.stringify(gate.jobs['desktop-tests']), /cargo|MIXDOGD_BIN/);
+  const desktop = gate.jobs['desktop-tests'];
+  const helper = desktop.steps.find((step) => step.name === 'Build the native Computer Use helper');
+  const suite = desktop.steps.find((step) => step.name === 'Run the Computer Use suites on Windows');
+  assert.equal(helper?.if, "matrix.lane == 'computer'");
+  assert.equal(helper.run, 'cargo build --locked --manifest-path native/mixdog-computer/Cargo.toml --bin mixdog-computer --target-dir native/mixdog-computer/target');
+  assert.equal(suite?.if, helper.if);
+  assert.ok(desktop.steps.indexOf(helper) < desktop.steps.indexOf(suite));
+  assert.equal(suite.env.MIXDOG_COMPUTER_BIN, '${{ github.workspace }}/native/mixdog-computer/target/debug/mixdog-computer.exe');
+  assert.doesNotMatch(JSON.stringify({ ...desktop, steps: desktop.steps.filter((step) => step !== helper) }), /cargo|MIXDOGD_BIN/);
+  assert.doesNotMatch(JSON.stringify(helper), /MIXDOGD_BIN/);
 });
 
 test('release-gate.yml: the Node lanes install and build nothing a root test does not read', () => {
@@ -267,12 +276,10 @@ test('release-gate.yml: core-real runs the harness suites after the helper is bu
   for (const file of ['anthropic_oauth_preflight_rust.test.mjs', 'prebake-rust.test.mjs']) assert.ok(existsSync(new URL(`benchmarks/terminal-bench-2.1/harness/${file}`, ROOT)), file);
 });
 
-test('release-gate.yml: the standalone window and browser-import crates have a test job each, selected by their own paths', () => {
+test('release-gate.yml: the standalone window and browser-import test jobs run their own manifests', () => {
   assert.match(JSON.stringify(gate.jobs.window), /run-nextest\.mjs .*--manifest-path native\/mixdog-window\/Cargo\.toml/);
   assert.match(JSON.stringify(gate.jobs['browser-import']), /run-nextest\.mjs .*--manifest-path \\+"\$RUNNER_TEMP\/browser-import\/Cargo\.toml/);
   assert.equal(gate.jobs.window['runs-on'], 'windows-latest');
-  const script = stepsOf(gate.jobs.changes).find((step) => step.id === 'paths').run;
-  assert.match(script, /flag window "\^native\/mixdog-window\//);
 });
 
 test('release-gate.yml: toolchain actions consume the root pin and desktop output key covers the current closure', () => {
@@ -436,7 +443,6 @@ test('release-gate.yml: a change to the toolchain pin, the workflow or the core 
   const WORKFLOW_JOBS = [...TOOLCHAIN_JOBS, 'desktop', 'desktop_tests', 'mobile', 'packages', 'runtime'];
   const WORKSPACE_JOBS = ['core_scripts', 'desktop', 'desktop_tests', 'relay', 'runtime', 'spawn'];
   const table = [
-    ['rust-toolchain.toml', TOOLCHAIN_JOBS],
     ['.github/workflows/release-gate.yml', WORKFLOW_JOBS],
     ['native/core/Cargo.lock', WORKSPACE_JOBS],
     ['native/core/Cargo.toml', WORKSPACE_JOBS],
@@ -445,9 +451,10 @@ test('release-gate.yml: a change to the toolchain pin, the workflow or the core 
     ['CHANGELOG.md', ['desktop', 'desktop_tests']],
     ['changelog/ja.md', ['desktop', 'desktop_tests']],
     ['native/mixdog-window/src/lib.rs', ['runtime', 'window']],
+    ['native/mixdog-browser-import/Cargo.toml', ['browser_import', 'runtime']],
     ['native/mixdog-graph/Cargo.toml', ['graph', 'runtime']],
-    ['native/mixdog-computer/src/lib.rs', ['computer', 'runtime']],
   ];
+  assert.deepEqual(selected(['rust-toolchain.toml']), [...TOOLCHAIN_JOBS, 'desktop_computer'].sort());
   for (const [path, jobs] of table) {
     const got = selected([path]);
     for (const job of jobs) assert.ok(got.includes(job), `${path} must select ${job}; selected ${got.join(', ')}`);
@@ -456,6 +463,26 @@ test('release-gate.yml: a change to the toolchain pin, the workflow or the core 
   assert.deepEqual(selected(['apps/desktop/src/renderer/connectors.css']), ['desktop', 'desktop_css_only']);
   // each output the table names is read by a job's own `if`
   for (const job of TOOLCHAIN_JOBS.filter((name) => name !== 'core_scripts')) assert.ok(gateText.includes(`needs.changes.outputs.${job} == 'true'`), job);
+});
+
+test('release-gate.yml: nextest inputs and the computer helper select their PR consumers without adding unrelated lanes', () => {
+  const standalone = ['browser_import', 'computer', 'core_scripts', 'graph', 'patch', 'secure_desktop', 'spawn', 'window'];
+  const inputs = ['.github/actions/install-nextest/action.yml', 'native/.config/nextest-standalone.toml'];
+  for (const paths of [inputs, ...inputs.map((path) => [path])]) {
+    assert.deepEqual(selected(paths), standalone, paths.join(', '));
+  }
+  assert.deepEqual(selected(['native/mixdog-computer/Cargo.toml']), ['computer', 'desktop_computer', 'runtime']);
+  const desktop = gate.jobs['desktop-tests'];
+  assert.equal(desktop.if, "needs.changes.outputs.desktop_tests == 'true' || needs.changes.outputs.desktop_computer == 'true'");
+  const matrix = /fromJSON\(needs\.changes\.outputs\.desktop_tests == 'true'\s+&& '([^']+)'\s+\|\| '([^']+)'\)/.exec(desktop.strategy.matrix);
+  assert.ok(matrix, 'the full and helper-only desktop matrices must be separate');
+  const [, full, helperOnly] = matrix;
+  const windows = { runner: 'windows-latest', lane: 'computer' };
+  assert.deepEqual(JSON.parse(helperOnly).include, [windows]);
+  assert.deepEqual(JSON.parse(full).include, [
+    ...[1, 2, 3].map((shard) => ({ runner: 'ubuntu-22.04', lane: 'fast', shard })),
+    windows,
+  ]);
 });
 
 // A test invocation of a workflow: a line of a step's `run` that starts a test runner (not a comment line).
