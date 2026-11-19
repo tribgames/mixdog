@@ -7,7 +7,7 @@ import type { WebContents } from 'electron';
 import { validateBrowserToolArgs } from '../../shared/core-src/runtime/browser-bridge/action-schema.mjs';
 import { bridgeDiscoveryDirectory } from '../bridge/discovery-file';
 import { BrowserBridgeServer } from './bridge-server';
-import { BACKGROUND_RECLAIM_INTERVAL_MS, type BrowserCommand } from './host-types';
+import { type BrowserCommand } from './host-types';
 import { assertBrowserTaskCleanupContext, pendingSessionWork } from './host-policy';
 import { secretInputs } from '../secret-input';
 import type { SecretFillValue } from './host-agent';
@@ -72,7 +72,6 @@ export interface BrowserCommandRunnerOptions {
   visibleGuests: () => WebContents[];
   lifecycle: {
     attachDebuggerEagerly(guest: WebContents): void;
-    reclaimIdleBackgroundPages(): void;
     destroyAllBackgroundPages(): void;
   };
   onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
@@ -90,19 +89,11 @@ export function createBrowserCommandRunner(options: BrowserCommandRunnerOptions)
     signal: AbortSignal,
     run: (command: BrowserCommand, signal: AbortSignal) => unknown
   ) => guardBrowserSecrets(command, signal, run, options.redactSecrets);
-  let backgroundReclaimTimer: NodeJS.Timeout | null = null;
   let startedAt = 0;
-  const stopReclaimTimer = (): void => {
-    if (backgroundReclaimTimer) clearInterval(backgroundReclaimTimer);
-    backgroundReclaimTimer = null;
-  };
   const ready = (): void => {
     options.onDiagnostic?.('browser-bridge-ready', {
       durationMs: startedAt > 0 ? Date.now() - startedAt : 0,
     });
-    stopReclaimTimer();
-    backgroundReclaimTimer = setInterval(() => lifecycle.reclaimIdleBackgroundPages(), BACKGROUND_RECLAIM_INTERVAL_MS);
-    backgroundReclaimTimer.unref?.();
   };
   const runner = {
     execute: (command: BrowserCommand, signal: AbortSignal): Promise<unknown> =>
@@ -186,7 +177,7 @@ export function createBrowserCommandRunner(options: BrowserCommandRunnerOptions)
           signal
         );
       }),
-    /** Begin serving: attach debuggers to visible pages; `ready` arms the idle reclaim. */
+    /** Begin serving: attach debuggers to visible pages. */
     begin(): void {
       startedAt = Date.now();
       options.onDiagnostic?.('browser-bridge-start', {});
@@ -195,7 +186,7 @@ export function createBrowserCommandRunner(options: BrowserCommandRunnerOptions)
       }
     },
     ready,
-    inactive: stopReclaimTimer,
+    inactive(): void {},
     end(): void {
       chains.clear();
       pendingReads.clear();

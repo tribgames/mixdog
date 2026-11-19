@@ -33,6 +33,9 @@ interface BrowserCdpSessionInitHost {
   lingerMs?: number;
 }
 
+const NETWORK_BODY_BUFFER_BYTES = 16_000_000;
+const NETWORK_RESOURCE_BUFFER_BYTES = 8_000_000;
+
 type Command = [method: string, params?: Record<string, unknown>];
 
 /** What an agent's work needs and a person browsing does not: script
@@ -180,7 +183,9 @@ export function createBrowserCdpSessionInit(host: BrowserCdpSessionInitHost, sen
     // page is driven with it.
     if (driving.get(guest)?.on) void switchDriving(guest, cdp, true, sessionId, signal);
     void Promise.allSettled([
-      send('Network.enable'),
+      // Chromium keeps response bodies for getResponseBody, by default up to
+      // 100 MB per page; a report reads one body's first characters.
+      send('Network.enable', { maxTotalBufferSize: NETWORK_BODY_BUFFER_BYTES, maxResourceBufferSize: NETWORK_RESOURCE_BUFFER_BYTES }),
       // A native file picker would block the window; Chromium reports it as
       // an event instead and `upload` answers it with approved paths.
       send('Page.setInterceptFileChooserDialog', { enabled: true }),

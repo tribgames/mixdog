@@ -89,7 +89,7 @@ import { watchCrashHandler } from './crash-handler-watch';
 import { setPageFaultDiagnosticSink } from './browser/page-fault-diagnostics';
 import { browserPageWindow } from './browser/page-window';
 import { createDesktopDiagnostics, type DesktopDiagnostics } from './desktop-diagnostics';
-import { sampleProcessMemory, tagRendererSurface } from './process-memory-diagnostics';
+import { sampleProcessMemory, shellRendererWorkingSet, tagRendererSurface } from './process-memory-diagnostics';
 import { scheduleDeferredDesktopServices as scheduleAfterServiceQuiet } from './deferred-desktop-services';
 import { installViewportGuard } from './viewport-guard';
 import { computerUseOperates, createUserInputReporter, type UserInputReporter } from './user-input-report';
@@ -1348,15 +1348,12 @@ function currentProcessMemory() {
   });
 }
 
-/** Working set of the renderer processes only, for the idle-reclaim record. */
-function rendererWorkingSetKb(): number {
+/** Working set of the app's own shell renderers, for the idle-reclaim record. */
+function rendererWorkingSetKb(): { workingSetKb: number; processes: number } {
   try {
-    return app
-      .getAppMetrics()
-      .filter((metric) => metric.type === 'Tab')
-      .reduce((total, metric) => total + (metric.memory?.workingSetSize || 0), 0);
+    return shellRendererWorkingSet(currentProcessMemory());
   } catch {
-    return 0;
+    return { workingSetKb: 0, processes: 0 };
   }
 }
 
@@ -2290,13 +2287,14 @@ function windowsRemoteScreens() {
 async function reclaimRendererMemory(window: BrowserWindow): Promise<void> {
   if (window.isDestroyed()) return;
   const startedAt = Date.now();
-  const beforeKb = rendererWorkingSetKb();
+  const before = rendererWorkingSetKb();
   await purgeRendererMemory(window.webContents);
   const totalMs = Date.now() - startedAt;
   setTimeout(() => {
     diagnostics?.write('renderer-idle-reclaim', {
-      beforeKb,
-      afterKb: rendererWorkingSetKb(),
+      beforeKb: before.workingSetKb,
+      afterKb: rendererWorkingSetKb().workingSetKb,
+      shellProcesses: before.processes,
       totalMs,
       settleMs: RENDERER_RECLAIM_SETTLE_MS,
     });
