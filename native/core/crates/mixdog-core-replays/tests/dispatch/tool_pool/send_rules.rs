@@ -284,6 +284,7 @@ async fn sending(configure: impl FnOnce(&mut Host)) -> Sending {
     let efforts = Arc::new(Efforts::default());
     let late = Arc::new(LateSend::default());
     late.bind(Arc::new(SessionSend {
+        hop_limit: Arc::new(|| 3),
         rooms: Arc::default(),
         directory: directory.clone(),
         tasks,

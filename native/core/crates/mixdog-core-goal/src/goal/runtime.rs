@@ -184,6 +184,8 @@ pub(crate) struct TitleJob {
 pub(crate) struct SlotMem {
     /// The committed record as last read or written; `None` before the first load.
     pub cache: Option<Option<Goal>>,
+    /// The record file's stamp when `cache` was read; `None` never matches the file.
+    pub stamp: Option<String>,
     pub adopted: bool,
     pub turn_goal_id: Option<String>,
     pub turn_started_at: Option<f64>,
@@ -383,7 +385,11 @@ impl Inner {
         // A mutation takes the record's lock in the goals directory; the directory watch of
         // Node's cache answers with a re-read of the file as stored, which replaces a copy the
         // first load had charged the unobserved stretch to.
-        slot.mem().cache = None;
+        {
+            let mut mem = slot.mem();
+            mem.cache = None;
+            mem.stamp = None;
+        }
         for goal in held {
             self.notify(&id, goal);
         }
@@ -407,7 +413,8 @@ impl Inner {
 
     /// The first load of a record in this runtime drops the stretch of an open clock segment no
     /// live runtime ran (closed app, sleeping PC).
-    fn load(&self, lane: &InLane<DurabilityIo>, slot: &Slot, id: &str) -> GoalResult<Option<Goal>> {
+    /// Returns the record with the generation of the file it was read at.
+    fn load(&self, lane: &InLane<DurabilityIo>, slot: &Slot, id: &str) -> GoalResult<(Option<Goal>, Option<String>)> {
         let at = self.now();
         let mut normalize = |value: &Value| -> GoalResult<Option<Goal>> {
             let mut goal = normalize_stored_goal(value, id, at)?;
@@ -420,19 +427,51 @@ impl Inner {
             }
             Ok(goal)
         };
-        storage::read_record(lane, &record_path(&self.root, id), id, at, &mut normalize)
+        let path = record_path(&self.root, id);
+        // Taken before the read, so a replacement landing during it reads as a change next time.
+        let stamp = storage::file_stamp(&path).ok().flatten();
+        let goal = storage::read_record(lane, &path, id, at, &mut normalize)?;
+        Ok((goal, stamp))
     }
 
-    /// `readStoredRecord` for an observer: the cached committed record, loaded once.
+    /// Publishes a record and the generation it was read at together, so no reader sees one with the other's.
+    fn publish(slot: &Slot, goal: &Option<Goal>, stamp: Option<String>) {
+        let mut mem = slot.mem();
+        mem.cache = Some(goal.clone());
+        mem.stamp = stamp;
+    }
+
+    /// `readStoredRecord` for an observer: the cached committed record while the file still has
+    /// the stamp it was read at; a replaced or removed file is read again.
     pub(crate) async fn cached(self: &Arc<Self>, slot: &Arc<Slot>, id: &str) -> GoalResult<Option<Goal>> {
-        if let Some(cached) = slot.mem().cache.clone() {
-            return Ok(cached);
-        }
+        self.cached_observed(slot, id).await.map(|(goal, _)| goal)
+    }
+
+    /// [`Self::cached`] with the generation of the file the record stands for (`None`: unknown or missing).
+    pub(crate) async fn cached_observed(self: &Arc<Self>, slot: &Arc<Slot>, id: &str) -> GoalResult<(Option<Goal>, Option<String>)> {
         let (inner, slot, id) = (self.clone(), slot.clone(), id.to_owned());
-        let job = move |lane: &InLane<DurabilityIo>| -> GoalResult<Option<Goal>> {
-            let goal = inner.load(lane, &slot, &id)?;
-            slot.mem().cache = Some(goal.clone());
-            Ok(goal)
+        let job = move |lane: &InLane<DurabilityIo>| -> GoalResult<(Option<Goal>, Option<String>)> {
+            let stamp = match storage::file_stamp(&record_path(&inner.root, &id)) {
+                Ok(stamp) => stamp,
+                Err(error) => {
+                    // A read that fails for a passing reason keeps the cached copy.
+                    return match slot.mem().cache.clone() {
+                        Some(cached) => Ok((cached, None)),
+                        None => Err(GoalError::new(error.to_string())),
+                    };
+                }
+            };
+            {
+                let mem = slot.mem();
+                if let (Some(cached), Some(stamp)) = (&mem.cache, &stamp)
+                    && mem.stamp.as_ref() == Some(stamp)
+                {
+                    return Ok((cached.clone(), Some(stamp.clone())));
+                }
+            }
+            let (goal, stamp) = inner.load(lane, &slot, &id)?;
+            Self::publish(&slot, &goal, stamp.clone());
+            Ok((goal, stamp))
         };
         self.env
             .lane
@@ -462,13 +501,14 @@ impl Inner {
         let slot = self.slot(&id);
         // `limitIfExpired` reads the stored record and settles the suspend itself, so that a
         // drop shows as a change to commit and publish.
-        let record = self.cached(&slot, &id).await;
+        let (record, observed) = match self.cached_observed(&slot, &id).await {
+            Ok((goal, stamp)) => (Ok(goal), stamp),
+            Err(error) => (Err(error), None),
+        };
         let (goal, expired) = self.snapshot_from(&slot, &id, record);
         if expired {
             let (inner, id) = (self.clone(), id.clone());
-            let job = move |_: &InLane<DurabilityIo>| {
-                delete_stored_goal_file(&inner.root, &id);
-            };
+            let job = move |lane: &InLane<DurabilityIo>| inner.delete_expired(lane, &id, &observed);
             if let Ok(done) = self.env.lane.submit(&CancellationToken::new(), job) {
                 let _ = done.await;
             }
@@ -493,8 +533,18 @@ impl Inner {
             return (goal, false);
         }
         self.clear_deadline(slot);
-        slot.mem().cache = Some(None);
+        let mut mem = slot.mem();
+        mem.cache = Some(None);
+        mem.stamp = None;
         (None, true)
+    }
+
+    /// Unlinks the record only if, under its lock, it still is the one the snapshot read (`observed`): a Goal
+    /// committed or put in its place after that read stays.
+    fn delete_expired(&self, lane: &InLane<DurabilityIo>, id: &str, observed: &Option<String>) {
+        if let Err(error) = storage::delete_if_unchanged(lane, &self.root, id, observed) {
+            self.on_error(&error);
+        }
     }
 
     pub fn tx_new_title_job_id(&self) -> u64 {
@@ -509,8 +559,8 @@ impl<'a> Tx<'a> {
 
     /// `readStoredRecord` inside a mutation: the record from disk.
     pub fn read_stored(&self) -> GoalResult<Option<Goal>> {
-        let goal = self.inner.load(self.lane, self.slot, self.id)?;
-        self.slot.mem().cache = Some(goal.clone());
+        let (goal, stamp) = self.inner.load(self.lane, self.slot, self.id)?;
+        Inner::publish(self.slot, &goal, stamp);
         Ok(goal)
     }
 
@@ -551,7 +601,10 @@ impl<'a> Tx<'a> {
         let at = self.now();
         let cached = goal.and_then(|g| normalize_stored_goal(&Value::Object(g.clone()), self.id, at).ok().flatten());
         let ok = goal.is_none() || cached.is_some();
-        self.slot.mem().cache = if ok { Some(cached) } else { None };
+        let mut mem = self.slot.mem();
+        mem.cache = if ok { Some(cached) } else { None };
+        // Another writer may follow ours; the next observer's read validates the file.
+        mem.stamp = None;
         Ok(())
     }
 
@@ -707,13 +760,14 @@ impl GoalRuntime {
     pub async fn stored_snapshot(&self, session_id: &str) -> GoalResult<Option<Goal>> {
         let id = assert_session_id(session_id)?;
         let slot = self.inner.slot(&id);
-        let record = self.inner.cached(&slot, &id).await;
+        let (record, observed) = match self.inner.cached_observed(&slot, &id).await {
+            Ok((goal, stamp)) => (Ok(goal), stamp),
+            Err(error) => (Err(error), None),
+        };
         let (goal, expired) = self.inner.snapshot_from(&slot, &id, record);
         if expired {
-            let root = self.inner.root.clone();
-            let job = move |_: &InLane<DurabilityIo>| {
-                delete_stored_goal_file(&root, &id);
-            };
+            let inner = self.inner.clone();
+            let job = move |lane: &InLane<DurabilityIo>| inner.delete_expired(lane, &id, &observed);
             if let Ok(done) = self.inner.env.lane.submit(&CancellationToken::new(), job) {
                 let _ = done.await;
             }

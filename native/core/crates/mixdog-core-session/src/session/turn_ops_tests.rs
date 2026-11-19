@@ -70,6 +70,247 @@ fn held(rig: &Rig) -> Arc<tokio::sync::Notify> {
     gate
 }
 
+/// A script whose first run waits for the gate; every run's prompt text and caller context are logged, in start order.
+fn logged(rig: &Rig) -> (Arc<tokio::sync::Notify>, Arc<std::sync::Mutex<Vec<(String, Option<String>)>>>) {
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let log: Arc<std::sync::Mutex<Vec<(String, Option<String>)>>> = Arc::default();
+    let (open, seen) = (gate.clone(), log.clone());
+    rig.set_script(Arc::new(move |run| {
+        let (open, seen) = (open.clone(), seen.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let first = {
+                let mut seen = super::testing::lock(&seen);
+                let prompt = serde_json::to_value(&run.input.prompt).expect("prompt").as_str().unwrap_or_default().to_owned();
+                seen.push((prompt, run.input.options.as_ref().and_then(|options| options.context.clone())));
+                seen.len() == 1
+            };
+            if first {
+                open.notified().await;
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    (gate, log)
+}
+
+/// A queued follow-up's own `context` (an `agent send` to a busy session) reaches the turn the drain starts for it.
+#[tokio::test(start_paused = true)]
+async fn a_queued_follow_ups_context_reaches_the_turn_that_runs_it() {
+    let rig = Rig::new();
+    let (gate, log) = logged(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    let params = json!({ "threadId": handle.id, "opId": "op-2", "input": { "prompt": "follow up", "options": { "context": "the caller's context" } } });
+    let host = CoreRequest { method: Method("turn/start"), params, op: Some(OpId::from("op-2")), ctx: CallContext::internal("test") };
+    assert_eq!(handle.request(host).await.map(|_| ()).expect("queued"), ());
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&log).len() == 2).then_some(())).await;
+    assert_eq!(super::testing::lock(&log)[1], ("follow up".to_owned(), Some("the caller's context".to_owned())));
+}
+
+/// A queued slash command is the command dispatcher's: the drain never starts a model turn from it, a prompt queued after it
+/// runs, and once nothing is left for the model the command goes back to the composer that runs commands, leaving the queue.
+#[tokio::test(start_paused = true)]
+async fn a_queued_slash_command_is_handed_back_to_the_composer_not_sent_to_the_model() {
+    let rig = Rig::new();
+    let (gate, log) = logged(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    turn(&handle, "/compact now", "op-2").await;
+    turn(&handle, "plain", "op-3").await;
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queued.load().len() == 2).then_some(())).await;
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&log).len() == 2 && idle(&handle) && handle.cell.queued.load().is_empty()).then_some(())).await;
+    assert_eq!(super::testing::lock(&log)[1].0, "plain");
+    assert!(super::testing::lock(&log).iter().all(|(prompt, _)| !prompt.starts_with('/')));
+    let restored = handle.cell.view.load_full().state.prompt_restore.clone().expect("the command is handed back");
+    assert_eq!(restored.text, "/compact now");
+}
+
+/// Two queued slash commands go back in the one hand-back the session state holds: a composer that renders it only once both
+/// have left the queue (or mounts later) recovers both, each named by the submission it was sent with; nothing overwrote the first.
+#[tokio::test(start_paused = true)]
+async fn two_queued_slash_commands_are_handed_back_together() {
+    let rig = Rig::new();
+    let (gate, log) = logged(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    for (text, op, submission) in [("/compact now", "op-2", "sub-compact"), ("/usage", "op-3", "sub-usage")] {
+        call(&handle, "turn/start", json!({ "input": { "prompt": text, "options": { "clientSubmissionId": submission } } }), op).await.expect("queued");
+    }
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queued.load().len() == 2).then_some(())).await;
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.queued.load().is_empty()).then_some(())).await;
+    assert_eq!(super::testing::lock(&log).len(), 1, "no command reached the model");
+    let restores: Vec<Value> =
+        rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/promptRestore").map(|(_, _, value)| value).collect();
+    assert_eq!(restores.len(), 1, "one hand-back, none overwritten: {restores:?}");
+    let restored = handle.cell.view.load_full().state.prompt_restore.clone().expect("the commands are handed back");
+    assert_eq!(restored.text, "/compact now\n/usage");
+    assert_eq!(restored.ids, ["sub-compact", "sub-usage"]);
+}
+
+/// The between-turn drain takes the most urgent entry first, not the first queued: a `next` prompt queued after a `later` one runs
+/// before it.
+#[tokio::test(start_paused = true)]
+async fn the_drain_takes_the_most_urgent_queued_prompt_first() {
+    let rig = Rig::new();
+    let (gate, log) = logged(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    call(&handle, "turn/start", json!({ "input": { "prompt": "later one", "options": { "priority": "later" } } }), "op-2").await.expect("queued");
+    call(&handle, "turn/start", json!({ "input": { "prompt": "next one" } }), "op-3").await.expect("queued");
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queued.load().len() == 2).then_some(())).await;
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&log).len() == 3).then_some(())).await;
+    let prompts: Vec<String> = super::testing::lock(&log).iter().map(|(prompt, _)| prompt.clone()).collect();
+    assert_eq!(prompts, ["work", "next one", "later one"]);
+}
+
+/// A wake's batch is the selected priority's alone (`dequeueQueueBatch`): a `later` channel notice does not ride a `next`
+/// completion's turn ahead of a `next` prompt queued after them both; it runs last.
+#[tokio::test(start_paused = true)]
+async fn a_later_notice_waits_for_a_next_prompt_instead_of_riding_a_completions_wake() {
+    let rig = Rig::new();
+    let (gate, log) = logged(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    for (task_id, text, origin) in [("task_agent_1", "the job is done", None), ("", "a channel notice", Some(super::completions::ORIGIN_CHANNEL))] {
+        let note = super::actor::Inbox::TaskNotification {
+            surface: "agent".into(),
+            task_id: task_id.into(),
+            status: "completed".into(),
+            text: text.into(),
+            origin,
+            hop: 0,
+            live: true,
+            durable: None,
+        };
+        handle.inbox.send(note).await.expect("delivered");
+    }
+    turn(&handle, "next prompt", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queued.load().len() == 3).then_some(())).await;
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&log).len() == 4 && idle(&handle)).then_some(())).await;
+    let prompts: Vec<String> = super::testing::lock(&log).iter().map(|(prompt, _)| prompt.clone()).collect();
+    assert!(prompts[1].contains("the job is done") && !prompts[1].contains("a channel notice"), "{prompts:?}");
+    assert_eq!(prompts[2], "next prompt", "{prompts:?}");
+    assert!(prompts[3].contains("a channel notice"), "{prompts:?}");
+}
+
+/// Two prompts promoted before a turn boundary run latest promotion first (`prioritizeQueued` puts each at the front).
+#[tokio::test(start_paused = true)]
+async fn two_promotions_before_a_boundary_run_latest_first() {
+    let rig = Rig::new();
+    let (gate, log) = logged(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    for (text, op) in [("a", "op-2"), ("b", "op-3"), ("c", "op-4")] {
+        turn(&handle, text, op).await;
+    }
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queued.load().len() == 3).then_some(())).await;
+    let qids: Vec<String> = handle.cell.queue.load().iter().map(|queued| queued.qid.clone()).collect();
+    // Promote "a" first, then "b": a steered boundary takes them in the queue's order, "b" ahead of "a".
+    for qid in [&qids[0], &qids[1]] {
+        handle.cell.steer(None, mixdog_core_api::ids::QueuedId::from(qid.as_str())).expect("promoted");
+    }
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&log).len() == 4 && idle(&handle)).then_some(())).await;
+    let prompts: Vec<String> = super::testing::lock(&log).iter().map(|(prompt, _)| prompt.clone()).collect();
+    assert_eq!(prompts[1..3], ["b", "a"], "{prompts:?}");
+}
+
+/// A `later` prompt promoted just before a `next` boundary, its promotion accepted but not yet saved, is injected there ahead of
+/// one promoted earlier and saved: the boundary chooses and admits from the same (accepted) queue.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_promotion_still_being_saved_is_injected_ahead_of_an_earlier_one_at_a_boundary() {
+    use super::run::DrainRequest;
+    use super::run::DrainStage;
+    use super::run::Priority;
+    use mixdog_store::schema::record::QueueAction;
+    use mixdog_store::schema::record::Record;
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    let at_boundary = Arc::new(tokio::sync::Notify::new());
+    let taken: Arc<std::sync::Mutex<Vec<String>>> = Arc::default();
+    let first = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    rig.set_script(Arc::new({
+        let (at_boundary, taken) = (at_boundary.clone(), taken.clone());
+        move |run| {
+            let (at_boundary, taken, first) = (at_boundary.clone(), taken.clone(), first.swap(false, SeqCst));
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                if first {
+                    at_boundary.notified().await;
+                    let steers = run.port.take_steers(DrainRequest { stage: DrainStage::PreSend, max_priority: Priority::Next }).await.expect("take");
+                    super::testing::lock(&taken).extend(steers.iter().map(|steer| steer.content.as_str().unwrap_or_default().to_owned()));
+                }
+                RunOutcome::Completed(Default::default())
+            })
+        }
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    for (text, op) in [("a", "op-2"), ("b", "op-3")] {
+        call(&handle, "turn/start", json!({ "input": { "prompt": text, "options": { "priority": "later" } } }), op).await.expect("queued");
+    }
+    let qids: Vec<String> = handle.cell.queue.load().iter().map(|queued| queued.qid.clone()).collect();
+    assert_eq!(qids.len(), 2);
+    let promoted = |qid: &str| {
+        rig.store.records(&handle.id).iter().any(|(_, record)| matches!(record, Record::Queue(q) if q.action == QueueAction::Prioritize && q.qid.as_str() == qid))
+    };
+    handle.cell.steer(None, mixdog_core_api::ids::QueuedId::from(qids[0].as_str())).expect("a promoted");
+    eventually_on!(&[&handle.cell.stepped, &*rig.store.committed], || promoted(qids[0].as_str()).then_some(())).await;
+    let b = qids[1].clone();
+    let (saving, save) = rig.store.hold_record(move |record| matches!(record, Record::Queue(q) if q.action == QueueAction::Prioritize && q.qid.as_str() == b));
+    handle.cell.steer(None, mixdog_core_api::ids::QueuedId::from(qids[1].as_str())).expect("b promoted");
+    saving.notified().await;
+    at_boundary.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || (!super::testing::lock(&taken).is_empty()).then_some(())).await;
+    assert!(!promoted(qids[1].as_str()), "the boundary ran while b's promotion was still being saved");
+    save.send(()).expect("the save waits");
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    assert_eq!(*super::testing::lock(&taken), ["b", "a"]);
+}
+
+/// A prompt sent while a manual `/compact` runs is queued, not started beside it, and runs once the compaction ends.
+#[tokio::test(start_paused = true)]
+async fn a_prompt_sent_during_a_manual_compaction_waits_for_it() {
+    let rig = Rig::new();
+    let (_gate, log) = logged(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
+    let mut compacting = {
+        let handle = handle.clone();
+        tokio::spawn(async move { call(&handle, "thread/compact/start", json!({}), "c-1").await })
+    };
+    eventually_on_until!(&[&handle.cell.stepped], || handle.cell.compacting.load(std::sync::atomic::Ordering::SeqCst).then_some(()), &mut compacting).await;
+    let answer = turn(&handle, "during", "op-2").await;
+    assert_eq!(answer["kind"], "queued", "{answer}");
+    assert!(super::testing::lock(&log).is_empty(), "no turn starts beside the compaction");
+    hold.notify_one();
+    compacting.await.expect("joined").expect("compacted");
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&log).len() == 1).then_some(())).await;
+    assert_eq!(super::testing::lock(&log)[0].0, "during");
+}
+
 /// `pushNotice(text, tone)` of a hosted runtime: the polished text is a muted notice row of no
 /// turn, shown live and published; the answer is the row id, `null` for a text with nothing left.
 #[tokio::test(start_paused = true)]
@@ -299,7 +540,7 @@ async fn a_side_question_in_flight_is_canceled_by_cancel_side_or_a_newer_questio
     assert_eq!(call(&handle, "thread/askSide", json!({ "question": "three" }), "s-4").await.expect("answered"), json!({ "text": "done" }));
     assert_eq!(plain_error(second.await.expect("joined").expect_err("replaced")), "Side question canceled.");
 }
-/// `compact(options)` of the session ops (`session-ops.mjs`): refused with Node's answer while a
+/// `compact(options)` of the session ops (`session-ops.mjs`): an auto-clear is refused with Node's answer while a
 /// turn runs; a `skipped` result is the answer as is, before PostCompact; any other runs
 /// PostCompact, re-marks the Goal reminder `compaction`, re-arms the late tools, recovers the
 /// agent on request and invalidates the context status, then answers the result.
@@ -311,8 +552,10 @@ async fn a_manual_compaction_follows_the_session_ops_order() {
     let handle = start_thread(&directory).await;
     turn(&handle, "work", "op-1").await;
     eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
-    let busy = call(&handle, "thread/compact/start", json!({}), "k-1").await.expect("answered");
+    let busy = call(&handle, "thread/compact/start", json!({ "options": { "requireReduction": true } }), "k-1").await.expect("answered");
     assert_eq!(busy, json!({ "changed": false, "reason": "compact skipped: turn in progress" }));
+    let side = call(&handle, "thread/compact/start", json!({ "options": { "idleOnly": true } }), "k-1b").await.expect("answered");
+    assert_eq!(side, json!({ "changed": false, "reason": "compact skipped: turn in progress" }));
     assert!(super::testing::lock(&rig.compaction.calls).is_empty(), "the engine is not reached");
     gate.notify_one();
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
@@ -335,6 +578,60 @@ async fn a_manual_compaction_follows_the_session_ops_order() {
     *super::testing::lock(&rig.compaction.result) = None;
     assert_eq!(call(&handle, "thread/compact/start", json!({}), "k-4").await.expect("answered"), Value::Null);
 }
+/// A user's `/compact` while a turn runs (`scheduleCompactForTurnEnd`): announced and answered `{changed: false, scheduled: true}`,
+/// a repeat is told it already is; it runs once, as a manual compaction, after the turn and the follow-up queued behind it, not
+/// between them.
+#[tokio::test(start_paused = true)]
+async fn a_users_compaction_asked_mid_turn_runs_once_after_the_turn_and_its_queued_follow_ups() {
+    let rig = Rig::new();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    // Each run's prompt, with the compaction calls made by the time it started.
+    let started: Arc<std::sync::Mutex<Vec<(String, usize)>>> = Arc::default();
+    rig.set_script(Arc::new({
+        let (gate, started, compaction) = (gate.clone(), started.clone(), rig.compaction.clone());
+        move |run| {
+            let (gate, started, compaction) = (gate.clone(), started.clone(), compaction.clone());
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                let prompt = serde_json::to_value(&run.input.prompt).expect("prompt").as_str().unwrap_or_default().to_owned();
+                let first = {
+                    let mut started = super::testing::lock(&started);
+                    started.push((prompt, super::testing::lock(&compaction.calls).len()));
+                    started.len() == 1
+                };
+                if first {
+                    gate.notified().await;
+                }
+                RunOutcome::Completed(Default::default())
+            })
+        }
+    }));
+    *super::testing::lock(&rig.compaction.result) = Some(json!({ "changed": true }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    let scheduled = call(&handle, "thread/compact/start", json!({}), "c-1").await.expect("answered");
+    assert_eq!(scheduled, json!({ "changed": false, "scheduled": true }));
+    turn(&handle, "follow up", "op-2").await;
+    let again = call(&handle, "thread/compact/start", json!({}), "c-2").await.expect("answered");
+    assert_eq!(again, json!({ "changed": false, "scheduled": true }));
+    let notices = |text: &str| {
+        rig.feeds.frames(handle.id.as_str()).iter().filter(|(_, method, params)| method == "item/completed" && params["item"].to_string().contains(text)).count()
+    };
+    assert_eq!(notices("Compact scheduled: runs when the current turn finishes"), 1);
+    assert_eq!(notices("Compact already scheduled for turn end"), 1);
+    assert!(super::testing::lock(&rig.compaction.calls).is_empty(), "nothing compacts while the turn runs");
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || {
+        (super::testing::lock(&rig.compaction.calls).len() >= 4 && idle(&handle) && !handle.cell.compacting.load(std::sync::atomic::Ordering::SeqCst)).then_some(())
+    })
+    .await;
+    assert_eq!(*super::testing::lock(&started), [("work".to_owned(), 0), ("follow up".to_owned(), 0)], "the follow-up ran before the compaction");
+    // One manual compaction, with the agent recovery the command asks for (`compactCommand`: `{ recoverAgent: true }`).
+    assert_eq!(*super::testing::lock(&rig.compaction.calls), ["compact manual false", "post manual", "rearm", "recover", "invalidate"], "one manual compaction");
+}
+
 /// The session tool's `compact` (`workspace-tools.mjs`: `pendingCompactSessionIds`): asked while
 /// the turn runs, nothing compacts until the turn settles (`turn-settle.mjs`: `takePendingCompact`),
 /// then `session.compact()` runs once; a turn asked meanwhile waits for it (`compaction-gate.mjs`:
@@ -531,6 +828,143 @@ async fn callers_held_by_a_running_compaction_are_answered_when_the_session_is_d
         let answer = super::testing::awaiting(|| format!("the {method} the gate held to be answered after the delete"), held).await.expect("joined");
         assert!(matches!(&answer, Err(CoreError::ThreadClosing { .. })), "{method}: the deleted session is closed to it: {answer:?}");
     }
+}
+/// A person's clear sent while the scheduled compaction holds the thread waits for it (`clear: afterCompaction(session.clear)`), then
+/// keeps the resumable copy of the conversation the compaction left (`forkOutgoingTranscript` reads the session after the wait) and
+/// clears the thread: the copy is not lost to the wait.
+#[tokio::test(start_paused = true)]
+async fn a_clear_waiting_for_the_scheduled_compaction_keeps_the_copy_of_what_it_left() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let rig = Rig::new();
+    rig.store.listed.store(true, SeqCst);
+    let gate = held(&rig);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    call(&handle, "thread/compact/schedule", json!({}), "s-1").await.expect("scheduled");
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
+    gate.notify_one();
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle)).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.gated.load(SeqCst).then_some(())).await;
+    let ids = || -> std::collections::BTreeSet<String> { rig.store.log_ids().iter().map(|id| id.as_str().to_owned()).collect() };
+    let before = ids();
+
+    let clearing = {
+        let handle = handle.clone();
+        tokio::spawn(async move { call(&handle, "thread/clear", json!({}), "c-1").await })
+    };
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!clearing.is_finished(), "the clear waits for the compaction");
+    assert_eq!(ids(), before, "no copy is made while the compaction runs");
+
+    hold.notify_one();
+    let answered = super::testing::awaiting(|| "the clear to be answered after the compaction".to_owned(), clearing).await.expect("joined");
+    answered.expect("the clear runs once the compaction ended");
+    eventually_on!(&[&handle.cell.stepped], || super::tests::rows(&handle).is_empty().then_some(())).await;
+    let copies: Vec<String> = ids().difference(&before).cloned().collect();
+    let [copy] = copies.as_slice() else { panic!("one copy of the conversation the compaction left: {copies:?}") };
+    let read = CoreRequest { method: Method("thread/modelMessages/list"), params: json!({ "threadId": copy, "start": 0 }), op: None, ctx: CallContext::internal("test") };
+    let Reply::Value(listed) = directory.request(read).await.expect("the copy's conversation") else { panic!("a value") };
+    let said: Vec<&str> = listed["messages"].as_array().expect("messages").iter().filter(|m| m["role"] == "user").filter_map(|m| m["content"].as_str()).collect();
+    assert!(said.contains(&"work"), "the copy holds what was said: {listed}");
+}
+/// A thread whose scheduled compaction runs (held by the returned signal) after a first turn "work", with its runs logged
+/// (`logged`): the point from which a person's clear waits at the gate.
+async fn compacting_after_work(rig: &Rig, directory: &SessionDirectory) -> (Arc<SessionHandle>, Arc<tokio::sync::Notify>, Arc<std::sync::Mutex<Vec<(String, Option<String>)>>>) {
+    use std::sync::atomic::Ordering::SeqCst;
+    rig.store.listed.store(true, SeqCst);
+    let (gate, log) = logged(rig);
+    let handle = start_thread(directory).await;
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
+    call(&handle, "thread/compact/schedule", json!({}), "s-1").await.expect("scheduled");
+    let hold = Arc::new(tokio::sync::Notify::new());
+    *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
+    gate.notify_one();
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle)).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.gated.load(SeqCst).then_some(())).await;
+    (handle, hold, log)
+}
+
+/// A clear a gate released, a prompt queued behind it: the clear completes first (its copy holds the conversation, the thread is
+/// emptied) and only then the queued prompt's turn starts, on the emptied thread.
+#[tokio::test(start_paused = true)]
+async fn a_prompt_queued_behind_a_gated_clear_runs_after_the_clear_on_the_emptied_thread() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let (handle, hold, log) = compacting_after_work(&rig, &directory).await;
+    let ids = || -> std::collections::BTreeSet<String> { rig.store.log_ids().iter().map(|id| id.as_str().to_owned()).collect() };
+    let before = ids();
+
+    let clearing = {
+        let handle = handle.clone();
+        tokio::spawn(async move { call(&handle, "thread/clear", json!({}), "c-1").await })
+    };
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!clearing.is_finished(), "the clear waits for the compaction");
+    let queued = turn(&handle, "after", "op-2").await;
+    assert_eq!(queued["kind"], "queued", "{queued}");
+
+    hold.notify_one();
+    super::testing::awaiting(|| "the clear to be answered after the compaction".to_owned(), clearing).await.expect("joined").expect("the clear ran");
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&log).len() == 2 && idle(&handle) && handle.cell.queued.load().is_empty()).then_some(())).await;
+    assert_eq!(super::testing::lock(&log)[1].0, "after", "the queued prompt's turn started after the clear");
+
+    // The copy holds the conversation the clear took, and not the prompt that ran after it.
+    let copies: Vec<String> = ids().difference(&before).cloned().collect();
+    let [copy] = copies.as_slice() else { panic!("one copy of the cleared conversation: {copies:?}") };
+    let read = CoreRequest { method: Method("thread/modelMessages/list"), params: json!({ "threadId": copy, "start": 0 }), op: None, ctx: CallContext::internal("test") };
+    let Reply::Value(listed) = directory.request(read).await.expect("the copy's conversation") else { panic!("a value") };
+    let said: Vec<&str> = listed["messages"].as_array().expect("messages").iter().filter(|m| m["role"] == "user").filter_map(|m| m["content"].as_str()).collect();
+    assert_eq!(said, ["work"], "the copy holds what was said before the clear: {listed}");
+    // The thread was emptied before that turn: only its prompt is on it.
+    let users: Vec<String> = super::tests::rows(&handle).into_iter().filter(|(role, _)| *role == "user").map(|(_, text)| text).collect();
+    assert_eq!(users, ["after"], "the turn ran on the emptied thread");
+}
+
+/// A clear the caller cancels after the gate released its plan leaves no hold on the thread's turns: the prompt queued behind
+/// it still starts.
+#[tokio::test(start_paused = true)]
+async fn a_gated_clear_cancelled_after_its_plan_was_released_does_not_hold_the_threads_turns() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let (handle, hold, log) = compacting_after_work(&rig, &directory).await;
+    let cancel = CancellationToken::new();
+    let clearing = {
+        let (handle, cancel) = (handle.clone(), cancel.clone());
+        tokio::spawn(async move {
+            let params = json!({ "threadId": handle.id, "opId": "c-1" });
+            let ctx = CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, cancel);
+            handle.request(CoreRequest { method: Method("thread/clear"), params, op: Some(OpId::from("c-1")), ctx }).await
+        })
+    };
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!clearing.is_finished(), "the clear waits for the compaction");
+    let queued = turn(&handle, "after", "op-2").await;
+    assert_eq!(queued["kind"], "queued", "{queued}");
+    // Another submit holds the submit order, so the released clear stops there, after its plan and before any change.
+    let order = handle.submits.enter(&CancellationToken::new()).await.expect("the submit order");
+    hold.notify_one();
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    assert!(!clearing.is_finished(), "the clear waits for the submit order");
+    assert_eq!(super::testing::lock(&log).len(), 1, "the queued prompt waits behind the released clear");
+
+    cancel.cancel();
+    let answer = super::testing::awaiting(|| "the cancelled clear to be answered".to_owned(), clearing).await.expect("joined");
+    assert!(answer.is_err(), "the cancelled clear is not applied: {answer:?}");
+    drop(order);
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&log).len() == 2 && idle(&handle)).then_some(())).await;
+    assert_eq!(super::testing::lock(&log)[1].0, "after", "the queued prompt started once the cancelled clear ended");
 }
 /// A stop while the scheduled compaction holds a prompt back (Node's ask waiting on the gate, `state.busy`): the reply hands the
 /// prompt back (`aborted: false`, its text and the submission the window named). Unlike Node 1.4.5, a prompt handed back is not

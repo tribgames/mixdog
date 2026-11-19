@@ -6,6 +6,7 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use mixdog_core_api::CoreError;
 use mixdog_core_api::domain::mock::MockOwnership;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_rt::CancellationToken;
@@ -219,7 +220,10 @@ async fn a_carried_mark_the_parent_never_applied_is_applied_at_the_next_start() 
     assert!(!holding(&data.path().join("sessions").join("parent"), &[CODE]).is_empty(), "the parent holds the report");
     let marks = Arc::new(SensitiveStore::default());
     let threads = store_over(data.path(), index, tokens, &marks).await;
-    threads.settle_marks(tokens.durability_io).await.expect("the marks settle");
+    let progress = Arc::new(mixdog_store::sqlite::RebuildProgress::default());
+    threads.settle_marks(tokens.durability_io, Some(&progress)).await.expect("the marks settle");
+    let (done, total) = progress.snapshot().expect("the owed rewrites are counted, so the start shows progress");
+    assert!(total > 0 && done == total, "every owed rewrite is told as it is done: {done}/{total}");
     threads.projected().await;
     assert_eq!(holding(data.path(), &[CODE]), Vec::<String>::new());
     assert_eq!(marks.redact_text("child", CODE), "[redacted]", "the child's mark is known again");
@@ -248,11 +252,11 @@ async fn startup_retires_a_pending_mark_only_after_its_logs_are_safe() {
     std::fs::rename(&log, &displaced).expect("make the owed log unavailable");
     let marks = Arc::new(SensitiveStore::default());
     let threads = store_over(data.path(), index, tokens, &marks).await;
-    assert!(threads.settle_marks(tokens.durability_io).await.is_err(), "do not serve an unsettled log");
+    assert!(threads.settle_marks(tokens.durability_io, None).await.is_err(), "an unsettled log stays owed");
     assert!(original.is_file(), "a failed recovery must not consume the only durable mark");
 
     std::fs::rename(displaced, log).expect("restore the owed log");
-    threads.settle_marks(tokens.durability_io).await.expect("the mark settles on retry");
+    threads.settle_marks(tokens.durability_io, None).await.expect("the mark settles on retry");
     assert_eq!(holding(data.path(), &[CODE]), Vec::<String>::new());
     assert!(std::fs::read_dir(pending).expect("pending dir").next().is_none(), "the settled mark is retired");
 }
@@ -282,10 +286,10 @@ async fn startup_retry_finishes_a_swapped_rewrite_before_retiring_its_mark() {
     let marks = Arc::new(SensitiveStore::default());
     let threads = store_over(data.path(), index.clone(), tokens, &marks).await;
     index.refuse_next_reproject();
-    assert!(threads.settle_marks(tokens.durability_io).await.is_err(), "index failure must prevent serving");
+    assert!(threads.settle_marks(tokens.durability_io, None).await.is_err(), "index failure must leave the session owed");
     assert!(holding(&session, &[CODE]).is_empty(), "the log has already been swapped");
     assert!(!holding(&staged, &[CODE]).is_empty(), "the staged old log still holds the code");
-    assert_eq!(indexed_title().await, json!(title), "the old index row still holds the code");
+    assert!(index.is_withheld("parent").await.expect("index read"), "the old index row, which still holds the code, is answered by no read");
     assert!(original.is_file(), "the mark is still owed after the swap");
 
     // A directory where the intent file belongs is an inspection failure, not a missing intent.
@@ -293,16 +297,336 @@ async fn startup_retry_finishes_a_swapped_rewrite_before_retiring_its_mark() {
     let saved_intent = data.path().join("saved-intent");
     std::fs::rename(&intent, &saved_intent).expect("set the intent aside");
     std::fs::create_dir(&intent).expect("put a directory where the intent belongs");
-    assert!(threads.settle_marks(tokens.durability_io).await.is_err(), "a malformed rewrite must prevent serving");
+    assert!(threads.settle_marks(tokens.durability_io, None).await.is_err(), "a malformed rewrite must prevent serving");
     assert!(original.is_file(), "failed inspection must not retire the mark");
     assert!(!holding(&staged, &[CODE]).is_empty(), "failed inspection must not discard the staged old log");
     std::fs::remove_dir(&intent).expect("remove the fixture directory");
     std::fs::rename(saved_intent, intent).expect("restore the intent");
 
-    threads.settle_marks(tokens.durability_io).await.expect("same-store retry settles the rewrite");
+    threads.settle_marks(tokens.durability_io, None).await.expect("same-store retry settles the rewrite");
     assert_eq!(indexed_title().await, json!("code [redacted]"));
     assert!(!staged.exists(), "the staged old log is gone");
     assert!(std::fs::read_dir(pending).expect("pending dir").next().is_none(), "the mark is retired");
+}
+
+/// `thread`'s whole history read through the store, as a lane job of a read.
+async fn history(threads: &Arc<StoreThreads>, tokens: LaneTokens, thread: &str) -> Result<String, CoreError> {
+    let (threads, thread) = (threads.clone(), ThreadId::from(thread));
+    LaneToken::submit(tokens.interactive_io, &CancellationToken::new(), move |lane| threads.history_rows(lane, &thread).map(|(_, rows)| format!("{rows:?}")))
+        .expect("lane")
+        .await
+        .expect("job ran")
+}
+
+fn owed_refusal<T>(read: &Result<T, CoreError>) -> bool {
+    matches!(read, Err(CoreError::CoreMigrating { kind, .. }) if &**kind == "sensitiveRewrite")
+}
+
+/// A start finds a session owing its rewrite: the core serves at once, the session owing nothing is read, and no read of the
+/// owed one (its head, header, history or model context) answers until its own rewrite, run behind serving, is done.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_owing_its_rewrite_is_refused_until_it_is_done_while_the_others_serve() {
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let index = index_over(data.path(), tokens).await;
+    {
+        let marks = Arc::new(SensitiveStore::default());
+        let threads = store_over(data.path(), index.clone(), tokens, &marks).await;
+        create(&threads, tokens, "owed", vec![row("r", &format!("the code is {CODE}"))]).await;
+        create(&threads, tokens, "clean", vec![row("r", "nothing to hide")]).await;
+        assert!(marks.remember("owed", &[fill(CODE)]));
+        threads.projected().await;
+        // The process ends before the owed thread's next barrier.
+    }
+    let marks = Arc::new(SensitiveStore::default());
+    let threads = store_over(data.path(), index, tokens, &marks).await;
+    let owed = threads.owe_marks(tokens.durability_io, None).await.expect("the marks are owed");
+    assert_eq!(owed.owed(), 1);
+    assert!(history(&threads, tokens, "clean").await.expect("a session owing nothing is served at once").contains("nothing to hide"));
+    assert!(owed_refusal(&history(&threads, tokens, "owed").await), "the owed history is refused");
+    let (store, id) = (threads.clone(), ThreadId::from("owed"));
+    let (head, header) = LaneToken::submit(tokens.interactive_io, &CancellationToken::new(), move |lane| {
+        (store.read_head(lane, &id).map(|_| ()), store.read_header(lane, &id).map(|_| ()))
+    })
+    .expect("lane")
+    .await
+    .expect("job ran");
+    assert!(owed_refusal(&head) && owed_refusal(&header), "neither its head nor its header is read");
+    let lanes = super::SessionLanes { cpu: tokens.cpu_interactive, io: tokens.interactive_io, durability: tokens.durability_io };
+    let store: Arc<dyn ThreadStore> = threads.clone();
+    assert!(super::run::read_context(&store, &lanes, &ThreadId::from("owed")).await.is_err(), "nor its model context");
+
+    owed.run(&CancellationToken::new()).await.expect("the rewrite runs behind serving");
+    let read = history(&threads, tokens, "owed").await.expect("answered once rewritten");
+    assert!(!read.contains(CODE) && read.contains("[redacted]"), "{read}");
+}
+
+/// A quit while the owed rewrites run ends them after the session in hand; the journal keeps that session settled, so the
+/// next start rewrites only the others, and the progress counts each one done as it goes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_quit_ends_the_owed_rewrites_between_sessions_and_the_next_start_rewrites_only_the_rest() {
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let index = index_over(data.path(), tokens).await;
+    {
+        let marks = Arc::new(SensitiveStore::default());
+        let threads = store_over(data.path(), index.clone(), tokens, &marks).await;
+        for thread in ["a", "b", "c"] {
+            create(&threads, tokens, thread, vec![row("r", &format!("the code is {CODE}"))]).await;
+        }
+        marks.carry("a", "b");
+        marks.carry("a", "c");
+        assert!(marks.remember("a", &[fill(CODE)]));
+        threads.projected().await;
+    }
+    let sessions = data.path().join("sessions");
+    let holding_code = || ["a", "b", "c"].into_iter().filter(|thread| !holding(&sessions.join(thread), &[CODE]).is_empty()).collect::<Vec<_>>();
+    assert_eq!(holding_code(), ["a", "b", "c"]);
+
+    let progress = Arc::new(mixdog_store::sqlite::RebuildProgress::default());
+    let stop = CancellationToken::new();
+    let told = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    progress.on_change(Box::new({
+        let (told, stop) = (told.clone(), stop.clone());
+        // The first change counts the owed rewrites; the second is the first one done: the quit comes then.
+        move || {
+            if told.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 1 {
+                stop.cancel();
+            }
+        }
+    }));
+    let marks = Arc::new(SensitiveStore::default());
+    let threads = store_over(data.path(), index.clone(), tokens, &marks).await;
+    let owed = threads.owe_marks(tokens.durability_io, Some(&progress)).await.expect("the marks are owed");
+    assert_eq!(owed.owed(), 3, "the mark and its carries");
+    assert_eq!(progress.snapshot(), Some((0, 3)), "the owed rewrites are counted before the core serves");
+    owed.run(&stop).await.expect("a quit is not a failure");
+    assert_eq!(progress.snapshot(), Some((1, 3)));
+    assert_eq!(holding_code(), ["b", "c"], "the quit came after the first session");
+    assert!(history(&threads, tokens, "a").await.is_ok(), "the session rewritten is answered");
+    assert!(owed_refusal(&history(&threads, tokens, "b").await), "the others stay refused");
+
+    let marks = Arc::new(SensitiveStore::default());
+    let threads = store_over(data.path(), index, tokens, &marks).await;
+    let owed = threads.owe_marks(tokens.durability_io, None).await.expect("the marks are owed");
+    assert_eq!(owed.owed(), 2, "the session rewritten before the quit is not rewritten again");
+    owed.run(&CancellationToken::new()).await.expect("the rest is rewritten");
+    assert_eq!(holding(data.path(), &[CODE]), Vec::<String>::new());
+    assert!(std::fs::read_dir(data.path().join("sensitive/pending")).expect("pending dir").next().is_none(), "the mark is retired");
+}
+
+/// The search copy of a test: tells every session dropped and every one indexed again. `.1`: what a drop answers (`None`
+/// refuses it, `Some(deleted)` confirms it); `.3`: how many indexing attempts of a session answer "not readable yet".
+struct Copy(Mutex<Vec<String>>, Option<bool>, Mutex<Vec<String>>, usize);
+
+impl Copy {
+    fn dropping(deleted: Option<bool>, unread: usize) -> Arc<Self> {
+        Arc::new(Self(Mutex::default(), deleted, Mutex::default(), unread))
+    }
+}
+
+impl super::store::SearchCopy for Copy {
+    fn invalidate(&self, session: &str) -> futures::future::BoxFuture<'static, Result<bool, String>> {
+        self.0.lock().expect("copies").push(session.to_owned());
+        let dropped = self.1;
+        Box::pin(async move { dropped.ok_or_else(|| "the search copy is unavailable".to_owned()) })
+    }
+
+    fn reindex(&self, session: &str) -> futures::future::BoxFuture<'static, Result<bool, String>> {
+        let mut tried = self.2.lock().expect("reindexed");
+        tried.push(session.to_owned());
+        let readable = tried.len() > self.3;
+        Box::pin(async move { Ok(readable) })
+    }
+}
+
+/// A data dir whose one session `t` owes its rewrite (the process ended before its next barrier), and its index.
+async fn one_owed(tokens: LaneTokens) -> (tempfile::TempDir, SqliteStore) {
+    let data = tempfile::tempdir().expect("data dir");
+    let index = index_over(data.path(), tokens).await;
+    let marks = Arc::new(SensitiveStore::default());
+    let threads = store_over(data.path(), index.clone(), tokens, &marks).await;
+    create(&threads, tokens, "t", vec![row("r", &format!("the code is {CODE}"))]).await;
+    assert!(marks.remember("t", &[fill(CODE)]));
+    threads.projected().await;
+    (data, index)
+}
+
+/// Polls `done` until it holds (each poll a short wait), or fails the test.
+async fn eventually(what: &str, done: impl Fn() -> bool) {
+    for _ in 0..500 {
+        if done() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("{what}");
+}
+
+/// The settlement is written before the release: a session whose settlement cannot be written stays withheld (its reads
+/// refused and told failed, the catalog withholding it), is counted failed and not done, and the next start owes it again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::disallowed_methods, reason = "the test breaks and mends the journal file")]
+async fn an_unwritten_settlement_leaves_the_session_withheld_told_as_failed_and_owed() {
+    let tokens = mixdog_rt::testing::tokens();
+    let (data, index) = one_owed(tokens).await;
+    let file = std::fs::read_dir(data.path().join("sensitive/pending")).expect("pending dir").next().expect("a mark").expect("entry").path();
+    let saved = std::fs::read(&file).expect("the mark");
+    let marks = Arc::new(SensitiveStore::default());
+    let threads = store_over(data.path(), index.clone(), tokens, &marks).await;
+    let progress = Arc::new(mixdog_store::sqlite::RebuildProgress::default());
+    let owed = threads.owe_marks(tokens.durability_io, Some(&progress)).await.expect("the marks are owed");
+    // The journal is read when the marks are owed: a folder takes the mark's place after that.
+    std::fs::remove_file(&file).expect("the mark set aside");
+    std::fs::create_dir(&file).expect("a folder where the mark belongs");
+    assert!(owed.run(&CancellationToken::new()).await.is_err(), "an unwritten settlement is a failure");
+    let read = history(&threads, tokens, "t").await;
+    assert!(matches!(&read, Err(CoreError::CoreMigrating { kind, .. }) if &**kind == "sensitiveRewriteFailed"), "{read:?}");
+    assert!(index.is_withheld("t").await.expect("index read"), "the catalog keeps it withheld");
+    assert_eq!((progress.snapshot(), progress.failed()), (Some((0, 1)), 1), "counted as failed, not as done");
+    std::fs::remove_dir(&file).expect("the folder removed");
+    std::fs::write(&file, &saved).expect("the mark put back");
+    let marks = Arc::new(SensitiveStore::default());
+    let threads = store_over(data.path(), index, tokens, &marks).await;
+    assert_eq!(threads.owe_marks(tokens.durability_io, None).await.expect("the marks are owed").owed(), 1, "the next start owes it");
+}
+
+/// A rewritten session is answered at once, without waiting on its search copy; the copy is a journaled debt of its own,
+/// kept across a restart and by a boot that discharges nothing, and no search answers the session until the copy is
+/// confirmed gone.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_search_copy_stays_owed_and_unsearched_until_it_is_confirmed_gone() {
+    let tokens = mixdog_rt::testing::tokens();
+    let (data, index) = one_owed(tokens).await;
+    let debt = data.path().join("sensitive/search-owed/t");
+    let marks = Arc::new(SensitiveStore::default());
+    let threads = store_over(data.path(), index.clone(), tokens, &marks).await;
+    threads.owe_marks(tokens.durability_io, None).await.expect("the marks are owed").run(&CancellationToken::new()).await.expect("settled");
+    assert!(!history(&threads, tokens, "t").await.expect("answered with no search copy bound").contains(CODE));
+    assert_eq!(threads.search_withheld(), ["t"], "no search answers it");
+    assert!(debt.is_file(), "the debt is on disk");
+
+    // The next start (a boot with no memory runtime discharges nothing) keeps it.
+    let marks = Arc::new(SensitiveStore::default());
+    let threads = store_over(data.path(), index, tokens, &marks).await;
+    assert_eq!(threads.owe_marks(tokens.durability_io, None).await.expect("loaded").owed(), 0);
+    assert_eq!(threads.search_withheld(), ["t"]);
+
+    // A copy that cannot be confirmed gone leaves the debt.
+    let refusing = Copy::dropping(None, 0);
+    let stop = CancellationToken::new();
+    let discharge = tokio::spawn(threads.clone().discharge_search_debt(refusing.clone(), stop.clone()));
+    eventually("the discharge tries the copy", || !refusing.0.lock().expect("copies").is_empty()).await;
+    stop.cancel();
+    discharge.await.expect("the discharge ends at the stop");
+    assert_eq!(threads.search_withheld(), ["t"], "an unconfirmed copy is still owed");
+    assert!(debt.is_file());
+
+    assert!(refusing.2.lock().expect("reindexed").is_empty(), "nothing is indexed again before its rows are deleted");
+
+    // Confirmed gone (its rows deleted): the debt leaves the journal, and searches answer the session again. The session
+    // cannot be read for its new copy at first (a fork whose base still owes its rewrite): that stays pending, and the next
+    // release tries it again.
+    let dropping = Copy::dropping(Some(true), 1);
+    let stop = CancellationToken::new();
+    let discharge = tokio::spawn(threads.clone().discharge_search_debt(dropping.clone(), stop.clone()));
+    eventually("the debt is discharged", || threads.search_withheld().is_empty()).await;
+    eventually("the new copy is tried", || dropping.2.lock().expect("reindexed").len() == 1).await;
+    assert!(!debt.exists(), "the debt left the journal");
+    threads.tell_released();
+    eventually("a later release tries the unread copy again", || dropping.2.lock().expect("reindexed").len() == 2).await;
+    threads.tell_released();
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    stop.cancel();
+    discharge.await.expect("the discharge ends at the stop");
+    assert_eq!(*dropping.2.lock().expect("reindexed"), ["t", "t"], "once indexed it is not tried again");
+    assert_eq!(*dropping.0.lock().expect("copies"), ["t"], "the rows are deleted once");
+}
+
+/// A carried mark's thread that is refused while it (or a base) still owes a rewrite from the start is opened again until
+/// that rewrite released it, so the mark is not left for the next start; a rewrite that failed is not asked again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_carried_marks_thread_is_opened_again_until_its_owed_rewrite_released_it() {
+    let refusal = |kind: &str| CoreError::CoreMigrating { kind: kind.into(), done: 0, total: 1 };
+    let asked = std::sync::atomic::AtomicUsize::new(0);
+    let opened = super::directory::once_released(|| false, || async {
+        match asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst) {
+            0 | 1 => Err(refusal("sensitiveRewrite")),
+            _ => Ok("opened"),
+        }
+    })
+    .await;
+    assert!(matches!(opened, Ok("opened")), "{opened:?}");
+    assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 3, "refused twice, then opened");
+
+    let asked = std::sync::atomic::AtomicUsize::new(0);
+    let failed = super::directory::once_released(|| false, || async {
+        asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err::<(), _>(refusal("sensitiveRewriteFailed"))
+    })
+    .await;
+    assert!(matches!(&failed, Err(CoreError::CoreMigrating { kind, .. }) if &**kind == "sensitiveRewriteFailed"), "{failed:?}");
+    assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 1, "a failed rewrite is not waited for");
+
+    // A shutdown that stopped the rewriter between sessions leaves this one held and not failed: not asked again.
+    let asked = std::sync::atomic::AtomicUsize::new(0);
+    let held = super::directory::once_released(|| true, || async {
+        asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Err::<(), _>(refusal("sensitiveRewrite"))
+    })
+    .await;
+    assert!(matches!(&held, Err(CoreError::CoreMigrating { kind, .. }) if &**kind == "sensitiveRewrite"), "{held:?}");
+    assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 1, "a held session is not waited for once the shutdown began");
+}
+
+/// A search copy whose delete never answers (a lock it waits on).
+struct Hanging;
+
+impl super::store::SearchCopy for Hanging {
+    fn invalidate(&self, _: &str) -> futures::future::BoxFuture<'static, Result<bool, String>> {
+        Box::pin(std::future::pending())
+    }
+
+    fn reindex(&self, _: &str) -> futures::future::BoxFuture<'static, Result<bool, String>> {
+        Box::pin(std::future::pending())
+    }
+}
+
+/// A quit ends the discharge at once, even while the copy's delete waits: the debt stays on disk for the next start.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_quit_ends_the_discharge_without_waiting_on_the_copy_and_keeps_the_debt() {
+    let tokens = mixdog_rt::testing::tokens();
+    let (data, index) = one_owed(tokens).await;
+    let marks = Arc::new(SensitiveStore::default());
+    let threads = store_over(data.path(), index, tokens, &marks).await;
+    threads.owe_marks(tokens.durability_io, None).await.expect("the marks are owed").run(&CancellationToken::new()).await.expect("settled");
+    let stop = CancellationToken::new();
+    let discharge = tokio::spawn(threads.clone().discharge_search_debt(Arc::new(Hanging), stop.clone()));
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    stop.cancel();
+    tokio::time::timeout(std::time::Duration::from_secs(5), discharge).await.expect("the quit is not held").expect("ended");
+    assert!(data.path().join("sensitive/search-owed/t").is_file(), "the debt stays for the next start");
+    assert_eq!(threads.search_withheld(), ["t"]);
+}
+
+/// A data folder with no search copy at all discharges the debt and indexes nothing again: nothing is opened or created
+/// for a copy that was never kept.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_debt_with_no_copy_kept_is_discharged_without_indexing_again() {
+    let tokens = mixdog_rt::testing::tokens();
+    let (data, index) = one_owed(tokens).await;
+    let marks = Arc::new(SensitiveStore::default());
+    let threads = store_over(data.path(), index, tokens, &marks).await;
+    threads.owe_marks(tokens.durability_io, None).await.expect("the marks are owed").run(&CancellationToken::new()).await.expect("settled");
+    let absent = Copy::dropping(Some(false), 0);
+    let stop = CancellationToken::new();
+    let discharge = tokio::spawn(threads.clone().discharge_search_debt(absent.clone(), stop.clone()));
+    eventually("the debt is discharged", || threads.search_withheld().is_empty()).await;
+    threads.tell_released();
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    stop.cancel();
+    discharge.await.expect("the discharge ends at the stop");
+    assert!(absent.2.lock().expect("reindexed").is_empty(), "no copy was deleted, so none is derived again");
 }
 
 /// (c) Twenty model-context reads issued while the index is behind (its projections held, as a carried mark's rewrite of

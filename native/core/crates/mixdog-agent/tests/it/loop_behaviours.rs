@@ -960,16 +960,26 @@ fn a_pin_keeps_the_presets_name_when_one_is_given_and_half_a_pin_is_no_pin() {
 // ---------------------------------------------------------------------------
 
 /// Two sends of one session on `provider`: the first writes `10_000` tokens to the cache, the second reads `read` of them back.
-/// The session record carries the run's cache state between the two. Returns the breaks traced.
+/// Both are served by one roster account (the cache scope a reading compares within) and report Anthropic's raw cache
+/// counters (a field that did not arrive is unknown, never zero). The session record carries the run's cache state
+/// between the two. Returns the breaks traced.
 async fn cache_reads(provider: &str, read: u64) -> Vec<serde_json::Map<String, JsonValue>> {
-    let usage = |read: u64, write: u64| Step::Event(StreamEvent::Usage(mixdog_core_api::domain::provider::Usage { input_tokens: 10, cache_read_tokens: read, cache_write_tokens: write, ..Default::default() }));
+    let usage = |read: u64, write: u64| {
+        let served = mixdog_core_api::domain::provider::AccountRouting { provider: provider.to_owned(), account_id: "acct".into(), session_account_id: None };
+        let raw = json!({ "input_tokens": 10, "cache_read_input_tokens": read, "cache_creation_input_tokens": write });
+        [
+            Step::Event(StreamEvent::AccountRouting(served)),
+            Step::Event(StreamEvent::Usage(mixdog_core_api::domain::provider::Usage { input_tokens: 10, cache_read_tokens: read, cache_write_tokens: write, raw: Some(raw), ..Default::default() })),
+        ]
+    };
     let mut header = serde_json::Map::new();
     header.insert("providerCacheOpts".into(), json!({ "cacheStrategy": { "messages": "5m" } }));
     let mut messages = vec![system("rules"), AgentMessage::user("one")];
     let mut guard = None;
     let mut traced = Vec::new();
     for (reply, step) in [(usage(0, 10_000), "first"), (usage(read, 0), "second")] {
-        let scripted = Arc::new(Scripted { id: ProviderId::from(provider), ..Arc::into_inner(Scripted::new(vec![turn(vec![reply, text(step), done(StopReason::EndTurn)])])).expect("one owner") });
+        let steps = reply.into_iter().chain([text(step), done(StopReason::EndTurn)]).collect();
+        let scripted = Arc::new(Scripted { id: ProviderId::from(provider), ..Arc::into_inner(Scripted::new(vec![turn(steps)])).expect("one owner") });
         let mut h = Harness { provider: scripted, ..Harness::new(Vec::new()) };
         let breaks = Arc::new(CacheBreaks::default());
         h.failures = Some(breaks.clone());

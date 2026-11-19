@@ -25,7 +25,11 @@ use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_goal::goal::GoalConfig;
 use mixdog_core_goal::goal::GoalEnv;
+use mixdog_core_goal::goal::GoalError;
+use mixdog_core_goal::goal::GoalResult;
 use mixdog_core_goal::goal::GoalRuntime;
+use mixdog_core_goal::goal::GoalTitles;
+use mixdog_core_session::session::session_title::{TitleError, TitleModel};
 use mixdog_core_ports::ports::run_stamps::RunStamps;
 use mixdog_core_ports::ports::threads::HeaderUpdate;
 use mixdog_core_ports::ports::threads::HeaderUpdates;
@@ -200,13 +204,44 @@ pub struct EarlyRows {
     pub todos: Arc<ThreadTodos>,
     pub work: Arc<ProcessWork>,
     pub goals: Arc<GoalRuntime>,
+    /// The Goal runtime's title model; the composition binds it once the summary services exist.
+    pub goal_titles: Arc<LateGoalTitles>,
+}
+
+/// The Goal title model (`generateTitle` of `wireGoalRuntime`, `boot/tools.mjs`): the goals are built before the
+/// summary services that hold the providers, so the model is bound afterwards. Until then no title is drawn.
+#[derive(Default)]
+pub struct LateGoalTitles(OnceLock<Arc<dyn TitleModel>>);
+
+impl LateGoalTitles {
+    pub fn bind(&self, model: Arc<dyn TitleModel>) {
+        let _ = self.0.set(model);
+    }
+}
+
+#[async_trait]
+impl GoalTitles for LateGoalTitles {
+    async fn generate(&self, objective: &str, cancel: &mixdog_rt::CancellationToken) -> GoalResult<String> {
+        let Some(model) = self.0.get() else { return Err(GoalError::new("the Goal title model is not bound yet")) };
+        model.generate(objective, "", "", cancel).await.map_err(|error| match error {
+            TitleError::RouteUnresolved => GoalError::new("MAINTENANCE_ROUTE_UNRESOLVED"),
+            TitleError::Failed(message) => GoalError::new(message),
+        })
+    }
+}
+
+fn goal_runtime(data_dir: &std::path::Path, durability: DurabilityIo, titles: Arc<LateGoalTitles>) -> GoalRuntime {
+    let env = GoalEnv { titles: Some(titles), ..GoalEnv::system(durability) };
+    GoalRuntime::new(GoalConfig::new(data_dir.to_string_lossy().into_owned()), env)
 }
 
 pub fn early_rows(input: EarlyIn) -> EarlyRows {
+    let goal_titles = Arc::new(LateGoalTitles::default());
     EarlyRows {
         todos: Arc::new(ThreadTodos::new(input.threads, input.clock)),
         work: Arc::new(ProcessWork::new(input.board, input.exec)),
-        goals: Arc::new(GoalRuntime::new(GoalConfig::new(input.data_dir.to_string_lossy().into_owned()), GoalEnv::system(input.durability))),
+        goals: Arc::new(goal_runtime(&input.data_dir, input.durability, goal_titles.clone())),
+        goal_titles,
     }
 }
 
@@ -448,6 +483,26 @@ mod tests {
             map.insert((*key).to_owned(), value.clone());
         }
         map
+    }
+
+    struct FixedTitle;
+    #[async_trait]
+    impl TitleModel for FixedTitle {
+        async fn generate(&self, _: &str, _: &str, _: &str, _: &mixdog_rt::CancellationToken) -> Result<String, TitleError> {
+            Ok("Ship The Release".to_owned())
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_goal_gets_a_model_generated_title_once_the_model_is_bound() {
+        let dir = tempfile::tempdir().unwrap();
+        let titles = Arc::new(LateGoalTitles::default());
+        let goals = goal_runtime(dir.path(), mixdog_rt::testing::tokens().durability_io, titles.clone());
+        titles.bind(Arc::new(FixedTitle));
+        goals.control("s1", json!("ship the release")).await.unwrap();
+        goals.settled().await;
+        assert_eq!(goals.snapshot("s1").await.unwrap().unwrap()["title"], json!("Ship The Release"));
+        goals.close().await;
     }
 
     #[test]

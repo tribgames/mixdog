@@ -454,6 +454,14 @@ fn progress_fields_equal_nodes() {
         if let Some(v) = got.queued_followups {
             out.insert("queued_followups".into(), json!(v));
         }
-        assert_eq!(Value::Object(out), case["output"], "{name}");
+        // The one departure from the recording (`stale_report`): a running tool owns its own deadline, so however long
+        // it is quiet the run is never called stale; Node did, from the snapshot's first activity. Such a run reads as
+        // the running tool it is; everything else is compared as recorded.
+        let mut want = case["output"].clone();
+        let tool_running = input["snapshot"]["stage"] == "tool_running";
+        if tool_running && want["diagnostic"].as_str().is_some_and(|d| d.starts_with("stale:")) {
+            want["diagnostic"] = json!("tool running");
+        }
+        assert_eq!(Value::Object(out), want, "{name}");
     }
 }

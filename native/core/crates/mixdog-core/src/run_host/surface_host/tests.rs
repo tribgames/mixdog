@@ -152,9 +152,10 @@ impl SessionMcp for Mcp {
     }
 }
 
-/// The prompt a rebuild composes: fixed blocks, and the request it was asked for.
+/// The prompt a rebuild composes: fixed blocks, and the request it was asked for; the rule text and the settings sections
+/// it presents as a test sets them (none: the fixed rules, empty sections).
 #[cfg(node_twin)]
-struct FakePrompt(Mutex<Vec<RebuildRequest>>, Mutex<Option<String>>);
+struct FakePrompt(Mutex<Vec<RebuildRequest>>, Mutex<Option<String>>, Mutex<OwnedSections>);
 
 /// The live gate list, as the test sets it.
 #[cfg(node_twin)]
@@ -549,7 +550,7 @@ fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
         pool[at] = Arc::new(Stub(pool[at].spec().clone(), None));
     }
     let threads = Arc::new(Threads { header: Mutex::new(header), patches: Mutex::default() });
-    let prompts = Arc::new(FakePrompt(Mutex::default(), Mutex::default()));
+    let prompts = Arc::new(FakePrompt(Mutex::default(), Mutex::default(), Mutex::default()));
     let connectors = Arc::new(Connectors(Mutex::default()));
     let generation = SurfaceGeneration::default();
     let standalone = standalone.unwrap_or_else(|| internal_tools(&pool).iter().map(tool_doc).collect());
@@ -701,29 +702,31 @@ async fn a_home_or_room_seat_starts_as_its_agent_in_agent_mode() {
         assert_eq!(names(&seeded["disallowedTools"]).contains(&"react".to_owned()), id == "t1", "{id}: react denied outside a bot's own chat");
     }
 }
-/// An empty thread is rebuilt for its runtime's live route (`getRoute()`), whatever model its header names: a seated
-/// thread holding a pick for its next turn (the live route is the pick; the header names the model it runs, and the pick
-/// as `pendingRoute`) is composed for the pick, which that turn switches it to.
+/// An empty thread is rebuilt for the route it is seated on, whatever the chooser holds for its next turn: a seated thread
+/// holding a pick (the live route is the pick; the header names the model it runs, and the pick as `pendingRoute`) is
+/// composed for the header's route (`seated_route`), and the turn that switches it to the pick composes it then. Node
+/// composed it for the live route (`getRoute()`): a decided departure.
 #[tokio::test]
 #[cfg(node_twin)]
-async fn an_empty_thread_is_rebuilt_for_its_live_route_not_its_headers_model() {
+async fn an_empty_thread_is_rebuilt_for_its_seated_route_not_the_pick_it_holds() {
     let g = golden();
     let pick = json!({ "provider": "openai", "model": "gpt-5" });
     let mut header = Header::new();
     header.insert("toolSpec".into(), tool_spec_for_mode("full"));
     header.insert("cwd".into(), json!("/work"));
-    let on_pick = rig(&g, Setup { route: pick.clone(), ..setup("full") });
-    let expected = on_pick.host.seed(&ThreadId::from("t1"), &header).await.expect("seed");
-    let mut seated = expected.clone();
     let runs = setup("full").route;
+    let on_seat = rig(&g, Setup { route: runs.clone(), ..setup("full") });
+    let expected = on_seat.host.seed(&ThreadId::from("t1"), &header).await.expect("seed");
+    let mut seated = expected.clone();
     seated.insert("provider".into(), runs["provider"].clone());
     seated.insert("model".into(), runs["model"].clone());
     seated.insert("pendingRoute".into(), pick.clone());
     let rig = rig(&g, Setup { route: pick, header: seated, ..setup("full") });
     rig.host.reconcile_empty(&ThreadId::from("t1")).await.expect("reconcile");
     let request = rig.prompts.0.lock().unwrap().pop().expect("a rebuild");
-    assert_eq!((request.provider.as_str(), request.model.as_str()), ("openai", "gpt-5"), "the rebuild composes for the live route");
-    assert_eq!(SystemBlocks::from_header(&rig.threads.header.lock().unwrap()).env, SystemBlocks::from_header(&expected).env, "the # Session block names the pick");
+    let seat = (runs["provider"].as_str().expect("provider"), runs["model"].as_str().expect("model"));
+    assert_eq!((request.provider.as_str(), request.model.as_str()), seat, "the rebuild composes for the seated route");
+    assert_eq!(SystemBlocks::from_header(&rig.threads.header.lock().unwrap()).env, SystemBlocks::from_header(&expected).env, "the # Session block names the seated route");
 }
 /// Each new thread has an MCP scope of its own (`rt.mcpScopeId = randomUUID()`, `boot/begin.mjs:24`):
 /// the header names it, the thread's servers connect under it before its tools are read, and the
@@ -1125,8 +1128,9 @@ fn the_mcp_fold_follows_node() {
             }
             .expect(label);
             host.note_mcp_state(&thread, state);
+            let (got, want, before) = (Value::Object(next.clone()), Value::Object(header_of(&step["after"])), Value::Object(header));
+            crate::run_host::mcp_fold::assert_late_history_kept(&got, &want, &before, &format!("{label} step {n}"));
             header = next;
-            assert_eq!(header, header_of(&step["after"]), "{label} step {n}");
             turns += 1;
         }
     }
@@ -1334,6 +1338,8 @@ async fn a_conversation_is_told_the_settings_that_moved_since_its_prompt() {
     let presented = OwnedSections { core_memory: "# Core Memory\nOld".into(), ..OwnedSections::default() };
     header.insert("promptSettings".into(), presented.record());
     let rig = rig(&g, Setup { header, messages: vec![json!({ "role": "user", "content": "hello" })], ..setup("full") });
+    // The core memory was edited, not removed: a removal folds in at once (`fold_prompt_if_cold`), so no notice waits for it.
+    *rig.prompts.2.lock().unwrap() = OwnedSections { core_memory: "# Core Memory\nNew".into(), ..OwnedSections::default() };
     let thread = ThreadId::from("t1");
     let after = TurnSettings::reconcile(&rig.host, &thread, true).await.expect("turn settings");
     let notice = after["promptSettingsNotice"]["content"].as_str().expect("a staged notice");
@@ -1907,7 +1913,7 @@ pub(crate) fn lead_host_over(threads: Arc<dyn ThreadState>, messages: Arc<dyn Th
         skills: Arc::new(NoSkills),
         connectors: Arc::new(Connectors(Mutex::default())),
         hidden_agent: Arc::new(|_| false),
-        prompt: Arc::new(FakePrompt(Mutex::default(), Mutex::default())),
+        prompt: Arc::new(FakePrompt(Mutex::default(), Mutex::default(), Mutex::default())),
         clock: Arc::new(Fixed),
         threads,
         messages,
@@ -1968,7 +1974,7 @@ impl PromptRebuild for FakePrompt {
             environment_tail: "tail".into(),
             prompt_identity: identity,
             prompt_settings: json!({ "revision": "r1" }),
-            sections: Default::default(),
+            sections: self.2.lock().unwrap().clone(),
             response_language: Value::Null,
             profile_revision: "coding-lead".into(),
         })

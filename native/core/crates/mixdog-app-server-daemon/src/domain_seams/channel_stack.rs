@@ -84,11 +84,13 @@ fn settings_of(webhook: &Map<String, Value>) -> WebhookSettings {
 /// The `channels` section of the live config (`readSection('channels')`).
 pub struct ConfigChannelSettings {
     config: Config,
+    /// The pipeline this built, so a reload can hand it the new `events` section.
+    pipeline: Mutex<Option<Arc<EventPipeline>>>,
 }
 
 impl ConfigChannelSettings {
     pub fn new(config: Config) -> Self {
-        Self { config }
+        Self { config, pipeline: Mutex::new(None) }
     }
 
     fn channels(&self) -> Map<String, Value> {
@@ -102,7 +104,9 @@ impl ConfigChannelSettings {
         deliveries: Arc<mixdog_services::webhooks::StateWebhookStore>,
         now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
     ) -> Arc<EventPipeline> {
-        EventPipeline::new(files, sink, deliveries, self.channels().get("events").unwrap_or(&Value::Null), now_ms)
+        let pipeline = EventPipeline::new(files, sink, deliveries, self.channels().get("events").unwrap_or(&Value::Null), now_ms);
+        *self.pipeline.lock().unwrap_or_else(PoisonError::into_inner) = Some(pipeline.clone());
+        pipeline
     }
 }
 
@@ -165,6 +169,13 @@ impl ChannelSettings for ConfigChannelSettings {
         match channels.get("webhook").filter(|value| value.is_object()) {
             Some(webhook) => serde_json::from_value(webhook.clone()).map_err(|error| error.to_string()),
             None => Ok(WebhookConfig::default()),
+        }
+    }
+
+    async fn reload_events(&self) {
+        let pipeline = self.pipeline.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        if let Some(pipeline) = pipeline {
+            pipeline.reload(self.channels().get("events").unwrap_or(&Value::Null));
         }
     }
 }

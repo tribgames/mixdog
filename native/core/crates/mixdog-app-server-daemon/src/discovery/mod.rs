@@ -72,11 +72,18 @@ pub struct Port {
     pub port: u16,
 }
 
-/// How many sessions the index rebuild has read of how many.
+/// How many sessions the index rebuild (and the owed sensitive rewrites after it) has done of how many, and how many failed:
+/// a failed one is not done and is not released before the next start.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub struct Rebuild {
     pub done: u64,
     pub total: u64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub failed: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

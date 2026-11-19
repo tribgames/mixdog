@@ -216,6 +216,10 @@ pub enum FsErrorKind {
     },
     /// A multi-step operation failed after it may have changed the disk.
     OutcomeUnknown,
+    /// The caller's cancellation arrived before a write was published: the target was not replaced. `left` names what
+    /// the cancelled write could not clean up (its temp file, or the empty placeholder a create claimed at the target)
+    /// and is still on disk; empty when nothing was left behind.
+    Cancelled { left: Vec<AbsPath> },
     Io {
         os_code: Option<i32>,
     },
@@ -288,6 +292,11 @@ pub trait FileService: Send + Sync {
         let FileStat { kind, len, modified, readonly, .. } = self.stat(lane, path).await?;
         Ok(LocatorStat { kind, len, modified, readonly })
     }
+    /// Like `stat_for_locator`, but a symlink answers its own metadata (kind [`EntryKind::Symlink`], the link's size and
+    /// time), as Node's `lstat` does for a `list` row.
+    async fn lstat_for_locator(&self, lane: InteractiveIo, path: AbsPath) -> Result<LocatorStat, FsError> {
+        self.stat_for_locator(lane, path).await
+    }
     async fn read(
         &self,
         lane: InteractiveIo,
@@ -325,6 +334,14 @@ pub trait FileService: Send + Sync {
     /// Atomic replace (write, rename, fsync of file and directory). Writes
     /// through a leaf symlink to its target.
     async fn write(&self, lane: DurabilityIo, request: WriteRequest) -> Result<FileStat, FsError>;
+
+    /// [`write`](Self::write) that gives up with [`FsErrorKind::Cancelled`] when `cancel` fires before the temp file is
+    /// published: the temp file is removed and the target is untouched. A cancel after the rename is too late; the write
+    /// answers as done. A service that cannot check a cancel there runs the write whole.
+    async fn write_cancellable(&self, lane: DurabilityIo, request: WriteRequest, cancel: tokio_util::sync::CancellationToken) -> Result<FileStat, FsError> {
+        let _ = cancel;
+        self.write(lane, request).await
+    }
     /// Multi-file write: all files or none; preconditions are checked for
     /// every file before the first is replaced. A failure after that restores
     /// the files already replaced from their prior contents held in memory,
@@ -335,6 +352,20 @@ pub trait FileService: Send + Sync {
         lane: DurabilityIo,
         requests: Vec<WriteRequest>,
     ) -> Result<Vec<FileStat>, FsError>;
+
+    /// [`write_batch`](Self::write_batch) that checks `cancel` before each file and immediately before each one is
+    /// published: once it has fired no further file is replaced, the files already replaced are restored as for any
+    /// other failure, and the batch answers [`FsErrorKind::Cancelled`] (or [`FsErrorKind::OutcomeUnknown`] when a
+    /// restore failed). A service that cannot check a cancel there runs the batch whole.
+    async fn write_batch_cancellable(
+        &self,
+        lane: DurabilityIo,
+        requests: Vec<WriteRequest>,
+        cancel: tokio_util::sync::CancellationToken,
+    ) -> Result<Vec<FileStat>, FsError> {
+        let _ = cancel;
+        self.write_batch(lane, requests).await
+    }
     async fn create_dir(
         &self,
         lane: DurabilityIo,

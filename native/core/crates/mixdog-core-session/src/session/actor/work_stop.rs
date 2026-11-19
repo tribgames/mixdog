@@ -420,7 +420,8 @@ impl SessionActor {
             stopped = true;
         }
         if self.settling || self.end_parked() {
-            let batch = self.wake_batch(self.completion_wake());
+            // Exactly the batch the drain would start: a notice of another priority, or one behind a prompt, is not that wake's.
+            let batch = self.impending_wake_batch();
             if !batch.is_empty() {
                 let qids: Vec<String> = batch.iter().map(|queued| queued.qid.clone()).collect();
                 let work = WorkRef { id: qids[0].clone(), qids, submissions: Vec::new(), handback: None };

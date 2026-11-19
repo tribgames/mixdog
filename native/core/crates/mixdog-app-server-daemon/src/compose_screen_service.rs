@@ -476,6 +476,10 @@ struct SinkCell {
 }
 
 impl ScreenSink for SinkCell {
+    fn for_session(&self, id: u64) -> Option<Arc<dyn ScreenSink>> {
+        self.target.get()?.for_session(id)
+    }
+
     fn geometry_changed(&self, key: &str, geometry: Option<Value>) {
         if let Some(target) = self.target.get() {
             target.geometry_changed(key, geometry);

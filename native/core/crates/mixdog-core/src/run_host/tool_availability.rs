@@ -205,6 +205,12 @@ mod tests {
 
     /// Node's `stageToolAvailability` over sessions with gates closing and opening
     /// (`fixtures/tool-availability`): the result, the definitions asked for, and the session after.
+    /// The case the core departs from by decision: a delegated worker's prompt is folded at its next cold point like any
+    /// session's (`surface_host` `fold_prompt_if_cold`), so a moved gate marks it (`promptFoldPending`); Node, which never
+    /// rebuilt a worker's prompt, left it unmarked.
+    #[cfg(node_twin)]
+    const FOLDED_WORKER: &str = "a delegated worker is not folded";
+
     #[test]
     #[cfg(node_twin)]
     fn the_staged_availability_equals_nodes() {
@@ -221,7 +227,11 @@ mod tests {
             let moved = stage_tool_availability(&mut session, &denied, definitions, now);
             let result = moved.map_or(Value::Null, |m| json!({ "added": m.added, "removed": m.removed }));
             assert_eq!(result, case["result"], "{label}: result");
-            assert_eq!(Value::Object(session), case["after"], "{label}: session");
+            let mut want = case["after"].clone();
+            if label == FOLDED_WORKER {
+                want["promptFoldPending"] = json!(true);
+            }
+            assert_eq!(Value::Object(session), want, "{label}: session");
         }
     }
 

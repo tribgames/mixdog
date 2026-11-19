@@ -510,6 +510,12 @@
         },
         "connectionId": {
           "type": "string"
+        },
+        "windowToken": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [

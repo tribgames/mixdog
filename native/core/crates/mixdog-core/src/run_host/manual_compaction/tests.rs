@@ -87,6 +87,18 @@ fn comparable(header: &Header) -> Value {
     Value::Object(header.clone())
 }
 
+/// Node's committed session with the core's decided departure: a commit that parks the manual compaction's cache break for
+/// the next send also marks that turn start as a cold point, where the system text is rebuilt from current sources
+/// (`promptFoldPending`, `compactionFoldPending`; `surface_host` `fold_prompt_if_cold`). Node rebuilt no prompt there.
+#[cfg(node_twin)]
+fn with_cold_fold_marks(mut want: Header) -> Header {
+    if want.get("pendingCacheBreakIntent").and_then(Value::as_str) == Some("manual_compaction") {
+        want.insert("promptFoldPending".into(), Value::Bool(true));
+        want.insert("compactionFoldPending".into(), Value::Bool(true));
+    }
+    want
+}
+
 #[cfg(node_twin)]
 fn snapshot_of(case: &Value, header: &Header, messages: &[AgentMessage]) -> Arc<ContextSnapshot> {
     let wire = case["beforeRequestTools"].as_array().expect("tools");
@@ -234,7 +246,7 @@ fn a_plan_and_its_commit_count_the_system_blocks_of_the_request() {
         };
         let (working, result) = committed_header(&facts, &header, &[]);
         assert_eq!(&result, value, "{name}: the reply");
-        let mut want = header_of(&case["after"]);
+        let mut want = with_cold_fold_marks(header_of(&case["after"]));
         for key in ["promptBase", "promptStable", "bp3CoreContext", "promptEnv", "bp3EnvSplit"] {
             want.insert(key.into(), header[key].clone());
         }
@@ -302,7 +314,7 @@ fn a_committed_header_equals_nodes_session() {
         if &result != value {
             differ.push(format!("{name}: result Rust {result}, Node {value}"));
         }
-        let (got, want) = (comparable(&working), comparable(&header_of(after)));
+        let (got, want) = (comparable(&working), comparable(&with_cold_fold_marks(header_of(after))));
         if got != want {
             differ.push(format!("{name}: header Rust {got}, Node {want}"));
         }

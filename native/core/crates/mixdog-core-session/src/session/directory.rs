@@ -489,6 +489,28 @@ impl SessionDirectory {
 }
 /// `CLOSE_ALL_DEADLINE_MS` (`teardown.mjs`).
 const CLOSE_ALL_DEADLINE: std::time::Duration = std::time::Duration::from_millis(5000);
+
+/// The wait before a carried mark's thread, refused while it owes a rewrite from the start, is opened again.
+const CARRIED_RETRY: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// What `open` answers once it is no longer refused for a rewrite owed since the start (the thread's own, or a base's):
+/// asked again after [`CARRIED_RETRY`] until then. A rewrite that failed answers so (`sensitiveRewriteFailed`) and is not
+/// asked again; its mark stays journaled for the next start. Nothing waits on this but the caller's own task. Once
+/// `closed` holds (the shutdown began, and a stopped rewriter releases nothing more) the refusal is the answer.
+pub(super) async fn once_released<T, F, Fut>(closed: impl Fn() -> bool, mut open: F) -> Result<T, CoreError>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, CoreError>>,
+{
+    loop {
+        match open().await {
+            Err(CoreError::CoreMigrating { kind, .. }) if &*kind == "sensitiveRewrite" && !closed() => {
+                mixdog_rt::time::sleep(CARRIED_RETRY).await;
+            }
+            answer => return answer,
+        }
+    }
+}
 /// A detached job's completion reaches its owner thread as a `task-notification` row; a thread
 /// not loaded is opened for it.
 #[async_trait::async_trait]
@@ -1813,17 +1835,23 @@ impl SessionDirectory {
     /// A value marked in a session whose text `thread` holds reached it (`SensitiveMarks::carry`): the thread rewrites what
     /// it stored as for a mark of its own; one not loaded is opened for it (its files hold the text).
     async fn carried(&self, thread: &ThreadId) {
-        let handle = match self.inner.loaded(thread) {
-            Some(handle) => handle,
-            None => match self.inner.open(thread, &CallContext::internal("sensitive-carried")).await {
-                Ok(handle) => handle,
-                Err(error) => {
-                    tracing::warn!(%thread, "a carried sensitive value could not open the thread that holds it: {error:?}");
-                    return;
+        let context = CallContext::internal("sensitive-carried");
+        let opened = once_released(
+            || self.is_closed(),
+            || async {
+                match self.inner.loaded(thread) {
+                    Some(handle) => Ok(handle),
+                    None => self.inner.open(thread, &context).await,
                 }
             },
-        };
-        let _ = handle.inbox.send(Inbox::SensitiveCarried).await;
+        )
+        .await;
+        match opened {
+            Ok(handle) => {
+                let _ = handle.inbox.send(Inbox::SensitiveCarried).await;
+            }
+            Err(error) => tracing::warn!(%thread, "a carried sensitive value could not open the thread that holds it: {error:?}"),
+        }
     }
 
     /// Woken whenever a thread leaves the directory.

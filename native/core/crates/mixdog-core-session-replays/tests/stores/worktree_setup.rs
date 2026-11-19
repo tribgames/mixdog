@@ -514,6 +514,7 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
         tool_events: Arc::new(mixdog_core_session::session::tool_events::ToolEventsLog::new(data.path(), maintenance, Arc::new(Epoch))),
         mcp_scopes: Arc::new(NoScopes),
         read_state: Arc::new(mixdog_tools::fs::ReadState::new(None)),
+        agents: None,
     };
 
     deletion.release_session_work("sess_gone", "desktop-session-delete").await;

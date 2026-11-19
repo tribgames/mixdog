@@ -42,8 +42,7 @@ use serde_json::Value;
 use serde_json::json;
 use tokio::sync::oneshot;
 
-/// `MAX_BOT_HOPS` and `BOT_HOP_LIMIT_ERROR` (`bot-hops.mjs`).
-pub const MAX_BOT_HOPS: u32 = 3;
+/// `BOT_HOP_LIMIT_ERROR` (`bot-hops.mjs`); the limit itself is the user's `desktop.botHandoffLimit`.
 pub const BOT_HOP_LIMIT_ERROR: &str = "session: Bot-to-bot chain limit reached; ask the user before continuing.";
 /// Why a send from a conversation that is no bot's reports nothing back.
 const NOT_BOT_REASON: &str = "only a bot conversation gets session results reported back; check that session for the result";
@@ -52,9 +51,9 @@ const TITLE_LIMIT: usize = 60;
 /// Node's answer without a session service (`getSessionService()` null).
 const NO_SERVICE: &str = "session: session service is unavailable";
 
-/// `chainedHop(hop)`: refused past [`MAX_BOT_HOPS`].
-pub fn chained_hop(hop: u32) -> Result<u32, String> {
-    if hop > MAX_BOT_HOPS { Err(BOT_HOP_LIMIT_ERROR.to_owned()) } else { Ok(hop) }
+/// `chainedHop(hop)`: refused past `limit`, the bot handoff limit in force.
+pub fn chained_hop(hop: u32, limit: u32) -> Result<u32, String> {
+    if hop > limit { Err(BOT_HOP_LIMIT_ERROR.to_owned()) } else { Ok(hop) }
 }
 
 /// The calling turn's place in a bot-to-bot chain: `turnHopOf(rt.session)` and, for a caller
@@ -191,6 +190,8 @@ pub struct SessionSend {
     pub create: Arc<dyn super::session_create::CreateHost>,
     /// `agentRoomHost()`: a send to a room log goes to one member through it.
     pub rooms: Arc<mixdog_core_rooms::rooms::room_hosts::RoomHostRegistry>,
+    /// The user's bot handoff limit, read afresh on each send.
+    pub hop_limit: Arc<dyn Fn() -> u32 + Send + Sync>,
 }
 
 /// `roomSubmitter(room, sessionId, prompt, from)`: a send's turn taken as a message into room log
@@ -440,7 +441,7 @@ impl SessionSend {
         };
         let turn_hop = self.chains.hop(caller);
         if let Some(origin) = origin.as_mut() {
-            let hop = chained_hop(if origin.target_session { turn_hop + 1 } else { turn_hop })?;
+            let hop = chained_hop(if origin.target_session { turn_hop + 1 } else { turn_hop }, (self.hop_limit)())?;
             origin.hop = hop;
             origin.bot_chain = bot_chain;
             // The task session a bot created acts as the sending conversation does from now on.
@@ -463,7 +464,7 @@ impl SessionSend {
             }
             return Ok(Value::Object(out));
         }
-        let hop = if turn_hop > 0 { chained_hop(turn_hop + 1)? } else { 0 };
+        let hop = if turn_hop > 0 { chained_hop(turn_hop + 1, (self.hop_limit)())? } else { 0 };
         apply_effort(level).await?;
         let accepted = match submit {
             // The member's turn carries only the hop (`submit({ transcriptMeta: { hop } })`).
@@ -506,10 +507,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_bot_chain_may_go_three_hops_and_no_further() {
-        assert_eq!(chained_hop(0), Ok(0));
-        assert_eq!(chained_hop(MAX_BOT_HOPS), Ok(3));
-        assert_eq!(chained_hop(MAX_BOT_HOPS + 1), Err("session: Bot-to-bot chain limit reached; ask the user before continuing.".to_owned()));
+    fn a_bot_chain_may_go_three_hops_and_no_further_by_default() {
+        let refused = Err("session: Bot-to-bot chain limit reached; ask the user before continuing.".to_owned());
+        assert_eq!(chained_hop(0, 3), Ok(0));
+        assert_eq!(chained_hop(3, 3), Ok(3));
+        assert_eq!(chained_hop(4, 3), refused);
+    }
+
+    #[test]
+    fn a_changed_limit_moves_where_the_chain_stops() {
+        let refused = Err("session: Bot-to-bot chain limit reached; ask the user before continuing.".to_owned());
+        assert_eq!(chained_hop(7, 7), Ok(7));
+        assert_eq!(chained_hop(8, 7), refused);
+        assert_eq!(chained_hop(2, 1), refused);
     }
 
     #[test]

@@ -9813,7 +9813,19 @@
             "null"
           ]
         },
+        "xaiApiMode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "xaiResponsesCacheScope": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "xaiResponsesTransport": {
           "type": [
             "string",
             "null"

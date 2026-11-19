@@ -84,6 +84,7 @@ impl AppState {
         }
         self.zoom_restore_due();
         self.finish_paste_jobs();
+        self.finish_btw_asks();
         self.poll_oauth_watches(now);
         if self.extensions.as_ref().and_then(|extensions| extensions.login.poll_due_at()).is_some_and(|due| now >= due) {
             self.with_extensions(|extensions, host| extensions.login.poll(host));

@@ -153,6 +153,14 @@ async fn the_backfill_reads_what_node_reads_of_the_same_records() {
 
     assert!(stored.record_stamp("sess_missing").await.expect("missing stamp").is_none());
     assert!(stored.read("sess_missing").await.is_none());
+    // A missing record is gone; one whose log is being written is busy, to be stamped later, never gone.
+    use mixdog_services::memory::session_search::ingest::SessionStamp;
+    assert_eq!(stored.stamp("sess_missing").await.expect("missing stamp"), SessionStamp::Gone);
+    let present = ids.first().expect("a stored session").clone();
+    let writing = mixdog_store::log_epoch::writing(&present);
+    assert_eq!(stored.stamp(&present).await.expect("busy stamp"), SessionStamp::Busy);
+    drop(writing);
+    assert!(matches!(stored.stamp(&present).await.expect("stamp"), SessionStamp::At(_) | SessionStamp::Gone));
 }
 
 /// A record that changes gets a new stamp (Node: a save changes the file-stat stamp), and a
@@ -180,7 +188,9 @@ async fn a_changed_record_is_stamped_anew_and_a_deleted_one_is_not_listed() {
     assert_eq!(replacement.len(), original.len());
     let next = log.with_extension("replacement");
     std::fs::write(&next, replacement).expect("replacement log");
-    std::fs::rename(&log, log.with_extension("original")).expect("keep the old file identity alive");
+    // Kept outside the session folder: an open refuses any entry there that is no log file.
+    let kept = threads.sessions_dir().parent().expect("the data dir").join("sess_plain-log.original");
+    std::fs::rename(&log, kept).expect("keep the old file identity alive");
     std::fs::rename(next, &log).expect("replace first log");
     assert_eq!(threads.search_position(session).await.expect("position after rewrite"), position);
     let rewritten = stored.record_stamp(session).await.expect("stamp").expect("rewritten stamp");

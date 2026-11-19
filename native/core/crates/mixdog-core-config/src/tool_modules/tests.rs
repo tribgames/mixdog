@@ -431,7 +431,15 @@ async fn the_modules_chunk(chunk: usize) {
                 .filter(|saved| !saved.is_null())
                 .unwrap_or(&entry["config"]);
             assert_eq!(&Value::Object(config.agent()), &without_retired_memory_module(expected_doc), "{label}: config");
-            assert_eq!(Value::Array(host.calls()), setter["calls"], "{label}: host calls");
+            // Departure: Node skipped the runtime preparation of an explicit Local provider enable when the host's status already
+            // read `runtime.installed: true`; the core verifies the runtime on every explicit enable, since that status is display
+            // state, not verification (`explicit_enable_does_not_accept_runtime_display_status_as_verification`).
+            let mut calls = setter["calls"].as_array().unwrap().clone();
+            let prepare = json!(["prepare", "localProvider"]);
+            if method == "setBuiltinToolEnabled" && name(0) == "localProvider" && flag(1) && calls.first() != Some(&prepare) {
+                calls.insert(0, prepare);
+            }
+            assert_eq!(Value::Array(host.calls()), Value::Array(calls), "{label}: host calls");
             cancel.cancel();
         }
     }

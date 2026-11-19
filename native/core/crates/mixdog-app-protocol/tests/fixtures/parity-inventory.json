@@ -95,6 +95,7 @@
   "updateNotificationVolume",
   "updateBrowserPermissions",
   "updateSessionRetention",
+  "updateBotHandoffLimit",
   "readZoom",
   "updateZoom",
   "notifyProviderModelsChanged",

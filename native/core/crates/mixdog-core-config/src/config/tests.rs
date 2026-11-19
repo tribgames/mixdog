@@ -648,6 +648,15 @@ fn a_config_folder_the_write_creates_has_no_owner_only_acl_of_its_own() {
 }
 
 
+/// Departure: the bot-to-bot handoff limit (`desktop.botHandoffLimit`) is a desktop setting Node 1.4.5 did not have. No recorded
+/// config stores one, so the view Node recorded is completed with its default.
+#[cfg(node_twin)]
+fn with_handoff_limit(settings: &Value) -> Value {
+    let mut settings = settings.clone();
+    settings.as_object_mut().unwrap().insert("botHandoffLimit".into(), json!(super::schema::BOT_HANDOFF_LIMIT_DEFAULT));
+    settings
+}
+
 /// DS-CFG-1: Node's `desktopSettingsFromConfig` and `DesktopSettingsStore` writes, recorded over
 /// 200 config files (`record-desktop-settings.mjs`).
 #[cfg(node_twin)]
@@ -688,7 +697,7 @@ fn ds_cfg_1_matches_the_recorded_node_store() {
         let want = &entry["expect"];
         assert_eq!(
             serde_json::to_value(config.desktop_settings()).unwrap(),
-            want["settings"],
+            with_handoff_limit(&want["settings"]),
             "view of {id}"
         );
         assert_eq!(retention(&config), want["retention"], "retention of {id}");
@@ -740,7 +749,7 @@ fn ds_cfg_1_matches_the_recorded_node_store() {
         );
         assert_eq!(
             serde_json::to_value(config.desktop_settings()).unwrap(),
-            after["settings"],
+            with_handoff_limit(&after["settings"]),
             "view after write of {id}"
         );
         assert_eq!(pins(&config), after["pins"], "pins after write of {id}");
@@ -798,7 +807,7 @@ fn desktop_write_errors_and_saved_config_match_node() {
         }
         let (_, saved) = outcome.unwrap_or_else(|e| panic!("{name}: {e}"));
         assert_eq!(canon(saved.clone()), canon(after["config"].as_object().unwrap().clone()), "{name}: the saved config");
-        assert_eq!(serde_json::to_value(desktop_settings(&saved)).unwrap(), after["settings"], "{name}: the saved settings");
+        assert_eq!(serde_json::to_value(desktop_settings(&saved)).unwrap(), with_handoff_limit(&after["settings"]), "{name}: the saved settings");
     }
 }
 /// What a write stores equals what Node's `storedPreferences` / `storedOverride` store for the

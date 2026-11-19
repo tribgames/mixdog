@@ -101,7 +101,7 @@ mod tests {
             let fresh = (!login_needs_user).then(|| "new".to_owned());
             status = statuses[1];
             if status == 401 {
-                auth.refused_after_renewal(attempted.as_deref());
+                auth.refused_after_renewal(attempted.as_deref(), None);
                 return;
             }
             sent = fresh;

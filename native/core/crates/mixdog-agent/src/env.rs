@@ -846,10 +846,11 @@ pub trait RouteFallback: Send + Sync {
     /// a quota diverted from its configured primary may now be better served by another route of its configured order
     /// (back to a higher one that recovered, on to a lower one when the current is out). `Some` is the route the host
     /// already wrote to the session; the loop seats it as it seats a hop. `None`: stay. Never asked while a request is in
-    /// flight, and a request already sent is not interrupted or replayed by it.
-    async fn reconsider(&self, last_usage: Option<&Usage>) -> Option<RouteSwitch> {
+    /// flight, and a request already sent is not interrupted or replayed by it. `Err` is a switch that failed after the
+    /// session was written: the run ends with it, as with a failed hop ([`RouteDecision::Fail`]).
+    async fn reconsider(&self, last_usage: Option<&Usage>) -> Result<Option<RouteSwitch>, String> {
         let _ = last_usage;
-        None
+        Ok(None)
     }
 
     /// `routeUsageSegments` at the end of the turn: the turn's usage split per model when the
@@ -968,6 +969,11 @@ pub trait ToolHooks: Send + Sync {
     async fn on_stop(&self, stop_hook_active: bool) -> StopVerdict {
         let _ = stop_hook_active;
         StopVerdict::Proceed
+    }
+    /// What the loop made of the [`on_stop`](Self::on_stop) verdict just given: `true` when the turn goes on, `false`
+    /// when it ends (a `Continue` the loop could not honour included: the continuation cap, an ending that cannot go on).
+    fn stop_settled(&self, continued: bool) {
+        let _ = continued;
     }
 }
 

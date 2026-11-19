@@ -327,6 +327,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens, desktop_confirmat
             return Err(error);
         }
     };
+    core.start_archive_projection();
     if desktop_confirmation_pipe {
         desktop_confirmation::start(core.clone(), executors.handle(TaskClass::Work));
     }

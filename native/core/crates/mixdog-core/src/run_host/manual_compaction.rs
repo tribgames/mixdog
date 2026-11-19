@@ -510,18 +510,15 @@ impl ManualCompaction for HostManualCompaction {
         self.pass(thread, trigger, require_reduction, snapshot, &*directory, cancel).await
     }
 
-    /// `compactConversationForHeir`: the source's whole transcript through the source's own compactor, sized by the heir's
-    /// budget. The compactor sees the system blocks the source's requests lead with (`source.messages` holds them), so
-    /// its protected head and its budget count them; only the conversation half of the result travels. Nothing is
-    /// committed: the source keeps every message. A pass that is asked to `summarize` runs on a copy of the source's
-    /// header whose conversation threshold is the floor (1).
-    async fn compact_for_heir(&self, source: &ThreadId, budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, CoreError> {
+    /// `compactConversationForHeir`: the carry's rows (`carrySource.messages`) through the source's own compactor, sized by the
+    /// heir's budget. The compactor sees the system blocks the source's requests lead with (the rows hold them), so its
+    /// protected head and its budget count them; only the conversation half of the result travels. Nothing is committed:
+    /// the source keeps every message. A pass that is asked to `summarize` runs on a copy of the source's header whose
+    /// conversation threshold is the floor (1).
+    async fn compact_for_heir(&self, source: &ThreadId, rows: &[Value], budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, CoreError> {
         let parts = &self.parts;
         let Ok(stored) = parts.threads.header(source).await else { return Ok(None) };
-        let Some(directory) = parts.directory.directory() else { return Ok(None) };
-        let context = directory.model_context(source).read().await?;
-        let rows: Vec<Value> = context.iter().map(|(_, row)| row.clone()).collect();
-        let messages = super::factory::session_messages(&stored, &rows).map_err(|e| failed(DOMAIN, e))?;
+        let messages = super::factory::session_messages(&stored, rows).map_err(|e| failed(DOMAIN, e))?;
         let mut header = stored;
         if summarize {
             let mut compaction = header.get("compaction").and_then(Value::as_object).cloned().unwrap_or_default();
@@ -532,11 +529,11 @@ impl ManualCompaction for HostManualCompaction {
         settings.handoff_timeout_ms = handoff_summary_timeout_ms(&header);
         let input = CompactorInput {
             settings,
-            rows: registered(&messages[messages.len() - rows.len()..], &rows),
+            rows: registered(&messages[messages.len() - rows.len()..], rows),
             archive: Arc::new(ToolResultArtifacts::new(parts.io, &parts.data_dir, source.as_str())),
             blobs: parts.blobs.clone(),
         };
-        let Some(compactor) = parts.compactors.compactor(source, &header, &rows, input).await else { return Ok(None) };
+        let Some(compactor) = parts.compactors.compactor(source, &header, rows, input).await else { return Ok(None) };
         compactor.prepare(&messages).await;
         let request = CompactRequest { messages: &messages, budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, active_turn: false, latest_user_prefix: "" };
         let output = compactor.compact(request).await.map_err(|error| match error {

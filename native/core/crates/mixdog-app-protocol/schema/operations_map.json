@@ -754,6 +754,14 @@
     },
     {
       "list": "operations",
+      "name": "updateBotHandoffLimit",
+      "target": {
+        "kind": "method",
+        "target": "config/value/write"
+      }
+    },
+    {
+      "list": "operations",
       "name": "readZoom",
       "target": {
         "kind": "section",
@@ -3091,8 +3099,8 @@
       "list": "remote",
       "name": "provideSecretInput",
       "target": {
-        "kind": "method",
-        "target": "approval/provideSecret"
+        "kind": "byDesign",
+        "target": "a handoff secret is entered on a local or SSH desktop (`approval/provideSecret`), never from a paired relay (`remote.secretInput` false)"
       }
     },
     {

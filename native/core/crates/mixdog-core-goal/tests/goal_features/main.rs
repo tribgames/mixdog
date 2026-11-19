@@ -341,3 +341,88 @@ async fn a_goal_survives_a_restart_with_the_time_it_had_used() {
     assert_eq!(goal["timeUsedMs"], json!((20.0 * MINUTE) as i64));
     reopened.close().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cached_goal_follows_an_on_disk_replacement_and_removal() {
+    let rig = Rig::new();
+    rig.say("ship it").await;
+    assert_eq!(rig.runtime.snapshot("s1").await.unwrap().unwrap()["objective"], json!("ship it"));
+    let path = rig.dir.path().join("goals").join("s1.json");
+    let mut doc: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    doc["goal"]["objective"] = json!("swapped by another process");
+    std::fs::write(&path, doc.to_string()).unwrap();
+    assert_eq!(rig.runtime.snapshot("s1").await.unwrap().unwrap()["objective"], json!("swapped by another process"));
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(rig.runtime.snapshot("s1").await.unwrap(), None);
+    rig.runtime.close().await;
+}
+
+fn on_lane<R: Send + 'static>(job: impl FnOnce(&mixdog_rt::InLane<mixdog_rt::DurabilityIo>) -> R + Send + 'static) -> impl std::future::Future<Output = R> {
+    use mixdog_rt::LaneToken;
+    let done = mixdog_rt::testing::tokens().durability_io.submit(&mixdog_rt::CancellationToken::new(), job).unwrap();
+    async move { done.await.unwrap() }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn expiry_cleanup_deletes_only_the_record_it_observed() {
+    use mixdog_core_goal::goal::storage;
+    let rig = Rig::new();
+    rig.say("ship it").await;
+    let root = rig.dir.path().join("goals");
+    let path = root.join("s1.json");
+    let observed = storage::file_stamp(&path).unwrap();
+    let delete = |observed: Option<String>| {
+        let root = root.clone();
+        on_lane(move |lane| storage::delete_if_unchanged(lane, &root, "s1", &observed).unwrap())
+    };
+    // An active Goal committed in the record's place after the read stays, and so does one that is itself completed and
+    // expired: neither is the record that was observed.
+    let mut doc: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    doc["goal"]["objective"] = json!("replaced while the cleanup waited");
+    std::fs::write(&path, doc.to_string()).unwrap();
+    assert!(!delete(observed.clone()).await);
+    assert!(path.exists());
+    doc["goal"]["status"] = json!("complete");
+    doc["goal"]["completedAt"] = json!(1);
+    std::fs::write(&path, doc.to_string()).unwrap();
+    assert!(!delete(observed).await);
+    assert!(path.exists());
+    // The record that was observed is the one removed.
+    assert!(delete(storage::file_stamp(&path).unwrap()).await);
+    assert!(!path.exists());
+    rig.runtime.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_same_length_replacement_with_the_old_times_changes_the_generation() {
+    use mixdog_core_goal::goal::storage;
+    let rig = Rig::new();
+    rig.say("ship it").await;
+    let path = rig.dir.path().join("goals").join("s1.json");
+    let before = storage::file_stamp(&path).unwrap();
+    let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+    let swap = path.with_extension("swap");
+    std::fs::write(&swap, std::fs::read(&path).unwrap()).unwrap();
+    std::fs::File::options().write(true).open(&swap).unwrap().set_modified(modified).unwrap();
+    std::fs::rename(&swap, &path).unwrap();
+    assert_ne!(storage::file_stamp(&path).unwrap(), before, "identity and change time tell an atomic replacement");
+    rig.runtime.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_runtime_less_snapshot_removes_an_expired_record_it_read() {
+    use mixdog_core_goal::goal::storage;
+    let rig = Rig::new();
+    rig.say("ship it").await;
+    rig.say("complete").await;
+    let root = rig.dir.path().join("goals");
+    let at = *rig.world.now.lock().unwrap() + 10.0 * HOUR;
+    let shown = on_lane({
+        let root = root.clone();
+        move |lane| storage::stored_goal_snapshot_under(lane, &root, "s1", at, 1.0)
+    })
+    .await;
+    assert_eq!(shown, None);
+    assert!(!root.join("s1.json").exists());
+    rig.runtime.close().await;
+}

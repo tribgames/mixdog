@@ -97,6 +97,8 @@ impl SessionActor {
                 if params.options.as_ref().and_then(|options| options.get("afterTurn")) == Some(&Value::Bool(true)) {
                     self.compact_scheduled = true;
                     Ok(Value::Null)
+                } else if self.ui_busy() && super::super::turn_ops::is_user_compaction(params.options.as_ref()) {
+                    Ok(self.schedule_compact_for_turn_end())
                 } else {
                     self.compact_start(req.op.clone(), tx, params.options);
                     return Ok(());
@@ -205,6 +207,19 @@ impl SessionActor {
             ending.0 = None;
             answer(&jobs, JobDone::Compacted { op, tx, result, recover });
         });
+    }
+
+    /// `scheduleCompactForTurnEnd` (`session-api/commands.mjs`): a user's `/compact` while a turn runs is announced and runs once
+    /// the turn and the queued follow-ups finish ([`Self::drain_pass`]); one schedule at a time, a repeat is told it already is.
+    fn schedule_compact_for_turn_end(&mut self) -> Value {
+        let text = if std::mem::replace(&mut self.manual_compact_due, true) {
+            "Compact already scheduled for turn end"
+        } else {
+            "Compact scheduled: runs when the current turn finishes"
+        };
+        let item = super::super::transcript::idle_notice_item(&new_id(), text, "info");
+        self.show_live(TurnId::from(""), item, None);
+        super::super::turn_ops::compact_scheduled_for_turn_end()
     }
 
     /// The command status ends: `commandBusy` and `commandStatus` leave the runtime section, once.
@@ -368,6 +383,11 @@ impl SessionActor {
                     if let Err((error, tx)) = self.mutation(req, tx) {
                         let _ = tx.send(Err(error));
                     }
+                }
+                super::Waiting::Plan(tx) => {
+                    // The clear goes on from here in its caller: turns wait for it, as they waited behind it at the gate.
+                    let plan = if self.deleting { Err(CoreError::ThreadClosing { thread_id: self.id.clone() }) } else { self.held_plan() };
+                    let _ = tx.send(plan);
                 }
                 super::Waiting::Retry(retry) if self.deleting => drop(retry),
                 // A turn released ahead of it runs: the retry is the next turn.

@@ -263,10 +263,11 @@ impl SessionDirectory {
         let source_rows = source.completed_history(snapshot).await?;
         let system_of = |rows: &[Value]| -> Vec<Value> { rows.iter().filter(|row| row.get("role").and_then(Value::as_str) == Some("system")).cloned().collect() };
         let source_system = system_of(&source_rows);
-        let Plan { rows: carried, compacted } = self.plan_carry(source, snapshot, source_rows, &target, compact).await?;
         let heir_system = system_of(&self.rows_of(heir.as_str()).await?);
         let system_differs = !source_system.is_empty() && !heir_system.is_empty() && source_system != heir_system;
-        let mut carried = self.deps().inherit.bind_to_heir_prefix(&source.id, heir, system_differs, carried).await;
+        let Plan { rows: carried, compacted } = self.plan_carry(source, source_rows, &target, compact, system_differs).await?;
+        // `stripEffortConfiguration`: the source's turns' effort snapshots stay with the source.
+        let mut carried = mixdog_agent::effort::strip_effort_configuration(carried);
         // `recordInheritanceBoundary`: display-only, on the last carried row, naming the source, the heir and the route the heir holds.
         let boundary = json!({
             "sourceSessionId": source.id,
@@ -288,9 +289,17 @@ impl SessionDirectory {
 
     /// `carryConversation` up to the point anything is written: the source's conversation (or the compactor's, when
     /// `compact` asks for it or the conversation cannot fit `target`), checked as Node checks it.
-    async fn plan_carry(&self, source: &SessionHandle, snapshot: &ForkSource, rows: Vec<Value>, target: &InheritTarget, compact: bool) -> Result<Plan, CoreError> {
+    async fn plan_carry(&self, source: &SessionHandle, rows: Vec<Value>, target: &InheritTarget, compact: bool, system_differs: bool) -> Result<Plan, CoreError> {
         let refused = |message: &str| mixdog_core_base::support::failed("inheritance", message);
-        let mut carried = inheritable(rows);
+        // The replay bound to the source's prefix is removed before the fit is measured: it is what the heir would not send.
+        let bind = |rows: Vec<Value>| async move {
+            match &target.session {
+                Some(heir) => self.deps().inherit.bind_to_heir_prefix(&source.id, heir, system_differs, rows).await,
+                None => rows,
+            }
+        };
+        let system: Vec<Value> = rows.iter().filter(|row| row.get("role").and_then(Value::as_str) == Some("system")).cloned().collect();
+        let mut carried = bind(inheritable(rows)).await;
         if !super::route_session::has_user_conversation(&carried) {
             return Err(refused("inheritFrom: the source session has no conversation to carry"));
         }
@@ -305,11 +314,14 @@ impl SessionDirectory {
             let budget = self.deps().inherit.compaction_budget(target).await;
             let compacted = match budget {
                 Some(budget) => {
-                    // The host reads the source again. Do not let its result replace the completed snapshot with a live turn.
-                    source.require_fork_source(snapshot, true).await?;
-                    let compacted = self.deps().compaction.compact_for_heir(&source.id, budget, compact).await;
-                    source.require_fork_source(snapshot, true).await?;
-                    compacted.ok().flatten().map(inheritable).filter(|rows| super::route_session::has_user_conversation(rows))
+                    // The compactor summarizes the rows the fit was measured on (`fitConversationForHeir(carrySource, ...)`): the
+                    // committed turns as bound to the heir's prefix, behind the system blocks the source's requests lead with.
+                    let measured: Vec<Value> = system.iter().cloned().chain(carried.iter().cloned()).collect();
+                    let compacted = self.deps().compaction.compact_for_heir(&source.id, &measured, budget, compact).await;
+                    match compacted.ok().flatten().map(inheritable).filter(|rows| super::route_session::has_user_conversation(rows)) {
+                        Some(rows) => Some(bind(rows).await),
+                        None => None,
+                    }
                 }
                 None => None,
             };

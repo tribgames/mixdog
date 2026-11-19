@@ -1178,10 +1178,8 @@ async fn a_tool_results_tool_meta_rides_its_message_and_its_stored_row() {
     }
 }
 
-#[cfg(node_twin)]
 /// A loading tool (named `name`) that answers `text`, as `Skill` answers with a native tool-search payload.
 struct Loader(ToolSpec, String);
-#[cfg(node_twin)]
 #[async_trait]
 impl Tool for Loader {
     fn spec(&self) -> &ToolSpec {
@@ -1413,6 +1411,14 @@ struct StopHook {
     blocks: usize,
     reason: &'static str,
     asked: Mutex<Vec<bool>>,
+    /// What the loop made of each verdict (`stop_settled`): `true` where the turn went on.
+    settled: Mutex<Vec<bool>>,
+}
+
+impl StopHook {
+    fn new(blocks: usize, reason: &'static str) -> Self {
+        Self { blocks, reason, asked: Mutex::new(Vec::new()), settled: Mutex::new(Vec::new()) }
+    }
 }
 
 #[async_trait]
@@ -1421,6 +1427,10 @@ impl ToolHooks for StopHook {
         let mut asked = self.asked.lock().unwrap();
         asked.push(stop_hook_active);
         if asked.len() <= self.blocks { StopVerdict::Continue(self.reason.to_owned()) } else { StopVerdict::Proceed }
+    }
+
+    fn stop_settled(&self, continued: bool) {
+        self.settled.lock().unwrap().push(continued);
     }
 }
 
@@ -1432,11 +1442,12 @@ async fn a_stop_block_continues_the_turn_with_its_reason() {
         turn(vec![text("first"), done(StopReason::EndTurn)]),
         turn(vec![text("second"), done(StopReason::EndTurn)]),
     ]);
-    let hook = Arc::new(StopHook { blocks: 1, reason: "run the tests", asked: Mutex::new(Vec::new()) });
+    let hook = Arc::new(StopHook::new(1, "run the tests"));
     h.hooks = Some(hook.clone());
     let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
     assert_eq!(output.iterations, 2);
     assert_eq!(*hook.asked.lock().unwrap(), [false, true]);
+    assert_eq!(*hook.settled.lock().unwrap(), [true, false]);
     let second = wire_dump(&h.provider.requests()[1]);
     assert_eq!(second[..2], ["User:go", "Assistant:first"]);
     assert!(second[2].contains("Stop hook: run the tests"), "{second:?}");
@@ -1446,11 +1457,14 @@ async fn a_stop_block_continues_the_turn_with_its_reason() {
 #[tokio::test]
 async fn stop_continuations_are_capped_per_turn() {
     let mut h = Harness::new((0..10).map(|n| turn(vec![text(&format!("t{n}")), done(StopReason::EndTurn)])).collect());
-    let hook = Arc::new(StopHook { blocks: usize::MAX, reason: "again", asked: Mutex::new(Vec::new()) });
+    let hook = Arc::new(StopHook::new(usize::MAX, "again"));
     h.hooks = Some(hook.clone());
     let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
     assert_eq!(output.iterations, 9);
     assert_eq!(hook.asked.lock().unwrap().len(), 9);
+    // The ninth block is past the cap: the loop ends the turn and tells the hooks so.
+    let settled = hook.settled.lock().unwrap().clone();
+    assert_eq!((settled.len(), settled[..8].iter().all(|c| *c), settled[8]), (9, true, false));
     let warned = h.observer.events().iter().any(|e| matches!(e, RunEvent::Stage(Stage::Notice { tone: Tone::Warn, message }) if message.contains("Stop hook")));
     assert!(warned);
 }
@@ -1463,11 +1477,12 @@ async fn a_turn_ending_on_a_refusal_asks_the_stop_hooks_once_and_ignores_a_block
         turn(vec![text("no"), done(StopReason::Refusal)]),
         turn(vec![text("still no"), done(StopReason::Refusal)]),
     ]);
-    let hook = Arc::new(StopHook { blocks: usize::MAX, reason: "go on", asked: Mutex::new(Vec::new()) });
+    let hook = Arc::new(StopHook::new(usize::MAX, "go on"));
     h.hooks = Some(hook.clone());
     let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
     assert_eq!(output.iterations, 2);
     assert_eq!(*hook.asked.lock().unwrap(), [false]);
+    assert_eq!(*hook.settled.lock().unwrap(), [false], "a block of a turn that cannot go on ends it");
     let warned = h.observer.events().iter().any(|e| matches!(e, RunEvent::Stage(Stage::Notice { tone: Tone::Warn, message }) if message.contains("cannot go on")));
     assert!(warned);
 }
@@ -5217,7 +5232,7 @@ async fn websocket_close_1000_uses_owner_retraction_without_refilling_the_send_b
         }
         let result = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await;
         if succeeds {
-            let output = result.expect("Node's owner recovery continues this close");
+            let output = result.unwrap_or_else(|e| panic!("Node's owner recovery continues this close (reasoning {reasoning}, reset channel {reset_channel}, {ack:?}, {failures} failures): {:?}", e.error));
             // Text shown with no way to withdraw it is kept, and the next response continues it.
             let kept = if !reasoning && !reset_channel { "visible" } else { "" };
             assert_eq!(output.response.content, format!("{kept}continued"));
@@ -5397,10 +5412,10 @@ impl RouteFallback for ReturnRoute {
     async fn advance(&self, error: ProviderError, _: Option<&mixdog_core_api::domain::provider::Usage>) -> RouteDecision {
         RouteDecision::Surface(Box::new(mixdog_agent::env::ChainSurface { error, attempts: Vec::new(), stopped_before: None }))
     }
-    async fn reconsider(&self, _: Option<&mixdog_core_api::domain::provider::Usage>) -> Option<RouteSwitch> {
+    async fn reconsider(&self, _: Option<&mixdog_core_api::domain::provider::Usage>) -> Result<Option<RouteSwitch>, String> {
         let mut asked = self.asked.lock().unwrap();
         *asked += 1;
-        if *asked == 2 { self.switch.lock().unwrap().take() } else { None }
+        Ok(if *asked == 2 { self.switch.lock().unwrap().take() } else { None })
     }
     fn usage_segments(&self, _: &mixdog_core_api::domain::provider::Usage, _: (&str, &str)) -> Vec<UsageSegment> {
         Vec::new()
@@ -5809,7 +5824,11 @@ async fn replay_connect_case(name: &str, after_headers: bool) -> (Vec<(u32, u32)
     );
     error.message = ended["message"].as_str().unwrap().to_owned();
     let laps = case["laps"].as_array().unwrap();
-    let attempts: usize = laps.iter().map(|lap| lap["providerWaitsMs"].as_array().unwrap().len() + 1).sum();
+    // The one departure from the recording: Node's loop replay runs the provider's whole ladder again, so every lap
+    // repeats its waits and attempts. The core keeps the provider rows spent (B-11): the first lap runs the ladder, each
+    // later lap is one attempt with only the loop's own wait before it. Everything else is compared as recorded.
+    let provider_waits = |index: usize, lap: &JsonValue| if index == 0 { lap["providerWaitsMs"].as_array().unwrap().clone() } else { Vec::new() };
+    let attempts: usize = laps.iter().enumerate().map(|(i, lap)| provider_waits(i, lap).len() + 1).sum();
     let script = |error: &ProviderError| if after_headers { turn(vec![Step::Fail(error.clone())]) } else { Attempt::Reject(error.clone()) };
     let h = Harness::with_policy(
         (0..attempts).map(|_| script(&error)).collect(),
@@ -5827,8 +5846,8 @@ async fn replay_connect_case(name: &str, after_headers: bool) -> (Vec<(u32, u32)
     assert_eq!(h.provider.requests().len(), attempts, "{name}: attempts");
     let mut waits = Vec::new();
     let mut shown = Vec::new();
-    for lap in laps {
-        waits.extend(lap["providerWaitsMs"].as_array().unwrap().iter().map(|ms| Duration::from_millis(ms.as_u64().unwrap())));
+    for (i, lap) in laps.iter().enumerate() {
+        waits.extend(provider_waits(i, lap).iter().map(|ms| Duration::from_millis(ms.as_u64().unwrap())));
         if let Some(ms) = lap["loopWaitMs"].as_u64() {
             waits.push(Duration::from_millis(ms));
             shown.push((lap["shown"]["attempt"].as_u64().unwrap() as u32, lap["shown"]["max"].as_u64().unwrap() as u32));

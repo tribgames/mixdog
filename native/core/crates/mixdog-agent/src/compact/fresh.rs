@@ -335,7 +335,12 @@ fn active_turn_continuation(messages: &[AgentMessage]) -> Option<AgentMessage> {
     if !after.iter().any(existing) && !after.iter().any(activity) {
         return None;
     }
-    Some(AgentMessage::sourced(Source::ActiveTurnContinuation, ACTIVE_TURN_CONTINUATION_TEXT.join("\n")))
+    Some(active_turn_continuation_message())
+}
+
+/// The user turn that tells the model to resume a request Compact (or a thinking repair) interrupted.
+pub(crate) fn active_turn_continuation_message() -> AgentMessage {
+    AgentMessage::sourced(Source::ActiveTurnContinuation, ACTIVE_TURN_CONTINUATION_TEXT.join("\n"))
 }
 
 struct Tail {
@@ -646,6 +651,9 @@ pub(super) async fn fresh_context_compact_messages_with_skills(
     if let Some(at) = result.iter().rposition(|m| m.source == Some(Source::CompactSkillWindow)) {
         result[at] = window_marker(result.len() - at - 1);
     }
+    // Signatures cover what the model saw before them: compared against the request this result
+    // becomes, after every edit (a Goal prefix, a referenced attachment, a shortened result).
+    crate::recovery::rebind_thinking(messages, &mut result);
     let result = rebase_effort(&base, result);
     let final_tokens = meter.compact_messages(&result);
     if final_tokens > budget {

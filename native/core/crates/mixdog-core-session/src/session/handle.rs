@@ -743,6 +743,11 @@ impl SessionHandle {
             })?;
         let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
         let heirs = super::SessionDirectory::over(directory.clone());
+        // The fork copies durable history: what the session holds unwritten (a turn's rows in flight, or what a failed save
+        // held after the disk recovered) is written first. A write that fails leaves it unwritten, and the plan refuses.
+        let (tx, rx) = oneshot::channel();
+        self.inbox.send(Inbox::WritesLanded { tx }).await.map_err(|_| self.closing())?;
+        rx.await.map_err(|_| self.closing())?.map_err(|_| super::actor::history_conflict())?;
         let source = self.fork_source(false).await?;
         let compact = params.compact == Some(true);
         if let Some(heir) = &params.into_thread_id {
@@ -866,7 +871,12 @@ impl SessionHandle {
         }
         // A person's clear keeps the outgoing conversation as a resumable session of its own (`forkOutgoingTranscript`);
         // the core's own resets (an agent home, a room member) keep or drop their copy themselves (`archiveAs`, `fork: false`).
+        // While the scheduled compaction holds the thread (`afterCompaction`), an idle plan waits at the actor's gate and is
+        // answered when the gate opens or the session closes: the copy is of the conversation the compaction left. That wait
+        // is outside the submit order, which a prompt sent meanwhile must not wait behind; a plan the gate held keeps the
+        // thread's turns from starting until it is dropped (`ClearHold`), so a prompt queued behind this clear runs after it.
         let reply = if matches!(req.ctx.caller, Caller::Connection(_)) {
+            let _waited = if self.cell.gated.load(std::sync::atomic::Ordering::SeqCst) { Some(self.fork_source(true).await?) } else { None };
             let _serial = self.submits.enter(&req.ctx.cancel).await.map_err(caller_cancelled)?;
             let source = self.fork_source(true).await?;
             let copy = self.keep_cleared_copy(&source).await?;
@@ -981,7 +991,15 @@ async fn heir_place(deps: &SessionDeps, header: &mut mixdog_store::schema::recor
     use super::thread_settings::project_identity;
     use super::thread_settings::session_project_key;
     let source = Value::Object(header.clone());
+    // The source's staged working-folder change is its own: the heir's prompt is built for the folder it starts in
+    // (`cold-heir.mjs`: `delete heir.workspaceReroot`).
+    header.shift_remove("workspaceReroot");
     if !source.get("desktopSession").is_some_and(Value::is_object) {
+        // A worktree belongs to the session that created it: the heir starts in the Project folder (`cold-heir.mjs`).
+        if let Some(folder) = super::worktree::replacement_session_cwd(source.get("workspace")) {
+            header.insert("workspace".into(), super::worktree::Workspace::project(&folder, &folder).to_value());
+            header.insert("cwd".into(), json!(folder));
+        }
         return Ok(());
     }
     let registered = deps.new_place.projects().await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
@@ -1629,6 +1647,87 @@ mod recovery_history_tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn a_compacting_fork_of_a_running_source_is_made_from_its_committed_turns() {
+        use crate::session::seams::RunOutcome;
+        let rig = Rig::new();
+        let arrived = Arc::new(tokio::sync::Notify::new());
+        let finish = Arc::new(tokio::sync::Notify::new());
+        rig.set_script(Arc::new({
+            let (arrived, finish) = (arrived.clone(), finish.clone());
+            move |run| {
+                let (arrived, finish) = (arrived.clone(), finish.clone());
+                Box::pin(async move {
+                    run.port.input_durable().await.expect("precommitted prompt");
+                    arrived.notify_one();
+                    finish.notified().await;
+                    RunOutcome::Completed(Default::default())
+                })
+            }
+        }));
+        *lock(&rig.inherit.budget) = Some(10_000);
+        *lock(&rig.compaction.heir_rows) = Some(vec![json!({ "role": "user", "content": "summary" }), json!({ "role": "assistant", "content": "ok" })]);
+        let directory = SessionDirectory::new(rig.deps());
+        let source = start_thread(&directory).await;
+        append(&source, json!([{ "role": "user", "content": "completed" }])).await;
+        turn(&source, "in flight", "turn").await;
+        arrived.notified().await;
+        let fork = source.request(request("thread/fork", json!({ "threadId": source.id, "opId": "fork", "compact": true }), "fork")).await;
+        finish.notify_one();
+        let Reply::Value(fork) = fork.expect("a running source forks compacted") else { panic!("fork reply") };
+        assert_eq!(fork["compacted"], true);
+        let seen = lock(&rig.compaction.heir_seen).clone();
+        let conversation = crate::session::inheritance::inheritable(seen.concat());
+        let contents: Vec<&str> = conversation.iter().filter_map(|row| row["content"].as_str()).collect();
+        assert_eq!(contents, ["completed"], "the compactor is given the committed turns, not the in-flight prompt");
+    }
+
+    /// A compacting fork whose heir drops what is bound to the source's prefix (a thinking replay, an open tool round) gives the
+    /// compactor the rows the fit measured, after that rebinding (`fitConversationForHeir(carrySource, ...)`), never the source's own.
+    #[tokio::test(start_paused = true)]
+    async fn a_compacting_fork_summarizes_the_rows_rebound_to_the_heirs_prefix() {
+        let rig = Rig::new();
+        *lock(&rig.inherit.budget) = Some(10_000);
+        *lock(&rig.compaction.heir_rows) = Some(vec![json!({ "role": "user", "content": "summary" }), json!({ "role": "assistant", "content": "ok" })]);
+        let rebound = vec![json!({ "role": "user", "content": "q" }), json!({ "role": "assistant", "content": "a, its replay dropped" })];
+        *lock(&rig.inherit.rebound) = Some(rebound.clone());
+        let directory = SessionDirectory::new(rig.deps());
+        let source = start_thread(&directory).await;
+        append(&source, json!([{ "role": "user", "content": "q" }, { "role": "assistant", "content": "a, with the source's replay" }])).await;
+        let fork = source.request(request("thread/fork", json!({ "threadId": source.id, "opId": "fork", "compact": true }), "fork")).await;
+        let Reply::Value(fork) = fork.expect("a compacting fork") else { panic!("fork reply") };
+        assert_eq!(fork["compacted"], true);
+        let seen = lock(&rig.compaction.heir_seen).clone();
+        assert_eq!(seen.len(), 1);
+        assert_eq!(crate::session::inheritance::inheritable(seen[0].clone()), rebound);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_fork_measures_its_rows_after_the_replay_bound_to_the_old_prefix_is_removed() {
+        let rig = Rig::new();
+        *lock(&rig.inherit.basis) = Some((1_000, 10, true));
+        let directory = SessionDirectory::new(rig.deps());
+        let source = start_thread(&directory).await;
+        append(&source, json!([{ "role": "user", "content": "q" }, { "role": "assistant", "content": "a" }])).await;
+        source.request(request("thread/fork", json!({ "threadId": source.id, "opId": "fork" }), "fork")).await.expect("fork");
+        assert_eq!(*lock(&rig.inherit.bound_after), [0], "bound before the first measurement");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_fork_does_not_replay_the_sources_effort_configuration() {
+        let rig = Rig::new();
+        let directory = SessionDirectory::new(rig.deps());
+        let source = start_thread(&directory).await;
+        let snapshot = json!({ "version": 1, "provider": "openai", "model": "gpt-6", "mode": "responses", "initialEffort": "low", "effort": "high" });
+        append(&source, json!([{ "role": "user", "content": "q", "meta": { "effortConfiguration": snapshot, "source": "x" } }, { "role": "assistant", "content": "a" }])).await;
+        let Reply::Value(fork) = source.request(request("thread/fork", json!({ "threadId": source.id, "opId": "fork" }), "fork")).await.expect("fork") else { panic!("fork reply") };
+        let heir = ThreadId::from(fork["thread"]["id"].as_str().expect("heir id"));
+        let rows = directory.model_context(&heir).read().await.expect("heir context");
+        assert_eq!(rows[0].1["content"], "q");
+        assert!(rows[0].1["meta"].get("effortConfiguration").is_none(), "{}", rows[0].1);
+        assert_eq!(rows[0].1["meta"]["source"], "x");
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn a_routed_fork_fits_the_destination_and_owns_its_history_as_a_root_lead() {
         let rig = Rig::new();
         let directory = SessionDirectory::new(rig.deps());
@@ -1667,8 +1766,10 @@ mod recovery_history_tests {
         let directory = SessionDirectory::new(deps.clone());
         let source = start_thread(&directory).await;
         append(&source, json!([
-            { "role": "user", "content": "first", "meta": { "transcript": { "submissionIds": ["shown-first"] } } },
-            { "role": "user", "content": "second", "meta": { "transcript": { "submissionIds": ["shown-second"] } } },
+            // A row shows the submission id its record keeps as `clientSubmissionId` (transcript_rows.rs `metadata`); a bare
+            // `submissionIds` is the turn's, and a restored row of only that shows its item id, as Node's restore numbered it.
+            { "role": "user", "content": "first", "meta": { "transcript": { "clientSubmissionId": "shown-first" } } },
+            { "role": "user", "content": "second", "meta": { "transcript": { "clientSubmissionId": "shown-second" } } },
         ])).await;
         let first = source.view_items()[0].id().clone();
         assert_ne!(first.as_str(), "shown-first");

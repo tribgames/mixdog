@@ -315,10 +315,25 @@ pub struct SessionDeletion {
     /// The sessions' MCP scopes (`disconnectAll({ scopeId })` of the runtime's close).
     pub mcp_scopes: Arc<dyn McpScopes>,
     pub read_state: Arc<ReadState>,
+    /// The agent definitions (`purgeAgentDefinition`); `None` where the process has none.
+    pub agents: Option<Arc<dyn RetiredAgents>>,
+}
+
+/// `purgeAgentDefinition(agentId)` over the process's agent definitions.
+#[async_trait]
+pub trait RetiredAgents: Send + Sync {
+    async fn purge(&self, agent_id: &str) -> Result<(), String>;
 }
 
 #[async_trait]
 impl DeleteSeams for SessionDeletion {
+    async fn purge_retired_agent(&self, agent_id: &str) -> Result<(), String> {
+        match &self.agents {
+            Some(agents) => agents.purge(agent_id).await,
+            None => Ok(()),
+        }
+    }
+
     fn session_closed(&self, session_id: &str, reason: &str, header: &Header, closed_at_ms: i64) {
         self.tool_events.session_closed(session_id, header, reason, closed_at_ms);
     }

@@ -46,11 +46,25 @@ pub trait AppStore {
 pub struct SessionStoreIo {
     store: Arc<SessionStore>,
     runtime: Handle,
+    /// The prompts handed to the session service, in order: the loop does not wait for the service's acknowledgement
+    /// (`submitPrompt` of `prompt-submit.mjs` returns `true` at once and reports a refusal as a notice).
+    submits: tokio::sync::mpsc::UnboundedSender<(Value, Value)>,
 }
 
 impl SessionStoreIo {
     pub fn new(store: Arc<SessionStore>, runtime: Handle) -> Self {
-        Self { store, runtime }
+        let (submits, mut queue) = tokio::sync::mpsc::unbounded_channel::<(Value, Value)>();
+        let worker = Arc::clone(&store);
+        runtime.spawn(async move {
+            while let Some((prompt, options)) = queue.recv().await {
+                match worker.submit(&prompt, &options).await {
+                    Ok(Some(_)) => {}
+                    Ok(None) => worker.push_notice("prompt was not accepted by the session service", "error"),
+                    Err(error) => worker.push_notice(&format!("prompt submit failed: {error}"), "error"),
+                }
+            }
+        });
+        Self { store, runtime, submits }
     }
 
     /// The session store itself (the run loop subscribes to its events).
@@ -88,10 +102,7 @@ impl AppStore for SessionStoreIo {
     }
 
     fn submit(&mut self, prompt: &Value, options: &Value) -> Result<bool, String> {
-        self.runtime
-            .block_on(self.store.submit(prompt, options))
-            .map(|submitted| submitted.is_some())
-            .map_err(|error| error.to_string())
+        self.submits.send((prompt.clone(), options.clone())).map(|()| true).map_err(|_| "the prompt queue is closed".to_owned())
     }
 
     fn abort(&mut self, options: &Value) -> Result<Value, String> {

@@ -316,7 +316,7 @@ fn anon(value: &Value, ids: &[(&str, &str)], labels: &mut Labels) -> Value {
                 .map(|(key, held)| {
                     let held = match (key.as_str(), held) {
                         ("attemptId", Value::String(_)) => json!("<random>"),
-                        ("digest", Value::String(digest)) => {
+                        ("digest" | "audience", Value::String(digest)) => {
                             assert!(digest.starts_with("sha256:"), "{digest}");
                             json!("<digest>")
                         }
@@ -433,7 +433,8 @@ fn stored_item(row: &Value, asked: &Value, clock: u64, place: &Place) -> Value {
     transcript["clientSubmissionId"] = row["id"].clone();
     json!({
         "k": "item", "iid": place.iid, "turn": place.turn, "role": "user", "form": "message", "model": true, "visible": true,
-        "op": { "id": place.op, "method": "turn/start", "digest": "<digest>", "result": { "kind": "started", "turnId": place.turn } },
+        // `audience`: the fingerprint of who was authorized, which the op record gained after Node's recording (`OpRecord.audience`).
+        "op": { "id": place.op, "method": "turn/start", "digest": "<digest>", "audience": "<digest>", "result": { "kind": "started", "turnId": place.turn } },
         "prompt": { "inline": row["text"] },
         "refs": [],
         "body": { "inline": { "role": "user", "content": asked["content"], "meta": { "transcript": transcript } } },
@@ -529,7 +530,7 @@ fn stored_queue(shard: &Value, entry: &Value, durable: &Value, at: i64, clock: u
     }
     json!({
         "k": "queue", "qid": "<qid>", "action": "enqueue",
-        "op": { "id": "op-0", "method": "turn/start", "digest": "<digest>", "result": { "kind": "queued", "queuedId": "<qid>" } },
+        "op": { "id": "op-0", "method": "turn/start", "digest": "<digest>", "audience": "<digest>", "result": { "kind": "queued", "queuedId": "<qid>" } },
         "entry": { "inline": {
             "message": taken["message"],
             "enqueuedAt": clock,
@@ -716,6 +717,29 @@ fn rewind_rows(rows: &[Value], clock: u64) -> Vec<Value> {
 }
 
 #[cfg(node_twin)]
+/// A departure from Node: every row the core shows carries its stored history position (`meta.ext.historyPosition`, the cursor
+/// a history read pages from, which the client keeps outside the row); Node's rows had none. The row without it, and without
+/// an `ext` left empty by its removal.
+fn unpositioned(value: &Value) -> Value {
+    let mut value = value.clone();
+    match &mut value {
+        Value::Array(items) => items.iter_mut().for_each(|item| *item = unpositioned(item)),
+        Value::Object(map) => {
+            let emptied = match map.get_mut("meta").and_then(|meta| meta.get_mut("ext")) {
+                Some(Value::Object(ext)) => ext.shift_remove("historyPosition").is_some() && ext.is_empty(),
+                _ => false,
+            };
+            if emptied {
+                map["meta"].as_object_mut().expect("meta").shift_remove("ext");
+            }
+            map.values_mut().for_each(|held| *held = unpositioned(held));
+        }
+        _ => {}
+    }
+    value
+}
+
+#[cfg(node_twin)]
 /// Rust's rows of several turns with each turn's ids as placeholders, as `rewind_rows` names them.
 fn held_rows(items: &[Value], labels: &mut Labels) -> Vec<Value> {
     let mut ids: Vec<(String, String)> = Vec::new();
@@ -726,7 +750,7 @@ fn held_rows(items: &[Value], labels: &mut Labels) -> Vec<Value> {
         ids.push((rows[0]["meta"]["turnId"].as_str().unwrap().to_owned(), format!("<turn{turn}>")));
     }
     let ids: Vec<(&str, &str)> = ids.iter().map(|(id, name)| (id.as_str(), name.as_str())).collect();
-    items.iter().map(|item| anon(item, &ids, labels)).collect()
+    items.iter().map(|item| anon(&unpositioned(item), &ids, labels)).collect()
 }
 
 #[cfg(node_twin)]
@@ -1076,7 +1100,7 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
                 if method == "thread/runtime/updated" {
                     params["value"].as_object_mut().unwrap().retain(|key, _| ["busy", "commandBusy", "spinner"].contains(&key.as_str()));
                 }
-                (method, anon(&params, ids, &mut rust_labels))
+                (method, anon(&unpositioned(&params), ids, &mut rust_labels))
             })
             .collect();
         assert_eq!(rust_frames, want_frames, "{name}: notifications");

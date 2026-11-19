@@ -23,6 +23,19 @@ use crate::message::AgentMessage;
 
 const META_KEY: &str = "effortConfiguration";
 
+/// `stripEffortConfiguration`: the rows without their `meta.effortConfiguration` (an inheritance carries the conversation,
+/// not the effort configuration the source's turns ran under).
+pub fn strip_effort_configuration(rows: Vec<JsonValue>) -> Vec<JsonValue> {
+    rows.into_iter()
+        .map(|mut row| {
+            if let Some(meta) = row.get_mut("meta").and_then(JsonValue::as_object_mut) {
+                meta.remove(META_KEY);
+            }
+            row
+        })
+        .collect()
+}
+
 /// The projection the Responses adapters take; the one in `mixdog_ai::effort`.
 pub use mixdog_ai::effort::EffortProjection;
 
@@ -286,6 +299,12 @@ mod tests {
         assert!(r.project(&[marked(Role::User, Some(snap("low", "high")))]).is_none());
         r.mode = Some(EffortMode::Anthropic);
         assert!(r.project(&[marked(Role::User, Some(snap("low", "low")))]).is_none());
+    }
+
+    #[test]
+    fn stripping_removes_only_the_effort_snapshot_from_a_rows_meta() {
+        let rows = vec![json!({"role": "user", "meta": {"effortConfiguration": {"version": 1}, "source": "x"}}), json!({"role": "assistant"})];
+        assert_eq!(strip_effort_configuration(rows), vec![json!({"role": "user", "meta": {"source": "x"}}), json!({"role": "assistant"})]);
     }
 
     #[test]

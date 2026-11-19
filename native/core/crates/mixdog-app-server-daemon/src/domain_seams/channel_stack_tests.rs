@@ -652,3 +652,42 @@ async fn a_bots_whole_deletion_through_the_admin_entry_leaves_what_node_leaves()
         assert_eq!(got, *phase, "{step}");
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reload_hands_the_running_pipeline_the_new_event_rules() {
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_services::bots::runner::WebhookEvents;
+    use mixdog_services::scheduler::SystemClock;
+    use mixdog_services::webhooks::StateWebhookStore;
+    use mixdog_workspace::localfs::LocalFileService;
+
+    struct NoInjections;
+    #[async_trait]
+    impl EventSink for NoInjections {
+        async fn inject(&self, _: &str, _: &str) -> Result<(), String> {
+            unreachable!("the queue is not run in this test")
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let config = open(dir.path(), Some(&json!({ "events": { "rules": [] } }))).await;
+    let settings = ConfigChannelSettings::new(config.clone());
+    let tokens = mixdog_rt::testing::tokens();
+    let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &dir.path().join("core.sqlite")).unwrap();
+    let pipeline = settings.event_pipeline(
+        QueueFiles { fs: Arc::new(LocalFileService::new()), read: tokens.interactive_io, write: tokens.durability_io, root: AbsPath::new(dir.path().join("events")).unwrap() },
+        Arc::new(NoInjections),
+        Arc::new(StateWebhookStore::new(state, Arc::new(SystemClock))),
+        Arc::new(|| 0),
+    );
+    assert!(!pipeline.matches("gh"));
+    config
+        .update(|doc: &mut Map<String, Value>| {
+            doc.insert("channels".into(), json!({ "events": { "rules": [{ "source": "webhook", "name": "gh", "parser": "github", "execute": "Review" }] } }));
+            Ok::<(), ConfigError>(())
+        })
+        .await
+        .unwrap();
+    settings.reload_events().await;
+    assert!(pipeline.matches("gh"));
+}

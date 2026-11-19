@@ -135,6 +135,11 @@ pub trait DeleteSeams: Send + Sync {
     /// `releaseDeletedWorktree(id)`: the worktree maintenance's `cleanupDeletedSession`, off the
     /// delete; never fails it.
     async fn release_deleted_worktree(&self, session_id: &str);
+    /// `purgeAgentDefinition(agentId)` (`deleteSessionLocked`): the user's delete of a deleted bot's archived home chat takes the
+    /// bot for good. A refusal fails the delete, as Node's awaited control call does.
+    async fn purge_retired_agent(&self, _agent_id: &str) -> Result<(), String> {
+        Ok(())
+    }
     /// `thread/deleted` on the app feed.
     fn thread_deleted(&self, thread: &ThreadId);
     /// `getSession()?.id`: the session the runtime serving the idle delete has current. A daemon
@@ -457,6 +462,12 @@ async fn client_delete(directory: &super::directory::DirInner, id: &str) -> Resu
     let Some(header) = directory.stored_header(&thread).await else {
         return Ok(false);
     };
+    // A deleted bot's archived chat deleted again: the bot goes for good too (`deleteSessionLocked`).
+    if let Some(agent) = mixdog_core_base::rooms::ids::agent_id_of_home_session(trimmed)
+        && header.get("retiredAt").and_then(serde_json::Value::as_f64).is_some_and(|at| at > 0.0)
+    {
+        directory.deps().deletion.purge_retired_agent(&agent).await.map_err(|message| mixdog_core_base::support::failed("agents", message))?;
+    }
     if header.get("closed") == Some(&serde_json::Value::Bool(true)) && !is_historical_automatic_closure(&header) {
         return Ok(false);
     }

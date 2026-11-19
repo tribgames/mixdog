@@ -1248,7 +1248,9 @@ impl Run {
         decide_on.exposure.tool_dispatched |= !self.eager.is_empty();
         if retractable {
             decide_on.exposure.text_emitted = false;
-            if reasoning_only || (ws_owner_replay && reasoning_shown) {
+            // The adapter marks any shown output unsafe; the owner's withdrawal (asked once the replay is decided) is what
+            // makes the owner's replay of a socket closed mid-response safe.
+            if reasoning_only || ws_owner_replay {
                 decide_on.unsafe_to_retry = false;
             }
         }
@@ -1327,7 +1329,10 @@ impl Run {
             }
             return if replay_safe { self.surface(error).await } else { Err(AgentError::Provider(Box::new(error))) };
         };
-        if retractable && self.retraction(shown_chars, reasoning_shown) != Retracted::Withdrawn {
+        // Where the owner has no reset channel, shown reasoning is not withdrawn at all and is replayed; a channel that
+        // exists and refuses ends the send.
+        let no_channel_reasoning = reasoning_only && !self.env.observer.can_retract();
+        if retractable && !no_channel_reasoning && self.retraction(shown_chars, reasoning_shown) != Retracted::Withdrawn {
             for state in spent {
                 self.retry.store(state);
             }
@@ -1562,7 +1567,7 @@ impl Run {
             return Ok(());
         };
         let running = self.last_usage.clone();
-        let switch = or_cancelled(&self.cancel, route.reconsider(running.as_ref())).await.ok_or(AgentError::Aborted)?;
+        let switch = or_cancelled(&self.cancel, route.reconsider(running.as_ref())).await.ok_or(AgentError::Aborted)?.map_err(AgentError::RouteFailed)?;
         if let Some(switch) = switch {
             self.seat_route(switch);
         }

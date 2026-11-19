@@ -358,6 +358,21 @@ pub(crate) fn usage_delta(session_id: &str, report: &super::run::UsageReport, ts
             out
         })
         .collect();
+    // A long-decode turn bills every hop, but the context holds only the first hop's prompt plus what was generated
+    // (`normalizeGeminiUsage`'s `contextInputTokens` / `contextCachedTokens`): the billing delta keeps the summed counts and the
+    // context figures take the first hop's, which the provider's usage carries as `initialPromptTokenCount`.
+    let mut context = usage.clone();
+    let mut context_prompt = report.delta_prompt;
+    if let Some(raw) = usage.raw.as_ref() {
+        let count = |key: &str| raw.get(key).and_then(Value::as_u64).unwrap_or(0);
+        let initial = count("initialPromptTokenCount");
+        if initial > 0 && initial < usage.input_tokens {
+            context.input_tokens = initial;
+            // The summed prompt is the bill; the context's prompt is the first hop's.
+            context_prompt = initial;
+            context.cache_read_tokens = count("initialCachedContentTokenCount").min(initial);
+        }
+    }
     json!({
         "sessionId": session_id,
         "iterationIndex": report.iteration,
@@ -374,12 +389,12 @@ pub(crate) fn usage_delta(session_id: &str, report: &super::run::UsageReport, ts
         "promptKnown": true,
         "deltaCachedRead": usage.cache_read_tokens,
         "deltaCacheWrite": usage.cache_write_tokens,
-        "contextInputTokens": usage.input_tokens,
+        "contextInputTokens": context.input_tokens,
         "contextOutputTokens": usage.output_tokens,
-        "contextPromptTokens": report.delta_prompt,
-        "contextCachedReadTokens": usage.cache_read_tokens,
+        "contextPromptTokens": context_prompt,
+        "contextCachedReadTokens": context.cache_read_tokens,
         "contextCacheWriteTokens": usage.cache_write_tokens,
-        "contextMeasuredTokens": mixdog_agent::compact::pressure::measured_context_tokens(usage),
+        "contextMeasuredTokens": mixdog_agent::compact::pressure::measured_context_tokens(&context),
         "sendTools": tools,
         "ts": ts,
     })

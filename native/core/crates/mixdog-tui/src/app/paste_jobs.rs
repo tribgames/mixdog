@@ -22,6 +22,10 @@ use super::AppState;
 use super::store::StoreCaller;
 use crate::editor::prompt::{PasteSource, PasteTicket};
 use crate::handlers::paste::handle_prompt_paste;
+use crate::panels::btw::BtwAsk;
+
+/// The answer of a `/btw` side question a worker waited for.
+type BtwAnswer = (BtwAsk, Result<Value, String>);
 
 type ImageRead = Result<Option<ImageAttachment>, String>;
 
@@ -75,6 +79,9 @@ pub(crate) struct PasteJobs {
     pub(crate) reads: PasteReads,
     tx: Sender<Done>,
     rx: Receiver<Done>,
+    /// The `/btw` answers, on the same wake: a side question waits for the model on a worker, never on the loop.
+    btw_tx: Sender<BtwAnswer>,
+    btw_rx: Receiver<BtwAnswer>,
     /// Wakes the loop when a worker is done.
     wake: Option<Arc<dyn Fn() + Send + Sync>>,
 }
@@ -82,7 +89,8 @@ pub(crate) struct PasteJobs {
 impl Default for PasteJobs {
     fn default() -> Self {
         let (tx, rx) = mpsc::channel();
-        Self { next_id: 0, inflight: Vec::new(), reads: PasteReads::default(), tx, rx, wake: None }
+        let (btw_tx, btw_rx) = mpsc::channel();
+        Self { next_id: 0, inflight: Vec::new(), reads: PasteReads::default(), tx, rx, btw_tx, btw_rx, wake: None }
     }
 }
 
@@ -93,6 +101,21 @@ impl PasteJobs {
 
     pub(crate) fn pending(&self) -> bool {
         !self.inflight.is_empty()
+    }
+
+    /// Sends the side question of `ask` on a worker; its answer comes back through [`AppState::finish_btw_asks`].
+    pub(crate) fn ask_btw(&self, call: StoreCaller, ask: BtwAsk) {
+        let (tx, wake, sent) = (self.btw_tx.clone(), self.wake.clone(), ask.clone());
+        let spawned = std::thread::Builder::new().name("mixdog-tui-btw".to_owned()).spawn(move || {
+            let result = call("askSide", &[json!(sent.question)]);
+            let _ = tx.send((sent, result));
+            if let Some(wake) = wake {
+                wake();
+            }
+        });
+        if spawned.is_err() {
+            let _ = self.btw_tx.send((ask, Err("side question could not start".to_owned())));
+        }
     }
 }
 
@@ -180,6 +203,16 @@ impl AppState {
             return false;
         }
         true
+    }
+
+    /// The side questions whose answer has come: each settles its panel.
+    pub(crate) fn finish_btw_asks(&mut self) {
+        while let Ok((ask, result)) = self.paste.btw_rx.try_recv() {
+            let mut btw = std::mem::take(&mut self.btw);
+            btw.settle(&*self, &ask, result);
+            self.btw = btw;
+            self.frame_requested = true;
+        }
     }
 
     /// The tickets the editor handed out for the pastes that started during the last operation belong to those pastes, in order.

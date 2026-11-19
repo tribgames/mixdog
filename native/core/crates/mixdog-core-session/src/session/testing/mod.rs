@@ -124,6 +124,8 @@ pub struct TestCompaction {
     /// What `compact_for_heir` answers (the rows of the compacted conversation), and each ask: the budget and `summarize`.
     pub heir_rows: Mutex<Option<Vec<Value>>>,
     pub heir_asked: Mutex<Vec<(u64, bool)>>,
+    /// The rows each `compact_for_heir` was given to compact.
+    pub heir_seen: Mutex<Vec<Vec<Value>>>,
     /// `compact_for_heir` fails (the compactor threw).
     pub heir_fails: std::sync::atomic::AtomicBool,
     /// Each `prune_offloads`: the thread and the transcripts it was given.
@@ -157,8 +159,9 @@ pub fn offload_store(data: &std::path::Path, thread: &ThreadId) -> mixdog_core_r
 
 #[async_trait::async_trait]
 impl super::turn_ops::ManualCompaction for TestCompaction {
-    async fn compact_for_heir(&self, _: &ThreadId, budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, mixdog_core_api::CoreError> {
+    async fn compact_for_heir(&self, _: &ThreadId, rows: &[Value], budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, mixdog_core_api::CoreError> {
         lock(&self.heir_asked).push((budget_tokens, summarize));
+        lock(&self.heir_seen).push(rows.to_vec());
         if self.heir_fails.load(Ordering::SeqCst) {
             return Err(mixdog_core_api::CoreError::Internal { incident_id: "compactor-failed".into() });
         }
@@ -260,6 +263,8 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
 pub struct TestInherit {
     pub basis: Mutex<Option<(u64, u64, bool)>>,
     pub asked: Mutex<Vec<InheritAsk>>,
+    /// How many measurements had been asked when each `bind_to_heir_prefix` ran.
+    pub bound_after: Mutex<Vec<usize>>,
     /// `inheritanceCompactionPlan(target).budgetTokens`; `None` is a route with no boundary to compact toward.
     pub budget: Mutex<Option<u64>>,
     /// What a conversation of that many messages measures (`limit`, `used`, `compactable`), before `basis` answers.
@@ -267,6 +272,8 @@ pub struct TestInherit {
     /// The next measurement (an inheritance's, once the source's rows are copied and before the heir holds them)
     /// tells `.0` it arrived, then waits for `.1`.
     pub fit_gate: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    /// What the next `bind_to_heir_prefix` answers instead of the rows it is given (a replay the heir's prefix drops).
+    pub rebound: Mutex<Option<Vec<Value>>>,
 }
 
 #[async_trait::async_trait]
@@ -285,7 +292,9 @@ impl super::inheritance::InheritanceFit for TestInherit {
         *lock(&self.budget)
     }
     async fn bind_to_heir_prefix(&self, _: &ThreadId, _: &ThreadId, _: bool, rows: Vec<Value>) -> Vec<Value> {
-        rows
+        let measured = lock(&self.asked).len();
+        lock(&self.bound_after).push(measured);
+        lock(&self.rebound).take().unwrap_or(rows)
     }
 }
 
@@ -388,6 +397,9 @@ pub struct MemStore {
     /// The next batch holding a `meta` record that sets `title` to `.0` tells `.1` it arrived, then waits for `.2` before it
     /// becomes durable.
     pub title_gate: TitleGate,
+    /// The next batch holding a record the predicate takes tells `.1` it arrived, then waits for `.2` before it becomes durable;
+    /// the session's actor steps meanwhile ([`MemStore::hold_record`]).
+    pub record_gate: RecordGate,
     /// Wakes after every batch lands in a log (or a log is created): the event a test waits on for a record to be durable.
     pub committed: Arc<tokio::sync::Notify>,
     /// Each run's draft file, by thread and run: its bodies in order.
@@ -414,6 +426,14 @@ impl MemStore {
     pub fn hold_title(&self, title: &str) -> (Arc<tokio::sync::Notify>, std::sync::mpsc::Sender<()>) {
         let (arrived, go) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
         *lock(&self.title_gate) = Some((title.to_owned(), arrived.clone(), go.1));
+        (arrived, go.0)
+    }
+
+    /// Holds the next batch holding a record `takes` names, accepted but not durable, until the returned sender says go; `.0`
+    /// wakes when it arrives. The wait hands the worker's tasks off ([`wait_off_worker`]): a multi-thread runtime only.
+    pub fn hold_record(&self, takes: impl Fn(&Record) -> bool + Send + 'static) -> (Arc<tokio::sync::Notify>, std::sync::mpsc::Sender<()>) {
+        let (arrived, go) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
+        *lock(&self.record_gate) = Some((Box::new(takes), arrived.clone(), go.1));
         (arrived, go.0)
     }
 
@@ -500,6 +520,9 @@ fn wait_for_release(go: &std::sync::mpsc::Receiver<()>, gate: &str) {
 /// What [`MemStore::title_gate`] holds.
 type TitleGate = Arc<Mutex<Option<(String, Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>>;
 
+/// What [`MemStore::record_gate`] holds.
+pub type RecordGate = Arc<Mutex<Option<(Box<dyn Fn(&Record) -> bool + Send>, Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>>;
+
 /// [`wait_for_release`] for a gate whose test needs the session's actor to step while the batch is held: the inline
 /// test backend runs the commit on the durability task's worker, whose LIFO slot may hold the actor the previous ack
 /// just woke; `block_in_place` hands that worker's queued tasks to another thread while this one waits.
@@ -527,6 +550,7 @@ struct MemLog {
     header_gate: CommitGate,
     on_compaction: CompactionHook,
     title_gate: TitleGate,
+    record_gate: RecordGate,
     committed: Arc<tokio::sync::Notify>,
     batches: Arc<Mutex<Vec<usize>>>,
 }
@@ -580,6 +604,14 @@ impl SessionLog for MemLog {
         if let Some((_, arrived, go)) = gate {
             arrived.notify_one();
             wait_off_worker(&go, "the title gate");
+        }
+        let gate = {
+            let mut slot = lock(&self.record_gate);
+            if slot.as_ref().is_some_and(|(takes, _, _)| batch.iter().any(|commit| takes(&commit.record))) { slot.take() } else { None }
+        };
+        if let Some((_, arrived, go)) = gate {
+            arrived.notify_one();
+            wait_off_worker(&go, "the record gate");
         }
         let mut log = lock(&self.log);
         let first = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
@@ -850,6 +882,7 @@ impl ThreadStore for MemStore {
             header_gate: self.header_gate.clone(),
             on_compaction: self.on_compaction.clone(),
             title_gate: self.title_gate.clone(),
+            record_gate: self.record_gate.clone(),
             committed: self.committed.clone(),
             batches: self.batches.clone(),
         }))
@@ -877,6 +910,7 @@ impl ThreadStore for MemStore {
             header_gate: self.header_gate.clone(),
             on_compaction: self.on_compaction.clone(),
             title_gate: self.title_gate.clone(),
+            record_gate: self.record_gate.clone(),
             committed: self.committed.clone(),
             batches: self.batches.clone(),
         };
@@ -2159,6 +2193,10 @@ impl super::delete::DeleteSeams for Deletes {
     }
     async fn release_deleted_worktree(&self, session_id: &str) {
         self.note(format!("releaseDeletedWorktree:{session_id}"));
+    }
+    async fn purge_retired_agent(&self, agent_id: &str) -> Result<(), String> {
+        self.note(format!("purgeAgentDefinition:{agent_id}"));
+        Ok(())
     }
     fn thread_deleted(&self, thread: &ThreadId) {
         self.note(format!("thread/deleted:{thread}"));

@@ -115,6 +115,15 @@ pub(crate) struct Queued {
     pub display: Value,
 }
 
+/// `queuePriorityValue` (`queue-helpers.mjs`): `now` (0) before `next` (1) before `later` (2); an entry naming none is `next`.
+pub(crate) fn priority_rank(entry: &Value) -> u8 {
+    match entry.get("priority").and_then(Value::as_str) {
+        Some("now") => 0,
+        Some("later") => 2,
+        _ => 1,
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct PendingApprovalRow {
     pub rid: String,

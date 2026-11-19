@@ -197,6 +197,13 @@ pub fn idle(handle: &SessionHandle) -> bool {
     handle.cell.run.load().is_none()
 }
 
+/// Idle with its last turn settled: the turn's end is stored. A fork or a person's clear reads the history only then; before it
+/// they answer `history changed or has pending writes` (`history_revision`), which an empty `run` alone does not rule out.
+pub fn settled_idle(handle: &SessionHandle) -> bool {
+    use std::sync::atomic::Ordering::SeqCst;
+    idle(handle) && !handle.cell.busy.load(SeqCst) && handle.cell.unacked.load(SeqCst) == 0
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_turn_publishes_its_rows_in_order_after_they_are_durable() {
     let rig = Rig::new();
@@ -1939,8 +1946,9 @@ async fn a_fork_of_a_memory_cycle_dispatch_is_not_itself_a_memory_cycle_dispatch
     assert!(!super::session_options::memory_ingest_off(&header), "its fork is not: {:?}", header.get("sourceType"));
 }
 
-/// A preserved copy (a clear's or an archival reset's `thread/fork`) keeps the source's own `sourceType`: it is a copy of that
-/// session, not a new Lead, so it stays out of the Lead catalog and keeps its provenance.
+/// A preserved copy (the copy a person's clear keeps, Node's `forkOutgoingTranscript`) keeps the source's own `sourceType`: it is a
+/// copy of that session, not a new Lead, so it stays out of the Lead catalog and keeps its provenance. (A `thread/fork` heir is a
+/// root Lead instead, `root_heir_identity`; the copy is made by `keep_cleared_copy`, not by a fork.)
 #[tokio::test(start_paused = true)]
 async fn a_fork_keeps_a_sources_ordinary_source_type() {
     let rig = Rig::new();
@@ -1951,10 +1959,13 @@ async fn a_fork_keeps_a_sources_ordinary_source_type() {
     directory.create_with_id(id.clone(), header.as_object().cloned().expect("header"), json!({})).await.expect("create the source");
     let source = directory.open_handle(&id, &ctx).await.expect("open the source");
     give_conversation(&source).await;
-    let reply = source.request(request("thread/fork", json!({ "threadId": id, "opId": "op-fork" }), "op-fork")).await.expect("thread/fork");
-    let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
-    let heir = directory.open_handle(&ThreadId::from(value["thread"]["id"].as_str().expect("heir id")), &ctx).await.expect("open the heir");
-    assert_eq!(heir.cell.header.load().get("sourceType"), Some(&json!("exec")));
+    let ids = || -> std::collections::BTreeSet<String> { rig.store.log_ids().iter().map(|id| id.as_str().to_owned()).collect() };
+    let before = ids();
+    source.request(request("thread/clear", json!({ "threadId": id, "opId": "op-clear" }), "op-clear")).await.expect("thread/clear");
+    let copies: Vec<String> = ids().difference(&before).cloned().collect();
+    let [copy] = copies.as_slice() else { panic!("one copy of the cleared conversation: {copies:?}") };
+    let header = rig.store.stored_header(&ThreadId::from(copy.as_str())).expect("the copy's header");
+    assert_eq!(header.get("sourceType"), Some(&json!("exec")));
 }
 
 /// The heir drops what it does not carry as Node's `delete` drops a key: the source's header keys it keeps stay in their order.
@@ -2747,7 +2758,7 @@ async fn a_persons_clear_keeps_the_conversation_as_a_session_of_its_own_and_reco
     assert_eq!(ids().len(), 1, "an empty conversation keeps no copy");
 
     turn(&handle, "one", "op-1").await;
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (settled_idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
     let before = ids();
     handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-c1" }), "op-c1")).await.expect("clear");
     eventually_on!(&[&handle.cell.stepped], || rows(&handle).is_empty().then_some(())).await;
@@ -3018,11 +3029,16 @@ async fn input_and_task_notifications_release_the_runs_wait() {
     // Told after each wait the run begins, each reason it records and each input it takes.
     let progress = Arc::new(tokio::sync::Notify::new());
     let told = progress.clone();
-    // The first run's `task wait`, twice: once released by new input, once by a notification.
+    // The first run's `task wait`, twice: once released by new input, once by a notification. A queued user message holds every
+    // wait released until a model-call boundary delivers it (`WakeHub::boundary`), so between the two the run takes its boundary,
+    // as the model's next call does, and the queued prompt is delivered into this turn.
+    let delivered: Arc<Mutex<Vec<Value>>> = Arc::default();
+    let given = delivered.clone();
     rig.set_script(Arc::new(move |run| {
         let wakes = wakes.clone();
         let seen = seen.clone();
         let told = told.clone();
+        let given = given.clone();
         let first = {
             let mut bodies = lock(&bodies);
             bodies.push(run.input_body.clone());
@@ -3030,11 +3046,16 @@ async fn input_and_task_notifications_release_the_runs_wait() {
         };
         told.notify_waiters();
         Box::pin(async move {
-            for _ in 0..usize::from(first) * 2 {
+            for round in 0..usize::from(first) * 2 {
                 let wait = wakes.begin(&run.thread);
                 told.notify_waiters();
                 wait.released().await;
                 lock(&seen).push(wait.wake().expect("released").reason);
+                drop(wait);
+                if round == 0 {
+                    let steers = run.port.take_steers(drain(DrainStage::Terminal)).await.expect("take");
+                    lock(&given).extend(steers.into_iter().map(|steer| steer.content));
+                }
                 told.notify_waiters();
             }
             RunOutcome::Completed(Default::default())
@@ -3047,19 +3068,20 @@ async fn input_and_task_notifications_release_the_runs_wait() {
     assert_eq!(turn(&handle, "next", "op-2").await["kind"], "queued");
     eventually_on!(&[&progress], || (rig.wakes.active_waits(&handle.id) == 1 && lock(&reasons).len() == 1).then_some(()))
         .await;
+    assert_eq!(lock(&delivered).len(), 1, "the boundary delivered the prompt that released the first wait");
 
     directory.finished(&handle.id, "shell", "job-7", "completed", "Async shell task job-7 finished.".into()).await;
     eventually_on!(&[&progress], || (lock(&reasons).len() == 2).then_some(())).await;
     assert_eq!(*lock(&reasons), [WakeReason::UserMessage, WakeReason::Notification]);
 
     // The completion was queued, never a queued prompt; the turn took no boundary after it, so
-    // it runs as its own turn after the queued prompt, as a task-notification row.
-    eventually_on!(&[&progress], || (lock(&inputs).len() == 3).then_some(())).await;
+    // it runs as its own turn, as a task-notification row.
+    eventually_on!(&[&progress], || (lock(&inputs).len() == 2).then_some(())).await;
     let bodies = lock(&inputs).clone();
-    assert_eq!(bodies[1]["content"], "next");
-    assert_eq!(bodies[2]["meta"]["source"], "task-notification");
-    assert_eq!(bodies[2]["meta"]["execution"], json!({ "surface": "shell", "id": "job-7", "status": "completed" }));
-    assert_eq!(bodies[2]["content"], "Async shell task job-7 finished.");
+    assert_eq!(lock(&delivered)[0], "next");
+    assert_eq!(bodies[1]["meta"]["source"], "task-notification");
+    assert_eq!(bodies[1]["meta"]["execution"], json!({ "surface": "shell", "id": "job-7", "status": "completed" }));
+    assert_eq!(bodies[1]["content"], "Async shell task job-7 finished.");
     assert!(!prompt_list(&handle).iter().any(|p| p.contains("job-7")));
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert!(handle.cell.view.load_full().state.queued.as_ref().is_some_and(Vec::is_empty));
@@ -3165,6 +3187,103 @@ async fn queued_prompts_are_taken_one_by_one_at_the_next_boundary() {
     mixdog_rt::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(runs_started(&rig, &handle.id), 1, "taken input starts no turn");
     assert!(handle.cell.view.load_full().state.queued.as_ref().is_some_and(Vec::is_empty));
+}
+
+
+/// A prompt a running turn takes from the queue (steered) is stored and shown under the submission its client sent it with,
+/// as the turn's starter is; the turn's end still names the starter's row. The run here takes the drain, injects each input
+/// through the agent's `steer::inject` and commits its row, as the host's run does; the rows are then read from the live view and
+/// from the thread loaded again from the store.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_steered_prompt_shows_under_its_client_submission_beside_the_starters() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let open = gate.clone();
+    rig.set_script(Arc::new(move |run| {
+        let open = open.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            open.notified().await;
+            for input in run.port.take_steers(drain(DrainStage::PreSend)).await.expect("take") {
+                let entry = mixdog_agent::env::SteerEntry {
+                    content: mixdog_core_api::domain::provider::Content::Text(input.content.as_str().expect("text").to_owned()),
+                    text: input.text,
+                    ids: input.queued_ids.iter().map(|id| id.as_str().to_owned()).collect(),
+                    submitted_at: input.submitted_at,
+                    message_id: input.message_id,
+                    originals_missing: input.originals_missing,
+                    transcript_meta: input.transcript_meta,
+                    mode: mixdog_agent::env::SteerMode::Prompt,
+                    execution: None,
+                };
+                let merged = mixdog_agent::steer::normalize(&entry).expect("a prompt");
+                let (message, _) = mixdog_agent::steer::inject(merged, DrainStage::PreSend, 0, || "m-steered".into());
+                run.port
+                    .commit_item(ItemCommit {
+                        iid: ItemId::from("steered-row"),
+                        role: Some("user".into()),
+                        model: true,
+                        visible: true,
+                        body: mixdog_agent::message_row::row_of(&message),
+                        prompt: Some("second".into()),
+                    })
+                    .await
+                    .expect("commit");
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    // The rig's text transcript shows rows from their prompt alone; the real one reads each row's `meta.transcript`, which is
+    // what carries the submission id into the item.
+    let over_store = |store: Arc<dyn super::ThreadStore>| {
+        let mut deps = rig.deps_parts(store);
+        deps.transcript = Arc::new(super::transcript::RecordTranscript::new());
+        SessionDirectory::new(Arc::new(deps))
+    };
+    let directory = over_store(store.clone());
+    let handle = start_thread(&directory).await;
+    let send = |prompt: &str, submission: &str, op: &str| {
+        handle.request(request("turn/start", json!({ "threadId": handle.id, "opId": op, "input": { "prompt": prompt, "options": { "clientSubmissionId": submission } } }), op))
+    };
+    send("first", "sub-A", "op-1").await.expect("starter");
+    send("second", "sub-B", "op-2").await.expect("steered");
+    // The real store keeps its records itself, not in the rig's: the thread's own queue is what shows B waiting.
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1).then_some(())).await;
+    gate.notify_one();
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+
+    let live: Vec<ThreadItem> = handle.cell.view.load_full().items.iter().map(|item| (**item).clone()).collect();
+    let user = |items: &[ThreadItem], text: &str| {
+        items.iter().find_map(|item| match item {
+            ThreadItem::UserMessage { id, display_text, client_submission_id, .. } if display_text == text => Some((id.as_str().to_owned(), client_submission_id.clone())),
+            _ => None,
+        })
+    };
+    let (starter, starter_submission) = user(&live, "first").expect("the starter's row");
+    assert_eq!(starter_submission.as_deref(), Some("sub-A"), "{live:?}");
+    let (steered, steered_submission) = user(&live, "second").expect("the steered row");
+    assert_eq!(steered_submission.as_deref(), Some("sub-B"), "the live item shows under its submission: {live:?}");
+    assert_ne!(steered, starter);
+    // The scripted run writes no turn-end row; the turn's end takes its checkpoint from the starter's own row meta, so what is
+    // owned here is that the steered row adds no other checkpoint (below).
+
+    // The thread loaded again from the store, once the index holds every barrier acked so far.
+    directory.history_row(&handle.id, live[0].id().as_str()).await.expect("read");
+    let restarted = over_store(store);
+    let Reply::Value(page) = restarted
+        .request(CoreRequest { method: Method("thread/items/list"), params: json!({ "threadId": handle.id }), op: None, ctx: CallContext::internal("test") })
+        .await
+        .expect("thread/items/list")
+    else {
+        panic!("a page")
+    };
+    let items = page["data"].as_array().expect("items");
+    let submissions: Vec<&str> = items.iter().filter_map(|item| item["clientSubmissionId"].as_str()).collect();
+    assert_eq!(submissions, ["sub-A", "sub-B"], "{page}");
+    let checkpoints: std::collections::BTreeSet<&str> = items.iter().filter_map(|item| item["checkpointId"].as_str()).collect();
+    assert_eq!(checkpoints, [starter.as_str()].into(), "{page}");
 }
 
 
@@ -3389,6 +3508,32 @@ async fn a_fork_is_placed_where_the_desktop_places_an_heir() {
     assert_eq!(into["cwd"], "/repo/.wt/feat");
 }
 
+/// A fork of a worktree session of another client (no `desktopSession`) starts in the Project folder, not the source's worktree
+/// (`cold-heir.mjs`: `replacementSessionCwd`), and is not told of the folder change the source has staged into that worktree.
+#[tokio::test(start_paused = true)]
+async fn a_fork_without_a_desktop_classification_leaves_the_sources_worktree() {
+    use mixdog_store::schema::record::Header;
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone())));
+    let mut header = Header::new();
+    header.insert("createdAt".into(), json!(1));
+    header.insert("updatedAt".into(), json!(1));
+    header.insert("cwd".into(), json!("/repo/.wt/feat"));
+    header.insert("workspace".into(), json!({ "worktreeId": "w1", "cwd": "/repo/.wt/feat", "projectPath": "/repo", "repoCommonDir": "/repo/.git", "branch": "feat" }));
+    header.insert("workspaceReroot".into(), json!({ "revision": 1, "seen": { "cwd": "/repo" }, "target": { "cwd": "/repo/.wt/feat" } }));
+    let thread = ThreadId::from("src_wt_plain".to_owned());
+    directory.create_with_id(thread.clone(), header, json!({})).await.expect("source");
+    give_conversation(&directory.handle(&thread).expect("loaded")).await;
+    let reply = directory.handle(&thread).expect("loaded")
+        .request(request("thread/fork", json!({ "threadId": "src_wt_plain", "opId": "op-wt" }), "op-wt")).await.expect("thread/fork");
+    let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
+    let heir = directory.handle(&ThreadId::from(value["thread"]["id"].as_str().expect("heir id"))).expect("loaded").cell.header.load_full();
+    assert_eq!(heir["cwd"], "/repo");
+    assert_eq!(heir["workspace"]["cwd"], "/repo");
+    assert!(heir["workspace"]["worktreeId"].is_null());
+    assert!(heir.get("workspaceReroot").is_none(), "the source's staged folder change stays with the source");
+}
+
 
 /// `notification-bus.test.mjs` "a queued completion wakes its owner session" and
 /// `ask-queue.mjs:87-101`: the completion is the woken turn's input, a task-notification row.
@@ -3575,7 +3720,7 @@ async fn a_deleted_base_stays_readable_by_its_fork() {
     let directory = SessionDirectory::new(rig.deps_on(store.clone()));
     let base = start_thread(&directory).await;
     turn(&base, "first", "op-1").await;
-    eventually_on!(&[&base.cell.stepped], || (idle(&base) && rows(&base).len() == 2).then_some(())).await;
+    eventually_on!(&[&base.cell.stepped], || (settled_idle(&base) && rows(&base).len() == 2).then_some(())).await;
     let reply = base
         .request(request("thread/fork", json!({ "threadId": base.id, "opId": "op-fork" }), "op-fork"))
         .await
@@ -3846,7 +3991,7 @@ async fn clear_with_rebuild_prompt_reseeds_the_emptied_thread_and_answers_whethe
         let patch = CoreRequest { method: mixdog_core_api::ids::Method("thread/header/patch"), params: json!({ "threadId": handle.id, "set": set, "unset": [] }), op: None, ctx: CallContext::internal("test") };
         handle.request(patch).await.expect("patch");
         turn(&handle, "one", "op-1").await;
-        eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+        eventually_on!(&[&handle.cell.stepped], || (settled_idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
         let Reply::Value(plain) = handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-2" }), "op-2")).await.expect("clear") else { panic!("a value") };
         assert_eq!(plain, json!({}), "without rebuildPrompt the answer is the clear's own");
         // The copy a person's clear keeps (`forkOutgoingTranscript`'s heir) has its own prompt composed; the cleared thread's is not.
@@ -5425,6 +5570,50 @@ async fn a_refused_queue_entry_is_handed_back_under_its_client_submission_id() {
     assert_eq!(dequeued, [DequeueReason::Cancelled]);
 }
 
+/// One drain that refuses a prompt and hands back a slash command publishes one hand-back holding both, in queue order: the
+/// command's hand-back does not replace the refused prompt's in the session state's one slot.
+#[tokio::test(start_paused = true)]
+async fn a_drain_hands_back_a_refused_prompt_and_a_command_together() {
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::bounded::Text;
+    use mixdog_store::schema::record::{DequeueReason, QueueAction, QueueRecord, Record};
+    let rig = Rig::new();
+    let first = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&first).await;
+    let command = json!({ "message": "/usage", "options": { "clientSubmissionId": "sub-usage" }, "enqueuedAt": 1, "priority": "next" });
+    let refused = json!({
+        "message": [{ "type": "text", "text": "look" }, { "type": "text", "attachmentRef": 5 }],
+        "options": { "clientSubmissionId": "desktop-submit-abc", "displayText": "look" },
+        "enqueuedAt": 2,
+        "priority": "next"
+    });
+    for (qid, entry) in [("restored-command", command), ("restored-refused", refused)] {
+        rig.store.append_record(&handle.id, Record::Queue(QueueRecord {
+            qid: Text::try_from(qid).unwrap(),
+            action: QueueAction::Enqueue,
+            reason: None,
+            op: None,
+            entry: Some(Slot::Inline(entry)),
+        }));
+    }
+    let second = SessionDirectory::new(rig.deps());
+    let reopened = second.open_handle(&handle.id, &CallContext::internal("test")).await.expect("open");
+    reopened.cell.deliver(super::control::Ctl::Resumed);
+    let restores = || -> Vec<Value> {
+        rig.feeds.frames(handle.id.as_str()).into_iter().filter(|(_, method, _)| method == "thread/promptRestore").map(|(_, _, value)| value).collect()
+    };
+    eventually_on!(&[&reopened.cell.stepped, &*rig.feeds.published], || (reopened.cell.queued.load().is_empty() && !restores().is_empty()).then_some(())).await;
+    let restores = restores();
+    assert_eq!(restores.len(), 1, "one hand-back for the drain: {restores:?}");
+    assert_eq!(restores[0]["value"]["ids"], json!(["sub-usage", "desktop-submit-abc"]), "{restores:?}");
+    assert_eq!(restores[0]["value"]["text"], "/usage\nlook", "{restores:?}");
+    let dequeued: Vec<DequeueReason> = rig.store.records(&handle.id).into_iter().filter_map(|(_, record)| match record {
+        Record::Queue(queue) if queue.action == QueueAction::Dequeue => queue.reason,
+        _ => None,
+    }).collect();
+    assert_eq!(dequeued, [DequeueReason::Cancelled, DequeueReason::Cancelled]);
+}
+
 
 async fn stage_turn(rig: &Rig, steps: &'static [&'static str], ending: &'static str) -> StageTurn {
     use super::run::CallMark;
@@ -5876,8 +6065,24 @@ async fn a_fork_is_placed_and_stamped_as_nodes_fork_is() {
         // `offloadSources` and `offloadSourcesRules` (the sessions whose sidecars the heir may name, which the prune's
         // index reads, and the rules that set was computed under) are the fix of `node-fix-prune-after-save.patch`,
         // which this recording of Node as shipped predates: their value is replayed by the offload-prune-order set.
-        let keys: std::collections::BTreeSet<&String> =
-            rust_header.keys().chain(node_header.keys()).filter(|key| !["id", "offloadSources", "offloadSourcesRules"].contains(&key.as_str())).collect();
+        // A visible heir is a root Lead (`root_heir_identity`, `cold-heir.mjs` `ROOT_LEAD_IDENTITY`) that starts idle, with none of
+        // its source's owner links and no live-host stamp (`fresh_heir_state`): a decided departure this recording of Node as shipped
+        // predates, whose heir kept the source's identity and held those keys as null. Each is asserted on its own here.
+        const ROOT_LEAD: [(&str, &str); 6] = [("owner", "cli"), ("agent", "lead"), ("lane", "cli"), ("sourceType", "lead"), ("sourceName", "main"), ("status", "idle")];
+        const DROPPED: [&str; 10] = ["parentSessionId", "ownerSessionId", "visibility", "agentTag", "taskType", "permissionMode", "scopeKey", "wireRoute", "lastHeartbeatAt", "clientHostPid"];
+        for (key, value) in ROOT_LEAD {
+            assert_eq!(rust_header.get(key), Some(&json!(value)), "{key} of {label}");
+        }
+        for key in DROPPED {
+            assert!(rust_header.get(key).is_none(), "{key} of {label} is not carried");
+            assert!(node_header.get(key).is_none_or(Value::is_null), "{key} of Node's heir of {label}: {:?}", node_header.get(key));
+        }
+        let keys: std::collections::BTreeSet<&String> = rust_header
+            .keys()
+            .chain(node_header.keys())
+            .filter(|key| !["id", "offloadSources", "offloadSourcesRules"].contains(&key.as_str()))
+            .filter(|key| !ROOT_LEAD.iter().any(|(name, _)| name == key) && !DROPPED.contains(&key.as_str()))
+            .collect();
         let differing: Vec<String> = keys.into_iter().filter(|key| rust_header.get(*key) != node_header.get(*key)).map(|key| format!("{key}: rust {:?} node {:?}", rust_header.get(key), node_header.get(key))).collect();
         assert!(differing.is_empty(), "header of {label}: {differing:#?}");
         // The row `thread/list` shows for each heir, whole, as the desktop's roster showed Node's (the protocol names the fork source
