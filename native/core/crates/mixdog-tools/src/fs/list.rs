@@ -80,11 +80,13 @@ struct Rows {
     truncated: bool,
     warnings: Vec<String>,
     raw_path_ties: bool,
+    /// The entries the noise filter removed from the folders the walk read.
+    noise: usize,
 }
 
 /// JS `parseInt(value, 10)` of whatever it is given: it reads the text of the value (a number's, an array's elements joined)
 /// up to its first character that is no digit; no digits is `NaN`, here `None`.
-fn js_parse_int(value: &JsonValue) -> Option<i64> {
+pub(super) fn js_parse_int(value: &JsonValue) -> Option<i64> {
     match value {
         // A number's text is in exponent form past 21 digits and below 1e-6, where its first digit stands alone.
         JsonValue::Number(n) => n.as_f64().filter(|f| *f == 0.0 || (1e-6..1e21).contains(&f.abs())).map(|f| f.trunc() as i64),
@@ -118,13 +120,29 @@ fn is_noise(name: &str) -> bool {
 
 /// The entries `walkDir` visits in a folder: no dotted name unless `hidden`, no noise directory unless `include_noise`.
 fn visible(entries: Vec<DirEntry>, hidden: bool, include_noise: bool) -> Vec<DirEntry> {
+    visible_counting(entries, hidden, include_noise, &mut 0)
+}
+
+/// [`visible`], adding to `noise` the entries only the noise filter removed (a hidden name the `hidden` filter drops
+/// anyway is not one of them).
+fn visible_counting(entries: Vec<DirEntry>, hidden: bool, include_noise: bool, noise: &mut usize) -> Vec<DirEntry> {
     entries
         .into_iter()
         .filter(|e| {
             let Some(name) = e.path.as_path().file_name().map(|n| n.to_string_lossy()) else { return false };
-            (hidden || !name.starts_with('.')) && !(!include_noise && e.kind == EntryKind::Dir && is_noise(&name))
+            if !hidden && name.starts_with('.') {
+                return false;
+            }
+            let excluded = !include_noise && e.kind == EntryKind::Dir && is_noise(&name);
+            *noise += usize::from(excluded);
+            !excluded
         })
         .collect()
+}
+
+/// What `list` says of the entries its noise filter removed, so a folder holding only noise is not read as empty.
+fn noise_note(noise: usize) -> String {
+    format!("{noise} noise entries excluded (include_noise:true to show)")
 }
 
 /// `displayRelPath`: the entry's path under the listed folder, with forward slashes.
@@ -157,7 +175,7 @@ async fn native_rows(ctx: &ToolContext, abs: &AbsPath, walk: &Walk<'_>) -> Resul
             let visited = walked.entries.len();
             let rows = walked.entries.into_iter().filter(|entry| kind.keeps(entry.kind)).enumerate()
                 .map(|(ordinal, entry)| row_under(root, entry, ordinal)).collect();
-            Ok(Some(Rows { rows, visited, truncated: false, warnings: Vec::new(), raw_path_ties: false }))
+            Ok(Some(Rows { rows, visited, truncated: false, warnings: Vec::new(), raw_path_ties: false, noise: 0 }))
         }
         Err(e) if matches!(e.code, mixdog_core_api::domain::tool::ToolErrorCode::Cancelled) => Err(e),
         _ => Ok(None),
@@ -245,7 +263,7 @@ async fn collect_rows(ctx: &ToolContext, abs: &AbsPath, walk: &Walk<'_>) -> Resu
         return Ok(found);
     }
     let started = mixdog_rt::time::Instant::now();
-    let mut out = Rows { rows: Vec::new(), visited: 0, truncated: false, warnings: Vec::new(), raw_path_ties: false };
+    let mut out = Rows { rows: Vec::new(), visited: 0, truncated: false, warnings: Vec::new(), raw_path_ties: false, noise: 0 };
     let (root, unsorted) = match guarded(ctx, "list", async {
         if depth == 1 {
             ctx.files.list_dir_for_ranking(ctx.io.interactive, abs.clone(), ABSOLUTE_CAP).await
@@ -256,7 +274,7 @@ async fn collect_rows(ctx: &ToolContext, abs: &AbsPath, walk: &Walk<'_>) -> Resu
         Ok(listing) => listing,
         Err(e) => return Err(fs_failure(&e, raw)),
     };
-    let mut root = visible(root, hidden, include_noise);
+    let mut root = visible_counting(root, hidden, include_noise, &mut out.noise);
     if unsorted {
         // Below the cap only a timeout can make the subset depend on readdir order.
         out.visited = root.iter().take_while(|_| started.elapsed() <= WALK_TIMEOUT).count();
@@ -291,7 +309,7 @@ async fn collect_rows(ctx: &ToolContext, abs: &AbsPath, walk: &Walk<'_>) -> Resu
         }
         if let Some(dir) = below {
             match guarded(ctx, "list", ctx.files.list_dir(ctx.io.interactive, dir.clone())).await? {
-                Ok(children) => stack.push(visible(children, hidden, include_noise).into_iter()),
+                Ok(children) => stack.push(visible_counting(children, hidden, include_noise, &mut out.noise).into_iter()),
                 Err(e) => out.warnings.push(format!("[warning] readdir failed ({}): {}", readdir_code(&e.kind), fwd(dir.as_path()))),
             }
         }
@@ -358,6 +376,11 @@ async fn mode_octal(ctx: &ToolContext, path: &AbsPath, stat: &LocatorStat) -> St
     }
 }
 
+/// A row's metadata is the entry's own, a link's not its target's (Node `lstat`, `listMetadataForPaths`).
+async fn row_stat(ctx: &ToolContext, path: &AbsPath) -> Option<LocatorStat> {
+    ctx.files.lstat_for_locator(ctx.io.interactive, path.clone()).await.ok()
+}
+
 async fn line_count(ctx: &ToolContext, path: &AbsPath, len: u64) -> Option<u64> {
     if len > LINE_COUNT_MAX_BYTES {
         return None;
@@ -401,9 +424,9 @@ async fn meta_suffix(ctx: &ToolContext, path: &AbsPath, known: Option<LocatorSta
     }
     let stat = match known {
         Some(s) => s,
-        None => match ctx.files.stat_for_locator(ctx.io.interactive, path.clone()).await {
-            Ok(s) => s,
-            Err(_) => return "\t?\t?\t?".to_owned(),
+        None => match row_stat(ctx, path).await {
+            Some(s) => s,
+            None => return "\t?\t?\t?".to_owned(),
         },
     };
     let mtime = stat.modified.map(iso_utc).unwrap_or_else(|| "?".to_owned());
@@ -467,6 +490,11 @@ impl Tool for ListTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        super::search::with_broad_times(self.respond(ctx, args)).await
+    }
+}
+impl ListTool {
+    async fn respond(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         // `executeListTool`: the modes the schema does not show.
         match arg_str(&args, "mode") {
             Some("tree") => return tree_list(ctx, &args).await,
@@ -482,10 +510,11 @@ impl Tool for ListTool {
         let kind = TypeFilter::of(&args);
         let sort = SortMode::of(&args, SortMode::Name);
         let offset = page_offset(&args)?;
+        let page = env_default_limit("MIXDOG_LIST_DEFAULT_HEAD_LIMIT", DEFAULT_PAGE as usize);
         let limit = match head_limit(&args)? {
             Some(0) => 0,
-            Some(n) => n.min(DEFAULT_PAGE) as usize,
-            None => DEFAULT_PAGE as usize,
+            Some(n) => (n as usize).min(page),
+            None => page,
         };
         if !arg_str(&args, "name").is_some_and(|name| !name.is_empty()) && has_glob_magic(raw) {
             return find_files(ctx, &args).await;
@@ -511,7 +540,7 @@ impl Tool for ListTool {
         }
         let depth = clamped_depth(&args, 1, 10);
         let walk = Walk { raw, depth, hidden, include_noise, kind };
-        let Rows { mut rows, visited, truncated, warnings, raw_path_ties } = collect_rows(ctx, &abs, &walk).await?;
+        let Rows { mut rows, visited, truncated, warnings, raw_path_ties, noise } = collect_rows(ctx, &abs, &walk).await?;
         // A sort by size or time reads every row's metadata first (`needsGlobalStat`).
         let mut missing_sort_stat = false;
         let mut cache_safe = meta == Metadata::None;
@@ -523,7 +552,7 @@ impl Tool for ListTool {
                 let mut missing = false;
                 for row in &mut rows {
                     stats.push(async move {
-                        row.stat = ctx.files.stat_for_locator(ctx.io.interactive, row.path.clone()).await.ok();
+                        row.stat = row_stat(ctx, &row.path).await;
                         row.stat.is_none()
                     });
                     if stats.len() == 64 {
@@ -595,7 +624,10 @@ impl Tool for ListTool {
         }
         lines.extend(warnings);
         if lines.is_empty() {
-            return Ok(text_output(empty_message(ctx, &abs, raw, offset, total, hidden, kind).await, complete && meta == Metadata::None));
+            return Ok(text_output(empty_message(ctx, &abs, raw, offset, total, hidden, kind, noise).await, complete && meta == Metadata::None));
+        }
+        if noise > 0 {
+            lines.push(noise_note(noise));
         }
         let text = lines.join("\n");
         if text.len() > locator_max_bytes() {
@@ -614,6 +646,7 @@ impl Tool for ListTool {
     }
 }
 
+#[allow(clippy::too_many_arguments, reason = "the listing's independent filters and counts")]
 async fn empty_message(
     ctx: &ToolContext,
     abs: &AbsPath,
@@ -622,9 +655,13 @@ async fn empty_message(
     total: usize,
     hidden: bool,
     kind: TypeFilter,
+    noise: usize,
 ) -> String {
     if offset > 0 && total > 0 {
         return format!("(no entries after offset={offset}; total={total}) path={raw}");
+    }
+    if noise > 0 && total == 0 {
+        return format!("(no entries shown) {} path={raw}", noise_note(noise));
     }
     if hidden && kind == TypeFilter::Any {
         return "(empty directory)".to_owned();
@@ -1086,7 +1123,7 @@ async fn tree_list(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
         .unwrap_or(".");
     let depth = clamped_depth(args, 3, 6);
     let (hidden, include_noise) = (arg_bool(args, "hidden"), arg_bool(args, "include_noise"));
-    let limit = head_limit(args)?.unwrap_or(200);
+    let limit = head_limit(args)?.unwrap_or(env_default_limit("MIXDOG_LIST_DEFAULT_HEAD_LIMIT", 200) as u64);
     let offset = page_offset(args)?;
     let abs = resolve_path(&ctx.cwd, raw)?;
     let stat = match guarded(ctx, "list", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
@@ -1103,37 +1140,43 @@ async fn tree_list(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
             format!("Error: not a directory — {}", fwd(abs.as_path())),
         ));
     }
-    let root = match guarded(ctx, "list", ctx.files.list_dir(ctx.io.interactive, abs.clone())).await? {
-        Ok(entries) => entries,
-        Err(e) => return Err(fs_failure(&e, raw)),
-    };
     // The walk stops once the window and one more row are in (`treeGatherCap`); with `head_limit: 0` it runs to the end.
     let gather_cap = if limit > 0 { offset + limit as usize + 1 } else { offset + TREE_BRANCH_LINE_CAP + 1 };
-    let mut body: Vec<String> = Vec::new();
-    let mut warnings: Vec<String> = Vec::new();
-    let mut stack = vec![tree_level(visible(root, hidden, include_noise), String::new())];
-    while let Some(level) = stack.last_mut() {
-        let Some(entry) = level.entries.get(level.next).cloned() else {
-            stack.pop();
-            continue;
+    // The walk below the folder is a broad search: it takes its turn and is bounded as a deep list's inventory is.
+    let walk = |_budget: u64| async {
+        let root = match guarded(ctx, "list", ctx.files.list_dir(ctx.io.interactive, abs.clone())).await? {
+            Ok(entries) => entries,
+            Err(e) => return Err(fs_failure(&e, raw)),
         };
-        let is_last = level.next + 1 == level.entries.len();
-        level.next += 1;
-        let prefix = level.prefix.clone();
-        let is_dir = entry.kind == EntryKind::Dir;
-        let name = entry.path.as_path().file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        body.push(format!("{prefix}{}{name}{}", if is_last { "└── " } else { "├── " }, if is_dir { "/" } else { "" }));
-        if limit != 0 && body.len() >= gather_cap {
-            break;
-        }
-        if is_dir && stack.len() < depth {
-            let child_prefix = format!("{prefix}{}", if is_last { "    " } else { "│   " });
-            match guarded(ctx, "list", ctx.files.list_dir(ctx.io.interactive, entry.path.clone())).await? {
-                Ok(children) => stack.push(tree_level(visible(children, hidden, include_noise), child_prefix)),
-                Err(e) => warnings.push(format!("[warning] readdir failed ({}): {}", readdir_code(&e.kind), fwd(entry.path.as_path()))),
+        let mut body: Vec<String> = Vec::new();
+        let mut warnings: Vec<String> = Vec::new();
+        let mut noise = 0usize;
+        let mut stack = vec![tree_level(visible_counting(root, hidden, include_noise, &mut noise), String::new())];
+        while let Some(level) = stack.last_mut() {
+            let Some(entry) = level.entries.get(level.next).cloned() else {
+                stack.pop();
+                continue;
+            };
+            let is_last = level.next + 1 == level.entries.len();
+            level.next += 1;
+            let prefix = level.prefix.clone();
+            let is_dir = entry.kind == EntryKind::Dir;
+            let name = entry.path.as_path().file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            body.push(format!("{prefix}{}{name}{}", if is_last { "└── " } else { "├── " }, if is_dir { "/" } else { "" }));
+            if limit != 0 && body.len() >= gather_cap {
+                break;
+            }
+            if is_dir && stack.len() < depth {
+                let child_prefix = format!("{prefix}{}", if is_last { "    " } else { "│   " });
+                match guarded(ctx, "list", ctx.files.list_dir(ctx.io.interactive, entry.path.clone())).await? {
+                    Ok(children) => stack.push(tree_level(visible_counting(children, hidden, include_noise, &mut noise), child_prefix)),
+                    Err(e) => warnings.push(format!("[warning] readdir failed ({}): {}", readdir_code(&e.kind), fwd(entry.path.as_path()))),
+                }
             }
         }
-    }
+        Ok((body, warnings, noise))
+    };
+    let (body, warnings, noise) = super::search::broad_tree(ctx, walk).await?;
     // `renderTreeOutput`: `head_limit: 0` is no cap.
     let windowed = body.get(offset..).unwrap_or(&[]);
     let branch_limit = if limit == 0 { windowed.len() } else { limit as usize };
@@ -1147,6 +1190,9 @@ async fn tree_list(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
         lines.push(format!("[entries {}-{next} of {total}; offset:{next} for more]", offset + 1));
     }
     let complete = warnings.is_empty();
+    if noise > 0 {
+        lines.push(noise_note(noise));
+    }
     lines.extend(warnings);
     let text = lines.join("\n");
     if text.len() > super::common::output_max_bytes() {

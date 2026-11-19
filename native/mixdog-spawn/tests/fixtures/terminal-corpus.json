@@ -1,0 +1,141 @@
+{
+  "domain": "terminal",
+  "entries": [
+    {
+      "args": [],
+      "op": "termProfiles",
+      "result": {
+        "defaultCount": 1,
+        "entryKeys": [
+          "default",
+          "id",
+          "label",
+          "path"
+        ],
+        "nonEmpty": true,
+        "pathsAbsolute": true
+      }
+    },
+    {
+      "args": [
+        null,
+        "<project>",
+        null
+      ],
+      "op": "termEnsure",
+      "result": {
+        "id": "<id>",
+        "replayType": "string",
+        "sizeOwner": null
+      }
+    },
+    {
+      "args": [],
+      "op": "termActivity",
+      "result": []
+    },
+    {
+      "args": [
+        "<id>",
+        "echo MIXDOG_FIXTURE_MARKER\\r"
+      ],
+      "op": "termWrite",
+      "result": null
+    },
+    {
+      "args": [
+        "<id>"
+      ],
+      "op": "termSnapshot",
+      "result": {
+        "containsMarker": true,
+        "cursorType": "number",
+        "keys": [
+          "cursor",
+          "reset",
+          "text"
+        ]
+      }
+    },
+    {
+      "args": [
+        "<id>",
+        100,
+        30,
+        "client-a"
+      ],
+      "op": "termResize",
+      "result": null
+    },
+    {
+      "args": [
+        "<id>",
+        "client-a",
+        true
+      ],
+      "op": "termFocus",
+      "result": null
+    },
+    {
+      "args": [
+        "<id>"
+      ],
+      "op": "termPause",
+      "result": null
+    },
+    {
+      "args": [
+        "<id>"
+      ],
+      "op": "termResume",
+      "result": null
+    },
+    {
+      "args": [
+        "<id>"
+      ],
+      "op": "termAttach",
+      "result": {
+        "hasReplay": true,
+        "id": "<id>"
+      }
+    },
+    {
+      "args": [
+        "session-x"
+      ],
+      "op": "termSessionTabs",
+      "result": []
+    },
+    {
+      "args": [
+        "<id>"
+      ],
+      "op": "termDispose",
+      "result": null
+    },
+    {
+      "args": [
+        "<id>"
+      ],
+      "op": "termAttach(after dispose)",
+      "result": null
+    },
+    {
+      "args": [
+        "no-such-terminal",
+        "x"
+      ],
+      "op": "termWrite",
+      "result": null
+    },
+    {
+      "emitted": true,
+      "kinds": [
+        "unknown"
+      ],
+      "op": "<emitted event kinds>"
+    }
+  ],
+  "recorder": "record-desktop-services.mjs"
+}

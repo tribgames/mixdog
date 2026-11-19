@@ -82,7 +82,7 @@ use std::sync::atomic::AtomicBool;
 #[cfg(test)]
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicU8;
-#[cfg(feature = "replay-controls")]
+#[cfg(any(test, feature = "replay-controls"))]
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
@@ -421,10 +421,77 @@ fn create_temp(tmp: &Path, existing: Option<&fs::Metadata>) -> io::Result<File> 
     options.open(tmp)
 }
 
-/// Removes an empty `wx` placeholder; another writer's content is never deleted (Node).
-fn cleanup_empty_placeholder(target: &Path) {
-    if fs::metadata(target).is_ok_and(|m| m.len() == 0) {
-        let _ = fs::remove_file(target);
+/// Removes an empty `wx` placeholder; another writer's content is never deleted (Node). An error means an empty
+/// file may still sit at `target`.
+fn cleanup_empty_placeholder(target: &Path) -> io::Result<()> {
+    match fs::metadata(target) {
+        Ok(meta) if meta.len() == 0 => match fs::remove_file(target) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        },
+        Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+        _ => Ok(()),
+    }
+}
+
+/// The cleanup of a write cancelled before its rename: the temp file and a create's placeholder are removed, and
+/// whatever could not be removed is named in the answer, since it is still on disk.
+fn cancelled_write(target: &Path, tmp: &Path, placeholder: bool) -> FsError {
+    let mut left = Vec::new();
+    if let Err(e) = fs::remove_file(tmp)
+        && e.kind() != io::ErrorKind::NotFound {
+        left.push(AbsPath::new(tmp).expect("a resolved target is absolute"));
+    }
+    if placeholder && cleanup_empty_placeholder(target).is_err() {
+        left.push(AbsPath::new(target).expect("a resolved target is absolute"));
+    }
+    plain(FsErrorKind::Cancelled { left }, target)
+}
+
+/// Deterministic points inside [`atomic_write`] for the tests: a hook set on the test's thread runs just before the
+/// cancellation check that precedes the rename, and just after the rename.
+#[cfg(test)]
+mod publish_barrier {
+    use std::cell::RefCell;
+    use std::path::Path;
+
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(super) enum Stage {
+        BeforeRename,
+        Renamed,
+    }
+
+    type Hook = Box<dyn FnMut(Stage, &Path, &Path)>;
+
+    thread_local! {
+        static HOOK: RefCell<Option<Hook>> = RefCell::new(None);
+    }
+
+    /// Runs `hook(stage, target, tmp)` at every barrier on this thread until the guard drops.
+    pub(super) fn set(hook: impl FnMut(Stage, &Path, &Path) + 'static) -> Guard {
+        HOOK.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
+        Guard
+    }
+
+    pub(super) struct Guard;
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            HOOK.with(|slot| *slot.borrow_mut() = None);
+        }
+    }
+
+    pub(super) fn reach(stage: Stage, target: &Path, tmp: &Path) {
+        let taken = HOOK.with(|slot| slot.borrow_mut().take());
+        if let Some(mut hook) = taken {
+            hook(stage, target, tmp);
+            HOOK.with(|slot| {
+                let mut slot = slot.borrow_mut();
+                if slot.is_none() {
+                    *slot = Some(hook);
+                }
+            });
+        }
     }
 }
 
@@ -713,6 +780,7 @@ fn redirected_share(target: &str) -> Option<String> {
 }
 
 /// The matcher Node's resident search server compiles (serve_search/matching.rs `CompiledMatcher`).
+#[derive(Clone)]
 enum Compiled {
     Rust(grep::regex::RegexMatcher),
     Pcre2(grep::pcre2::RegexMatcher),
@@ -849,16 +917,14 @@ struct Collect<'a, P, M> {
     printed: Printed,
     matcher: &'a M,
     path: &'a AbsPath,
-    out: &'a Out<SearchMatch>,
-    left: &'a mut Option<usize>,
+    /// Where its items go, with the request's budget ([`Turn`]).
+    turn: &'a mut dyn Turn,
     /// [`SearchRequest::first_per_file`].
     first_per_file: bool,
     /// Matches queued from this file.
     sent: usize,
     /// The stream was closed under the sink.
     closed: bool,
-    #[cfg(feature = "count-jobs")]
-    root: &'a Path,
 }
 
 impl<P: Sink<Error = io::Error>, M: Matcher> Sink for Collect<'_, P, M> {
@@ -877,7 +943,9 @@ impl<P: Sink<Error = io::Error>, M: Matcher> Sink for Collect<'_, P, M> {
     }
 
     fn matched(&mut self, searcher: &Searcher, found: &SinkMatch<'_>) -> Result<bool, io::Error> {
-        if *self.left == Some(0) {
+        // Nothing of the match is built before its file's turn: a reader waiting for it holds no item.
+        self.turn.wait()?;
+        if *self.turn.left() == Some(0) {
             return Ok(false);
         }
         self.printer.matched(searcher, found)?;
@@ -885,22 +953,57 @@ impl<P: Sink<Error = io::Error>, M: Matcher> Sink for Collect<'_, P, M> {
         let mut column = self.matcher.find(found.bytes()).ok().flatten().map_or(0, |m| m.start()) as u64 + 1;
         let mut count = match_count(searcher, self.matcher, found, || Ok(()))?;
         for (line, text) in (found.line_number().unwrap_or(0)..).zip(printed) {
-            if !self.out.send(Ok(SearchMatch { path: self.path.clone(), line, column, text, count })) {
+            if !self.turn.emit(SearchMatch { path: self.path.clone(), line, column, text, count }) {
                 self.closed = true;
                 return Ok(false);
             }
             (column, count) = (1, 0);
             self.sent += 1;
-            #[cfg(feature = "count-jobs")]
-            probe::found(self.root);
-            if let Some(left) = self.left.as_mut() {
+            let left = self.turn.left();
+            if let Some(left) = left.as_mut() {
                 *left -= 1;
             }
-            if *self.left == Some(0) {
+            if *left == Some(0) {
                 break;
             }
         }
-        Ok(*self.left != Some(0) && !self.first_per_file)
+        Ok(*self.turn.left() != Some(0) && !self.first_per_file)
+    }
+}
+
+/// Where a file's items go: the stream's queue, at once ([`Queue`]), or, for a file a parallel search's reader
+/// searches, the queue from its turn to be delivered on ([`Lane`]).
+trait Turn {
+    /// Waits for the file's turn; an error (the stop, the deadline, the search's end) ends the file's search.
+    fn wait(&mut self) -> io::Result<()>;
+    /// The request's budget, spent per printed line (after [`Turn::wait`]).
+    fn left(&mut self) -> &mut Option<usize>;
+    /// Queues an item (after [`Turn::wait`]); `false` once the stream takes no more.
+    fn emit(&mut self, item: SearchMatch) -> bool;
+}
+
+/// The scan's own file: its items go to the queue at once.
+struct Queue<'a> {
+    out: &'a Out<SearchMatch>,
+    left: &'a mut Option<usize>,
+    found: &'a dyn Fn(),
+}
+
+impl Turn for Queue<'_> {
+    fn wait(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn left(&mut self) -> &mut Option<usize> {
+        self.left
+    }
+
+    fn emit(&mut self, item: SearchMatch) -> bool {
+        let queued = self.out.send(Ok(item));
+        if queued {
+            (self.found)();
+        }
+        queued
     }
 }
 
@@ -916,8 +1019,13 @@ impl<M: Matcher> Sink for Summarize<'_, M> {
     type Error = io::Error;
 
     fn matched(&mut self, searcher: &Searcher, found: &SinkMatch<'_>) -> Result<bool, io::Error> {
+        if self.first_per_file {
+            // One block of a multiline search may hold many matches: the first is the one counted.
+            self.count = Some(1);
+            return Ok(false);
+        }
         *self.count.get_or_insert(0) += match_count(searcher, self.matcher, found, || self.ctl.check())?;
-        Ok(!self.first_per_file)
+        Ok(true)
     }
 }
 
@@ -1073,6 +1181,14 @@ struct Control {
     in_file: AtomicBool,
     /// A text search's link to the thread making its blocking calls ([`IoLink`]), woken by [`Control::halt`].
     link: OnceLock<Arc<IoLink>>,
+    /// A text search's files read on several threads ([`Window`]), ended by [`Control::halt`].
+    window: OnceLock<Arc<Window>>,
+    /// The search hands, or handed, its walk over to read on several threads ([`Parallel::start`]): set before the
+    /// window is, so a stream that ends meanwhile lets go of the threads in flight ([`Streamed::next`]).
+    parallel: AtomicBool,
+    /// A test's deadline, passed when it says ([`pause::expire`]).
+    #[cfg(test)]
+    forced: AtomicBool,
 }
 
 impl Control {
@@ -1086,6 +1202,10 @@ impl Control {
             files_with_lines: AtomicUsize::new(0),
             in_file: AtomicBool::new(false),
             link: OnceLock::new(),
+            window: OnceLock::new(),
+            parallel: AtomicBool::new(false),
+            #[cfg(test)]
+            forced: AtomicBool::new(false),
         }
     }
 
@@ -1112,6 +1232,9 @@ impl Control {
         }
         if let Some(link) = self.link.get() {
             link.wake();
+        }
+        if let Some(window) = self.window.get() {
+            window.stop();
         }
     }
 
@@ -1140,6 +1263,10 @@ impl Control {
     }
 
     fn expired(&self) -> bool {
+        #[cfg(test)]
+        if self.forced.load(Ordering::SeqCst) {
+            return true;
+        }
         #[cfg(feature = "replay-controls")]
         if self.deadline.after_files.is_some_and(|n| self.files_with_lines.load(Ordering::SeqCst) >= n) {
             return true;
@@ -1199,6 +1326,9 @@ enum Ask {
     Open(PathBuf),
     /// Read at most this many bytes of the open file.
     Read(usize),
+    /// Walk the rest of the tree into this window ([`walk_into`]) if every call reads on the root's volume, searching
+    /// its files with this reader while it has no other.
+    Parallel(Arc<Window>, Box<dyn ReadFiles>),
 }
 
 /// That thread's answer; a read's bytes are in [`IoState::bytes`].
@@ -1206,6 +1336,8 @@ enum Answer {
     Next(Option<Result<Option<PathBuf>, FsError>>),
     Open(io::Result<()>),
     Read(io::Result<usize>),
+    /// It walks into the window from now on.
+    Parallel(bool),
 }
 
 #[derive(Default)]
@@ -1336,6 +1468,8 @@ struct Scan {
     first_per_file: bool,
     summary: bool,
     link: Arc<IoLink>,
+    /// How it reads on several threads once the tree proves large; `None`: never.
+    parallel: Option<Parallel>,
     #[cfg(feature = "count-jobs")]
     root: PathBuf,
     #[cfg(feature = "count-jobs")]
@@ -1469,12 +1603,24 @@ mod cancel_io {
             self.ticket.state.load(Ordering::SeqCst) == RELEASED
         }
     }
+    /// What the canceller cancels: abandoned producers, and the reader threads of searches that have their answer
+    /// ([`readers_until_ended`]).
+    #[derive(Default)]
+    struct Calls {
+        abandoned: Vec<Abandoned>,
+        answered: Vec<Arc<Ticket>>,
+    }
+    impl Calls {
+        fn len(&self) -> usize {
+            self.abandoned.len() + self.answered.len()
+        }
+    }
     struct Canceller {
-        abandoned: Mutex<Vec<Abandoned>>,
+        calls: Mutex<Calls>,
         added: Condvar,
     }
     static CANCELLER: LazyLock<Arc<Canceller>> = LazyLock::new(|| {
-        let canceller = Arc::new(Canceller { abandoned: Mutex::new(Vec::new()), added: Condvar::new() });
+        let canceller = Arc::new(Canceller { calls: Mutex::new(Calls::default()), added: Condvar::new() });
         let running = canceller.clone();
         // Without this thread nothing is cancelled or given up but by `close`: the others end when their calls return.
         let _ = std::thread::Builder::new().name("mixdog-fs-cancel".into()).spawn(move || running.run());
@@ -1484,34 +1630,63 @@ mod cancel_io {
     /// grace has passed.
     pub(super) fn until_ended(thread: JoinHandle<()>, interrupt: Option<Arc<Interrupt>>, ticket: Arc<Ticket>, producers: Arc<Producers>) {
         cancel(&thread, interrupt.as_deref());
+        cancel_readers(&ticket);
         let give_up_at = Instant::now() + producers.config.grace;
         let canceller = &*CANCELLER;
-        canceller.abandoned.lock().unwrap_or_else(PoisonError::into_inner).push(Abandoned { thread, interrupt, ticket, producers, give_up_at });
+        canceller.calls.lock().unwrap_or_else(PoisonError::into_inner).abandoned.push(Abandoned { thread, interrupt, ticket, producers, give_up_at });
+        canceller.added.notify_one();
+    }
+    /// Cancels the blocking calls of `ticket`'s reader threads now and again until they end: its search has its answer
+    /// ([`super::deliver`]), so what they read is no longer wanted, and the slot they hold is freed as soon as they
+    /// return. One its stream lets go of meanwhile is cancelled and given up with its producer ([`until_ended`]).
+    pub(super) fn readers_until_ended(ticket: Arc<Ticket>) {
+        if ticket.readers.lock().unwrap_or_else(PoisonError::into_inner).is_empty() {
+            return;
+        }
+        cancel_readers(&ticket);
+        let canceller = &*CANCELLER;
+        canceller.calls.lock().unwrap_or_else(PoisonError::into_inner).answered.push(ticket);
         canceller.added.notify_one();
     }
     impl Canceller {
         fn run(&self) {
-            let mut abandoned = self.abandoned.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut calls = self.calls.lock().unwrap_or_else(PoisonError::into_inner);
             let mut retry = FIRST_RETRY;
             loop {
                 let now = Instant::now();
-                for a in abandoned.iter().filter(|a| a.running() && a.give_up_at <= now) {
+                for a in calls.abandoned.iter().filter(|a| a.running() && a.give_up_at <= now) {
                     a.producers.give_up(&a.ticket);
                 }
                 // An ended or given-up thread is let go of: a given-up one is detached and runs on alone.
-                abandoned.retain(Abandoned::running);
-                let Some(next) = abandoned.iter().map(|a| a.give_up_at).min() else {
-                    abandoned = self.added.wait(abandoned).unwrap_or_else(PoisonError::into_inner);
+                calls.abandoned.retain(Abandoned::running);
+                // A given-up reader, as a given-up producer, is cancelled no more.
+                calls.answered.retain(|ticket| ticket.readers.lock().unwrap_or_else(PoisonError::into_inner).iter().any(|reader| reader.mark.is_none()));
+                let next = calls.abandoned.iter().map(|a| a.give_up_at).min();
+                if next.is_none() && calls.answered.is_empty() {
+                    calls = self.added.wait(calls).unwrap_or_else(PoisonError::into_inner);
                     retry = FIRST_RETRY;
                     continue;
-                };
-                let before = abandoned.len();
-                let wait = retry.min(next.saturating_duration_since(now));
-                abandoned = self.added.wait_timeout(abandoned, wait).unwrap_or_else(PoisonError::into_inner).0;
-                retry = if abandoned.len() > before { FIRST_RETRY } else { (retry * 2).min(LAST_RETRY) };
-                for a in abandoned.iter().filter(|a| a.running()) {
-                    cancel(&a.thread, a.interrupt.as_deref());
                 }
+                let before = calls.len();
+                let wait = next.map_or(retry, |next| retry.min(next.saturating_duration_since(now)));
+                calls = self.added.wait_timeout(calls, wait).unwrap_or_else(PoisonError::into_inner).0;
+                retry = if calls.len() > before { FIRST_RETRY } else { (retry * 2).min(LAST_RETRY) };
+                for a in calls.abandoned.iter().filter(|a| a.running()) {
+                    cancel(&a.thread, a.interrupt.as_deref());
+                    cancel_readers(&a.ticket);
+                }
+                for ticket in &calls.answered {
+                    cancel_readers(ticket);
+                }
+            }
+        }
+    }
+    /// Cancels the blocking calls of the threads `ticket`'s search reads files on besides its own ([`super::Parallel`]),
+    /// as its own thread's.
+    fn cancel_readers(ticket: &Ticket) {
+        for reader in ticket.readers.lock().unwrap_or_else(PoisonError::into_inner).iter() {
+            if let Some(thread) = &reader.thread {
+                cancel(thread, reader.interrupt.as_deref());
             }
         }
     }
@@ -1521,6 +1696,89 @@ mod cancel_io {
 mod unix_io;
 
 mod tree;
+
+/// Test-only pause points: the interleavings a test forces, each a hook run where the product reaches the point
+/// ([`pause::at`]), scoped by the search's root; and a deadline a test passes when it says ([`pause::expire`]).
+#[cfg(test)]
+mod pause {
+    use std::path::Path;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+    use std::sync::PoisonError;
+    use std::sync::Weak;
+    use std::sync::atomic::Ordering;
+
+    use super::Control;
+
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub(super) enum Point {
+        /// [`super::Producers::give_up`], right after it took the ticket's scheduler, its locks held.
+        GiveUpOwnerTaken,
+        /// A reader's end that found no scheduler, before it takes the readers' notes ([`super::ReaderEnd`]).
+        ReaderEndUnowned,
+        /// A reader thread before it takes its next file ([`super::Reader::run`]).
+        ReaderTake,
+        /// [`super::serve`] took [`super::Ask::Parallel`] and has not answered it.
+        ServeParallel,
+        /// [`super::serve`] is about to walk into the window ([`super::walk_into`]).
+        Walk,
+        /// [`super::Parallel::start`] ended the window of an ask not answered `Parallel(true)`.
+        StartAskFailed,
+        /// [`super::Parallel::start`] has its ask's `Parallel(true)` and has not published the window.
+        StartHanded,
+        /// [`super::deliver`] has the next file (the hook's path) and has not read the deadline for its turn.
+        DeliverEntry,
+        /// [`super::deliver`] gave the next file (the hook's path) its turn.
+        Granted,
+        /// [`super::deliver`] found the next file (the hook's path) with no reader, before it looks for places.
+        Regrow,
+    }
+
+    type Hook = Arc<dyn Fn(&Path) + Send + Sync>;
+
+    static HOOKS: Mutex<Vec<(PathBuf, Point, Hook)>> = Mutex::new(Vec::new());
+    static CONTROLS: Mutex<Vec<(PathBuf, Weak<Control>)>> = Mutex::new(Vec::new());
+
+    /// Runs the hook set for `point` over `root`, if one is, with `at` (a file, or the root).
+    pub(super) fn at(root: &Path, point: Point, at: &Path) {
+        let hook = HOOKS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|(scope, set, _)| *set == point && root.starts_with(scope))
+            .map(|(_, _, hook)| hook.clone());
+        if let Some(hook) = hook {
+            hook(at);
+        }
+    }
+
+    /// Runs `hook` at `point` for the searches under `scope`.
+    pub(super) fn set(scope: &Path, point: Point, hook: impl Fn(&Path) + Send + Sync + 'static) {
+        HOOKS.lock().unwrap_or_else(PoisonError::into_inner).push((scope.to_path_buf(), point, Arc::new(hook)));
+    }
+
+    /// Removes the hooks under `scope`.
+    pub(super) fn clear(scope: &Path) {
+        HOOKS.lock().unwrap_or_else(PoisonError::into_inner).retain(|(set, _, _)| !set.starts_with(scope));
+    }
+
+    /// A stream of a search of `root` ([`super::streamed`]), whose deadline [`expire`] can pass.
+    pub(super) fn control(root: &Path, ctl: &Arc<Control>) {
+        let mut controls = CONTROLS.lock().unwrap_or_else(PoisonError::into_inner);
+        controls.retain(|(_, ctl)| ctl.strong_count() > 0);
+        controls.push((root.to_path_buf(), Arc::downgrade(ctl)));
+    }
+
+    /// Passes the deadline of every search under `scope` now.
+    pub(super) fn expire(scope: &Path) {
+        for (_, ctl) in CONTROLS.lock().unwrap_or_else(PoisonError::into_inner).iter().filter(|(root, _)| root.starts_with(scope)) {
+            if let Some(ctl) = ctl.upgrade() {
+                ctl.forced.store(true, Ordering::SeqCst);
+            }
+        }
+    }
+}
 
 /// What a test can observe of the text searches: per search root, the matches produced and the searches whose
 /// producer is still alive.
@@ -2240,7 +2498,7 @@ mod tests {
         // The temp name is the target's plus 20 characters: past the 255-character name limit.
         let name = "n".repeat(250);
         let target = dir.path().join(&name);
-        let error = atomic_write(&target, b"x", &Expect::Nothing).unwrap_err();
+        let error = atomic_write(&target, b"x", &Expect::Nothing, None).unwrap_err();
         let Some(FsStep::Open { path }) = &error.step else { panic!("{error:?}") };
         let tmp_name = path.as_path().file_name().unwrap().to_string_lossy().into_owned();
         assert!(tmp_suffix_is_eight_hex(&tmp_name, &name), "{tmp_name}");
@@ -2253,7 +2511,7 @@ mod tests {
         let target = dir.path().join("occupied");
         fs::create_dir(&target).unwrap();
         fs::write(target.join("inner"), b"x").unwrap();
-        let error = atomic_write(&target, b"x", &Expect::Nothing).unwrap_err();
+        let error = atomic_write(&target, b"x", &Expect::Nothing, None).unwrap_err();
         let Some(FsStep::Rename { from, to }) = &error.step else { panic!("{error:?}") };
         assert_eq!(to.as_path(), target);
         assert!(tmp_suffix_is_eight_hex(&from.as_path().file_name().unwrap().to_string_lossy(), "occupied"));
@@ -2277,15 +2535,147 @@ mod tests {
         assert_ne!(unsafe { SetFileAttributesW(wide.as_ptr(), marks) }, 0);
         let locks = Arc::new(PathLocks::default());
         let request = WriteRequest { path: AbsPath::new(&target).unwrap(), content: b"new".to_vec(), precondition: WritePrecondition::Unconditional };
-        write_resolved(&locks, &resolve_write(&target).unwrap(), &request).unwrap();
+        write_resolved(&locks, &resolve_write(&target).unwrap(), &request, None).unwrap();
         assert_eq!(fs::read(&target).unwrap(), b"new");
         assert_eq!(fs::metadata(&target).unwrap().file_attributes() & marks, marks);
+    }
+    fn names_in(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        names
+    }
+
+    /// Cancels `cancel` when the write reaches `stage`.
+    fn cancel_at(stage: publish_barrier::Stage, cancel: &CancellationToken) -> publish_barrier::Guard {
+        let cancel = cancel.clone();
+        publish_barrier::set(move |at, _, _| {
+            if at == stage {
+                cancel.cancel();
+            }
+        })
+    }
+
+    /// A cancel that lands just before the rename publishes nothing: a replace leaves the old bytes, a create leaves
+    /// no file and no placeholder, and no temp file stays.
+    #[test]
+    fn a_write_cancelled_just_before_its_rename_publishes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("f.txt");
+        fs::write(&target, b"old").unwrap();
+        let cancel = CancellationToken::new();
+        let _barrier = cancel_at(publish_barrier::Stage::BeforeRename, &cancel);
+        let error = atomic_write(&target, b"new", &Expect::Nothing, Some(&cancel)).unwrap_err();
+        assert_eq!(error.kind, FsErrorKind::Cancelled { left: Vec::new() });
+        assert_eq!(fs::read(&target).unwrap(), b"old");
+        assert_eq!(names_in(dir.path()), ["f.txt"]);
+
+        let cancel = CancellationToken::new();
+        let _barrier = cancel_at(publish_barrier::Stage::BeforeRename, &cancel);
+        let created = dir.path().join("new.txt");
+        let error = atomic_write(&created, b"x", &Expect::Absent, Some(&cancel)).unwrap_err();
+        assert_eq!(error.kind, FsErrorKind::Cancelled { left: Vec::new() });
+        assert_eq!(names_in(dir.path()), ["f.txt"]);
+    }
+
+    /// A cancel that lands after the rename, before the write returns, is too late: the write answers as done and the
+    /// new bytes are what the disk holds.
+    #[test]
+    fn a_cancel_after_the_rename_finds_the_write_done() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("f.txt");
+        fs::write(&target, b"old").unwrap();
+        let cancel = CancellationToken::new();
+        let _barrier = cancel_at(publish_barrier::Stage::Renamed, &cancel);
+        atomic_write(&target, b"new", &Expect::Nothing, Some(&cancel)).unwrap();
+        assert!(cancel.is_cancelled());
+        assert_eq!(fs::read(&target).unwrap(), b"new");
+        assert_eq!(names_in(dir.path()), ["f.txt"]);
+    }
+
+    /// A cancelled write whose temp file cannot be removed says so: the answer names what is still on disk.
+    #[test]
+    fn a_cancelled_write_names_the_temp_file_it_could_not_remove() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("f.txt");
+        fs::write(&target, b"old").unwrap();
+        let cancel = CancellationToken::new();
+        let seen = Rc::new(RefCell::new(None::<PathBuf>));
+        let _barrier = {
+            let (cancel, seen) = (cancel.clone(), seen.clone());
+            publish_barrier::set(move |at, _, tmp| {
+                if at == publish_barrier::Stage::BeforeRename {
+                    cancel.cancel();
+                    // A temp name that no longer removes as a file (a held file on Windows refuses the same way).
+                    fs::remove_file(tmp).unwrap();
+                    fs::create_dir(tmp).unwrap();
+                    fs::write(tmp.join("inner"), b"x").unwrap();
+                    *seen.borrow_mut() = Some(tmp.to_path_buf());
+                }
+            })
+        };
+        let error = atomic_write(&target, b"new", &Expect::Nothing, Some(&cancel)).unwrap_err();
+        let tmp = seen.borrow().clone().unwrap();
+        assert_eq!(error.kind, FsErrorKind::Cancelled { left: vec![AbsPath::new(&tmp).unwrap()] });
+        assert_eq!(fs::read(&target).unwrap(), b"old");
+        assert!(tmp.is_dir(), "the named leftover is on disk");
+        assert_eq!(names_in(dir.path()).len(), 2);
+    }
+
+    /// A cancelled create whose placeholder is held open (a Windows sharing violation) names the placeholder, which is
+    /// still on disk, instead of answering a clean cancel.
+    #[cfg(windows)]
+    #[test]
+    fn a_cancelled_create_names_the_placeholder_it_could_not_remove() {
+        use std::os::windows::fs::OpenOptionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let created = dir.path().join("new.txt");
+        let cancel = CancellationToken::new();
+        let held = Rc::new(RefCell::new(None::<File>));
+        let _barrier = {
+            let (cancel, held) = (cancel.clone(), held.clone());
+            publish_barrier::set(move |at, target, _| {
+                if at == publish_barrier::Stage::BeforeRename {
+                    cancel.cancel();
+                    *held.borrow_mut() = Some(OpenOptions::new().read(true).share_mode(0).open(target).unwrap());
+                }
+            })
+        };
+        let error = atomic_write(&created, b"x", &Expect::Absent, Some(&cancel)).unwrap_err();
+        assert_eq!(error.kind, FsErrorKind::Cancelled { left: vec![AbsPath::new(&created).unwrap()] });
+        drop(held.borrow_mut().take());
+        assert_eq!(fs::read(&created).unwrap(), b"", "the named placeholder is the empty file left at the target");
+        assert_eq!(names_in(dir.path()), ["new.txt"]);
+    }
+
+    /// A batch cancelled once its first file is published replaces no further file and restores the first one.
+    #[test]
+    fn a_batch_cancelled_after_its_first_file_publishes_no_further_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("a.txt"), dir.path().join("b.txt"));
+        fs::write(&a, b"a0").unwrap();
+        fs::write(&b, b"b0").unwrap();
+        let cancel = CancellationToken::new();
+        let _barrier = {
+            let (cancel, first) = (cancel.clone(), a.clone());
+            publish_barrier::set(move |at, target, _| {
+                if at == publish_barrier::Stage::Renamed && target == first {
+                    cancel.cancel();
+                }
+            })
+        };
+        let request = |path: &Path, content: &[u8]| WriteRequest { path: AbsPath::new(path).unwrap(), content: content.to_vec(), precondition: WritePrecondition::Unconditional };
+        let requests = [request(&a, b"a1"), request(&b, b"b1")];
+        let error = write_batch_resolved(&Arc::new(PathLocks::default()), &requests, Some(&cancel)).unwrap_err();
+        assert!(matches!(error.kind, FsErrorKind::Cancelled { .. }), "{error:?}");
+        assert_eq!(fs::read(&a).unwrap(), b"a0");
+        assert_eq!(fs::read(&b).unwrap(), b"b0");
+        assert_eq!(names_in(dir.path()), ["a.txt", "b.txt"]);
     }
     #[test]
     fn a_successful_write_and_other_failures_carry_no_step() {
         let dir = tempfile::tempdir().unwrap();
         let target = dir.path().join("f.txt");
-        atomic_write(&target, b"x", &Expect::Nothing).unwrap();
+        atomic_write(&target, b"x", &Expect::Nothing, None).unwrap();
         assert!(plain(FsErrorKind::NotFound, &target).step.is_none());
     }
     #[test]
@@ -2303,10 +2693,10 @@ mod tests {
         let after = stat_version(&target).unwrap();
         assert_eq!((after.size, after.mtime_ns), (before.size, before.mtime_ns));
         assert_ne!(after, before);
-        let err = atomic_write(&target, b"new", &Expect::Version(before)).unwrap_err();
+        let err = atomic_write(&target, b"new", &Expect::Version(before), None).unwrap_err();
         assert!(matches!(err.kind, FsErrorKind::PreconditionFailed { actual: Some(ref a) } if a == b"two"), "{err:?}");
         assert_eq!(fs::read(&target).unwrap(), b"two");
-        atomic_write(&target, b"new", &Expect::Version(after)).unwrap();
+        atomic_write(&target, b"new", &Expect::Version(after), None).unwrap();
     }
 
     #[test]
@@ -2324,7 +2714,7 @@ mod tests {
                 content: b"must not be written".to_vec(),
                 precondition: WritePrecondition::FileEquals { stat, bytes: bytes.to_vec() },
             };
-            let error = write_resolved(&Arc::new(PathLocks::default()), &resolve_write(&path).unwrap(), &request).unwrap_err();
+            let error = write_resolved(&Arc::new(PathLocks::default()), &resolve_write(&path).unwrap(), &request, None).unwrap_err();
             assert!(matches!(error.kind, FsErrorKind::PreconditionFailed { .. }), "{error:?}");
             assert_eq!(fs::read(&path).unwrap().as_slice(), bytes);
         }
@@ -2342,7 +2732,7 @@ mod tests {
         let original = path.with_file_name("original.txt");
         fs::rename(&path, &original).unwrap();
         std::os::unix::fs::symlink(&original, &path).unwrap();
-        let error = atomic_write(&path, b"must not be written", &expect).unwrap_err();
+        let error = atomic_write(&path, b"must not be written", &expect, None).unwrap_err();
         assert!(matches!(error.kind, FsErrorKind::PreconditionFailed { actual: None }), "{error:?}");
         assert!(fs::symlink_metadata(path).unwrap().file_type().is_symlink());
         assert!(fs::read(original).unwrap().is_empty());
@@ -2395,7 +2785,7 @@ mod tests {
         remove_dir_link(link.as_path());
         make_dir_link(link.as_path(), b.as_path());
         let locks = Arc::new(PathLocks::default());
-        write_resolved(&locks, &resolved, &request).unwrap();
+        write_resolved(&locks, &resolved, &request, None).unwrap();
         assert_eq!(fs::read(a.join("f.txt").as_path()).unwrap(), b"payload", "the write must land where the path resolved");
         assert!(!b.join("f.txt").as_path().exists(), "the retargeted link redirected the write");
         assert!(fs::read_dir(b.as_path()).unwrap().next().is_none());
@@ -2668,6 +3058,903 @@ mod tests {
         ctl.halt();
         let error = SearcherBuilder::new().build().search_slice(&matcher, b"needle\nneedle\n", &mut sink).unwrap_err();
         assert!(matches!(halt_of(&error), Some(Halt::Stopped)));
+    }
+
+    /// A file whose read fails after its first chunk.
+    struct Torn {
+        file: File,
+        read: bool,
+    }
+
+    impl Read for Torn {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if std::mem::replace(&mut self.read, true) {
+                return Err(io::Error::other("torn"));
+            }
+            self.file.read(buf)
+        }
+    }
+
+    /// 240 files in six folders: matches dense and sparse, spanning lines, past the preview's columns, before a NUL, in
+    /// other cases, none; some whose open fails (`broken`), some whose read fails after its first chunk (`torn`), and
+    /// some whose read fails so only the first time they are opened (`flaky`), through [`parity_opener`].
+    fn wide_tree(root: &AbsPath) {
+        for i in 0..240 {
+            let dir = root.join(format!("d{}", i / 40));
+            fs::create_dir_all(dir.as_path()).unwrap();
+            let name = if i % 37 == 5 {
+                format!("f{i:03}-broken.txt")
+            } else if i % 31 == 11 {
+                format!("f{i:03}-flaky.txt")
+            } else if i % 29 == 7 {
+                format!("f{i:03}-torn.txt")
+            } else {
+                format!("f{i:03}.txt")
+            };
+            let content = match i % 6 {
+                0 => "needle one\nfiller\n".repeat(i % 5 + 1),
+                1 => "nothing here\n".to_owned(),
+                2 => "start\nend\nneedle start\nend\n".to_owned(),
+                3 => "needle\n\0needle\n".to_owned(),
+                4 => format!("{}needle\n", "x".repeat(700)),
+                _ => "Needle\nneedle in\nneedle out\n".to_owned(),
+            };
+            fs::write(dir.join(name).as_path(), content).unwrap();
+        }
+    }
+
+    /// The threads that open files, and how often each file is opened.
+    #[derive(Default)]
+    struct Opens {
+        threads: std::collections::HashSet<std::thread::ThreadId>,
+        times: std::collections::HashMap<PathBuf, usize>,
+    }
+
+    /// Opens files for [`wide_tree`]'s search, noting them in `opens`.
+    fn parity_opener(opens: Arc<Mutex<Opens>>) -> SharedOpener {
+        Arc::new(move |path: &Path| {
+            let times = {
+                let mut opens = opens.lock().unwrap();
+                opens.threads.insert(std::thread::current().id());
+                let times = opens.times.entry(path.to_path_buf()).or_default();
+                *times += 1;
+                *times
+            };
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            if name.contains("broken") {
+                return Err(io::Error::new(io::ErrorKind::PermissionDenied, "broken"));
+            }
+            let file = File::open(path)?;
+            let torn = name.contains("torn") || (name.contains("flaky") && times == 1);
+            Ok(if torn { Box::new(Torn { file, read: false }) as Box<dyn Read + Send> } else { Box::new(file) })
+        })
+    }
+
+    /// Opens files as they are.
+    fn as_is() -> SharedOpener {
+        Arc::new(|path: &Path| Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>))
+    }
+
+    /// `request`'s search of its real tree through `open`, on several threads too when `parallel`.
+    fn searched(producers: &Arc<Producers>, request: &SearchRequest, summary: bool, open: SharedOpener, parallel: bool) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
+        searched_in(producers, request, text_listing(request, Box::new(tree::RealDirs)).unwrap(), summary, open, parallel)
+    }
+
+    /// [`searched`] of the walk `walked`.
+    fn searched_in(producers: &Arc<Producers>, request: &SearchRequest, walked: Walked, summary: bool, open: SharedOpener, parallel: bool) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
+        let alone = open.clone();
+        search_with_output(producers, request, walked, Box::new(move |path| alone(path)), summary, parallel.then_some(open))
+    }
+
+    /// The name of the first file a parallel search reads on its readers: the one past [`PARALLEL_AFTER`].
+    fn first_parallel() -> String {
+        format!("f{PARALLEL_AFTER:03}.txt")
+    }
+
+    /// `n` files at `root`, `f000.txt` on, each one line `needle <i>`.
+    fn numbered(root: &AbsPath, n: usize) {
+        for i in 0..n {
+            fs::write(root.join(format!("f{i:03}.txt")).as_path(), format!("needle {i}\n")).unwrap();
+        }
+    }
+
+    /// Each item as its file's name and its line, or its error's kind and file's name: comparable across roots.
+    fn shown(items: &[Result<SearchMatch, FsError>]) -> Vec<String> {
+        let name = |path: &AbsPath| path.as_path().file_name().unwrap().to_string_lossy().into_owned();
+        items
+            .iter()
+            .map(|item| match item {
+                Ok(m) => format!("{} {} {} {} {:?}", name(&m.path), m.line, m.column, m.count, m.text),
+                Err(error) => format!("{:?} {:?}", error.kind, error.path.as_ref().map(name)),
+            })
+            .collect()
+    }
+
+    /// Opens through `open` once each open past `from` (by name) is let through ([`Gate::pass`]).
+    fn gated(gate: Arc<Gate>, from: String, open: SharedOpener) -> SharedOpener {
+        Arc::new(move |path: &Path| {
+            if path.file_name().unwrap().to_string_lossy().into_owned() >= from {
+                gate.pass();
+            }
+            open(path)
+        })
+    }
+
+    /// Opens that wait, as a call that does not return, until let through.
+    #[derive(Default)]
+    struct Gate {
+        /// The opens that came, and the ones still to let through.
+        state: Mutex<(usize, usize)>,
+        changed: Condvar,
+    }
+
+    impl Gate {
+        fn pass(&self) {
+            let mut state = self.state.lock().unwrap();
+            state.0 += 1;
+            self.changed.notify_all();
+            while state.1 == 0 {
+                state = self.changed.wait(state).unwrap();
+            }
+            state.1 -= 1;
+        }
+
+        fn let_through(&self, n: usize) {
+            self.state.lock().unwrap().1 += n;
+            self.changed.notify_all();
+        }
+
+        fn came(&self) -> usize {
+            self.state.lock().unwrap().0
+        }
+    }
+
+    /// Waits until `f` holds, at most 10 s, failing with `what`.
+    async fn reached(what: &str, mut f: impl FnMut() -> bool) {
+        assert!(eventually(&mut f).await, "{what} within 10 s");
+    }
+
+    async fn drained(mut stream: Box<dyn EventSource<Result<SearchMatch, FsError>>>) -> Vec<Result<SearchMatch, FsError>> {
+        let mut items = Vec::new();
+        while let Some(item) = within("the search's next item", stream.next()).await {
+            items.push(item);
+        }
+        items
+    }
+
+    /// A tree past [`PARALLEL_AFTER`] files read on several threads gives every request shape exactly the items, in
+    /// the order, of its search on one thread: limits cut inside the parallel part, a failed file's lines withdrawn
+    /// from the limit, one match per file, spanning lines, PCRE2, binary files as text, and rows per file; and each
+    /// file is opened once, so one that reads differently when opened again (`flaky`) answers as on one thread.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_parallel_search_delivers_what_the_search_on_one_thread_does_for_every_request_shape() {
+        let (_dir, root) = root();
+        wide_tree(&root);
+        let producers = Arc::new(Producers::new(scheduler(8, NODE_QUEUE, CLOSE_GRACE)));
+        let base = SearchRequest { regex: true, ..needle_request(&root, None) };
+        let spanning = SearchRequest { pattern: r"start\nend".into(), multiline: true, ..base.clone() };
+        let shapes = [
+            (base.clone(), false),
+            (SearchRequest { limit: Some(1), ..base.clone() }, false),
+            (SearchRequest { limit: Some(150), ..base.clone() }, false),
+            (SearchRequest { limit: Some(250), ..base.clone() }, false),
+            (SearchRequest { first_per_file: true, ..base.clone() }, false),
+            (SearchRequest { first_per_file: true, limit: Some(70), ..base.clone() }, false),
+            (SearchRequest { case_sensitive: false, ..base.clone() }, false),
+            (spanning.clone(), false),
+            (SearchRequest { pattern: "needle(?= in)".into(), pcre2: true, ..base.clone() }, false),
+            (SearchRequest { binary_as_text: true, ..base.clone() }, false),
+            (base.clone(), true),
+            (SearchRequest { first_per_file: true, ..base.clone() }, true),
+            (spanning, true),
+        ];
+        for (request, summary) in shapes {
+            let shape = format!("{} limit {:?} first {} multiline {} pcre2 {} text {} summary {summary}", request.pattern, request.limit, request.first_per_file, request.multiline, request.pcre2, request.binary_as_text);
+            let alone = drained(searched(&producers, &request, summary, parity_opener(Arc::default()), false)).await;
+            let opens = Arc::new(Mutex::new(Opens::default()));
+            let parallel = drained(searched(&producers, &request, summary, parity_opener(opens.clone()), true)).await;
+            assert!(alone.iter().any(Result::is_ok), "{shape}");
+            assert_eq!(format!("{parallel:#?}"), format!("{alone:#?}"), "{shape}");
+            let opens = opens.lock().unwrap();
+            assert!(opens.times.values().all(|times| *times == 1), "{shape}: each file is opened once");
+            if request.limit.is_none() {
+                assert!(opens.threads.len() > 1, "{shape}: its files are read on several threads");
+            }
+        }
+    }
+
+    /// Opens through [`as_is`], the open of [`first_parallel`] held until two files after it are opened on other threads
+    /// (at most 2 s, well within [`within`]'s wait): `overlapped` tells whether they were.
+    fn overlapping(overlapped: Arc<AtomicBool>) -> SharedOpener {
+        let opened = Arc::new((Mutex::new(Vec::<String>::new()), Condvar::new()));
+        let held = first_parallel();
+        let open = as_is();
+        Arc::new(move |path: &Path| {
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            let (names, changed) = &*opened;
+            names.lock().unwrap().push(name.clone());
+            changed.notify_all();
+            if name == held {
+                let names = names.lock().unwrap();
+                let later = |names: &mut Vec<String>| names.iter().filter(|n| **n > held).count() < 2;
+                let (_names, waited) = changed.wait_timeout_while(names, Duration::from_secs(2), later).unwrap();
+                overlapped.store(!waited.timed_out(), Ordering::SeqCst);
+            }
+            open(path)
+        })
+    }
+
+    /// Files read at once on several threads are delivered in path order: the first file read in parallel is held open
+    /// until two files after it are opened on other threads, and every file is still delivered in its place.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn files_read_at_once_on_several_threads_are_delivered_in_path_order() {
+        let (_dir, root) = root();
+        numbered(&root, 100);
+        let producers = Arc::new(Producers::new(scheduler(4, NODE_QUEUE, CLOSE_GRACE)));
+        let overlapped = Arc::new(AtomicBool::new(false));
+        let items = drained(searched(&producers, &needle_request(&root, None), false, overlapping(overlapped.clone()), true)).await;
+        assert!(overlapped.load(Ordering::SeqCst), "two later files were opened while {} was held open", first_parallel());
+        let delivered: Vec<(PathBuf, String)> = items.into_iter().map(|item| item.unwrap()).map(|m| (m.path.as_path().to_path_buf(), m.text)).collect();
+        let expected: Vec<(PathBuf, String)> = (0..100).map(|i| (root.join(format!("f{i:03}.txt")).as_path().to_path_buf(), format!("needle {i}"))).collect();
+        assert_eq!(delivered, expected);
+    }
+
+    /// A parallel search's deadline is answered as on one thread's: a replay's deadline that passes once
+    /// [`PARALLEL_AFTER`] + 8 files with lines were delivered, after the readers were seen reading at once, ends both
+    /// searches with the same items and the same `TimedOut`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_parallel_search_answers_its_deadline_as_the_search_on_one_thread_does() {
+        let (_dir, root) = root();
+        numbered(&root, 100);
+        let producers = Arc::new(Producers::new(scheduler(4, NODE_QUEUE, CLOSE_GRACE)));
+        deadline_script::set(root.as_path(), Some(deadline_script::Script::AfterFiles(PARALLEL_AFTER + 8)));
+        let alone = drained(searched(&producers, &needle_request(&root, None), false, as_is(), false)).await;
+        let overlapped = Arc::new(AtomicBool::new(false));
+        let parallel = drained(searched(&producers, &needle_request(&root, None), false, overlapping(overlapped.clone()), true)).await;
+        deadline_script::set(root.as_path(), None);
+        assert!(overlapped.load(Ordering::SeqCst), "the deadline passed after reads at once");
+        assert_eq!(shown(&parallel), shown(&alone));
+        assert_eq!(alone.len(), PARALLEL_AFTER + 9);
+        assert!(matches!(alone.last(), Some(Err(FsError { kind: FsErrorKind::TimedOut, .. }))), "{:?}", alone.last());
+    }
+
+    /// A file whose every read waits 20 ms.
+    struct Slow(File);
+
+    impl Read for Slow {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            std::thread::sleep(Duration::from_millis(20));
+            self.0.read(buf)
+        }
+    }
+
+    /// A parallel search stops at once on close: its readers end with it and give their places back.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_parallel_search_stops_on_close_and_its_readers_give_their_places_back() {
+        let (_dir, root) = root();
+        numbered(&root, 400);
+        let producers = Arc::new(Producers::new(scheduler(4, NODE_QUEUE, CLOSE_GRACE)));
+        let first = first_parallel();
+        let slow: SharedOpener = Arc::new(move |path: &Path| {
+            let file = File::open(path)?;
+            let late = path.file_name().unwrap().to_string_lossy().into_owned() >= first;
+            Ok(if late { Box::new(Slow(file)) as Box<dyn Read + Send> } else { Box::new(file) })
+        });
+        let mut stream = searched(&producers, &needle_request(&root, None), false, slow, true);
+        for i in 0..PARALLEL_AFTER + 8 {
+            assert_eq!(within("an item", stream.next()).await.unwrap().unwrap().text, format!("needle {i}"));
+        }
+        assert_eq!(producers.readers_started.load(Ordering::SeqCst), 3, "total 4: the search and three readers");
+        let started = Instant::now();
+        stream.close().await;
+        assert!(started.elapsed() < CLOSE_GRACE, "{:?}", started.elapsed());
+        assert_eq!(producers.counts(), ProducerCounts::default(), "close returns once its readers have ended");
+        assert_eq!(producers.lock().readers, 0, "its readers gave their places back");
+    }
+
+    /// Reader threads take places in the capacity searches are admitted by: with a total of two, a search and its one
+    /// reader leave none, so the next search waits until the file that reader is on is done.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn reader_threads_take_the_places_waiting_searches_are_admitted_by() {
+        let (_dir, root) = root();
+        numbered(&root, 60);
+        let producers = Arc::new(Producers::new(scheduler(2, NODE_QUEUE, CLOSE_GRACE)));
+        let gate = Arc::new(Gate::default());
+        let first = searched(&producers, &needle_request(&root, None), false, gated(gate.clone(), first_parallel(), as_is()), true);
+        reached("the reader at its gate", || gate.came() == 1).await;
+        assert_eq!(producers.readers_started.load(Ordering::SeqCst), 1);
+        let (_other, other) = self::root();
+        fs::write(other.join("a.txt").as_path(), "needle\n").unwrap();
+        let (listing, open) = one_file(other.join("a.txt").as_path());
+        let second = search_over(&producers, &needle_request(&other, None), listing, open);
+        until(&producers, "the next search waits", |c| c.waiting == 1 && c.live == 1).await;
+        gate.let_through(usize::MAX / 2);
+        assert_eq!(drained(first).await.len(), 60);
+        assert_eq!(drained(second).await.len(), 1, "admitted once the reader ended");
+    }
+
+    /// A search given up while its readers are stuck counts every stuck thread, its own and each reader's, and the
+    /// count falls as each returns.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn every_stuck_thread_of_a_given_up_search_is_counted_until_it_returns() {
+        let (_dir, root) = root();
+        numbered(&root, 60);
+        let producers = Arc::new(Producers::new(scheduler(4, NODE_QUEUE, Duration::ZERO)));
+        let gate = Arc::new(Gate::default());
+        let stream = searched(&producers, &needle_request(&root, None), false, gated(gate.clone(), first_parallel(), as_is()), true);
+        reached("three readers at their gate", || gate.came() == 3).await;
+        drop(stream);
+        // A given-up thread's end changes no count the scheduler keeps: `settled` sees it ([`probe::changed`]).
+        settled(&producers, "the search given up, its thread and three readers stalled", ProducerCounts { stalled: 4, ..Default::default() }).await;
+        assert_eq!(producers.lock().readers, 0, "the given-up readers' places are free");
+        gate.let_through(1);
+        settled(&producers, "one reader returned", ProducerCounts { stalled: 3, ..Default::default() }).await;
+        gate.let_through(2);
+        settled(&producers, "every thread returned", ProducerCounts::default()).await;
+    }
+
+    /// A search that arrives while a running one holds every reader place is not queued behind it: the readers give
+    /// their places back as each finishes its file, the newcomer starts and ends while the first still runs, on its
+    /// stream's thread alone, and the first takes places again once none waits, delivering every file in order.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_search_arriving_while_another_holds_every_reader_place_starts_while_it_runs() {
+        let (_dir, root) = root();
+        numbered(&root, 200);
+        let producers = Arc::new(Producers::new(scheduler(2, NODE_QUEUE, CLOSE_GRACE)));
+        let first = first_parallel();
+        let slow: SharedOpener = Arc::new(move |path: &Path| {
+            let file = File::open(path)?;
+            let late = path.file_name().unwrap().to_string_lossy().into_owned() >= first;
+            Ok(if late { Box::new(Slow(file)) as Box<dyn Read + Send> } else { Box::new(file) })
+        });
+        let mut running = searched(&producers, &needle_request(&root, None), false, slow, true);
+        for i in 0..PARALLEL_AFTER + 4 {
+            assert_eq!(within("an item", running.next()).await.unwrap().unwrap().text, format!("needle {i}"));
+        }
+        assert_eq!(producers.readers_started.load(Ordering::SeqCst), 1, "total 2: the search and its one reader");
+        let (_other, other) = self::root();
+        fs::write(other.join("a.txt").as_path(), "needle\n").unwrap();
+        let (listing, open) = one_file(other.join("a.txt").as_path());
+        let arriving = search_over(&producers, &needle_request(&other, None), listing, open);
+        let arrived = within("the arriving search's answer", drained(arriving)).await;
+        assert_eq!(arrived.len(), 1);
+        assert_eq!(arrived[0].as_ref().unwrap().text, "needle");
+        until(&producers, "the arriving search's end, the first still running", |c| c.live == 1).await;
+        let rest: Vec<String> = drained(running).await.into_iter().map(|item| item.unwrap().text).collect();
+        assert_eq!(rest, (PARALLEL_AFTER + 4..200).map(|i| format!("needle {i}")).collect::<Vec<_>>());
+        assert!(producers.readers_started.load(Ordering::SeqCst) > 1, "a reader started again once none waited");
+    }
+
+    /// Opens the files from `from` on (by name) as a read that blocks until it is cancelled (as [`blocked_read`]'s),
+    /// the others as they are.
+    fn blocking_from(from: String, scratch: &Path) -> SharedOpener {
+        #[cfg(windows)]
+        {
+            let _ = scratch;
+            let writers = Mutex::new(Vec::new());
+            Arc::new(move |path: &Path| {
+                if path.file_name().unwrap().to_string_lossy().into_owned() < from {
+                    return Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>);
+                }
+                let (reader, writer) = io::pipe()?;
+                writers.lock().unwrap().push(writer);
+                Ok(Box::new(reader) as Box<dyn Read + Send>)
+            })
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt as _;
+            let fifo = scratch.join("fifo");
+            let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+            // SAFETY: a NUL-terminated path.
+            assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0, "{}", io::Error::last_os_error());
+            Arc::new(move |path: &Path| {
+                if path.file_name().unwrap().to_string_lossy().into_owned() < from { open_to_search(path) } else { open_to_search(&fifo) }
+            })
+        }
+    }
+
+    /// A search cut by its limit frees its slot while its stream is still held: the reads its readers have in flight
+    /// are cancelled as soon as it has its answer.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_search_cut_by_its_limit_frees_its_slot_while_its_stream_is_held() {
+        let (_dir, root) = root();
+        numbered(&root, 60);
+        let scratch = tempfile::tempdir().unwrap();
+        let producers = Arc::new(Producers::new(scheduler(4, NODE_QUEUE, CLOSE_GRACE)));
+        let request = SearchRequest { limit: Some(PARALLEL_AFTER + 1), ..needle_request(&root, None) };
+        let blocking = blocking_from(format!("f{:03}.txt", PARALLEL_AFTER + 1), scratch.path());
+        let mut stream = searched(&producers, &request, false, blocking, true);
+        for i in 0..=PARALLEL_AFTER {
+            assert_eq!(within("an item", stream.next()).await.unwrap().unwrap().text, format!("needle {i}"));
+        }
+        assert!(within("the answer's end", stream.next()).await.is_none());
+        until(&producers, "the slot freed, the stream held", |c| c.live == 0).await;
+        assert_eq!(producers.lock().readers, 0);
+        assert_eq!(producers.readers_started.load(Ordering::SeqCst), 3);
+        drop(stream);
+    }
+
+    /// What a parallel search holds ahead of a consumer that stops reading is what the search on one thread holds: its
+    /// queue and the one item its next file waits to queue, the readers of the files after it waiting at their first
+    /// match with nothing of it built.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_parallel_search_holds_its_queue_and_one_item_ahead_of_a_stopped_consumer() {
+        // Lines of 80,208 bytes, each its whole preview ([`a_consumer_that_stops_reading_holds_the_producer_at_its_queue_bytes`]).
+        let line = format!("needle {}\n", format!("e{}", "\u{301}".repeat(200)).repeat(200));
+        let producers = Arc::new(Producers::new(scheduler(4, NODE_QUEUE, CLOSE_GRACE)));
+        for parallel in [false, true] {
+            let (_dir, root) = root();
+            for i in 0..PARALLEL_AFTER {
+                fs::write(root.join(format!("f{i:03}.txt")).as_path(), "x\n").unwrap();
+            }
+            for i in PARALLEL_AFTER..PARALLEL_AFTER + 16 {
+                fs::write(root.join(format!("f{i:03}.txt")).as_path(), line.repeat(20)).unwrap();
+            }
+            let opens = Arc::new(Mutex::new(Opens::default()));
+            let mut stream = searched(&producers, &needle_request(&root, None), false, parity_opener(opens.clone()), parallel);
+            let first = within("the first match", stream.next()).await.unwrap().unwrap();
+            let fits = QUEUE_BYTES / first.weight();
+            let found = || probe::search(root.as_path()).found;
+            reached("the queue full", || found() == fits as u64 + 1).await;
+            if parallel {
+                reached("readers at the files after the next", || opens.lock().unwrap().times.len() >= PARALLEL_AFTER + 3).await;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            assert_eq!(found(), fits as u64 + 1, "parallel {parallel}: the queue and one item, nothing more");
+            stream.close().await;
+        }
+    }
+
+    /// A consumer paused past the deadline gets from a parallel search what it gets from one thread: the queue, the
+    /// rest of the chunk the next file's search was in, then `TimedOut` naming that file.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_consumer_paused_past_the_deadline_gets_what_one_thread_answers() {
+        let big: String = (0..3000).map(|n| format!("needle {n:05} {}\n", "y".repeat(100))).collect();
+        let producers = Arc::new(Producers::new(scheduler(4, NODE_QUEUE, CLOSE_GRACE)));
+        let mut answers = Vec::new();
+        for parallel in [false, true] {
+            let (_dir, root) = root();
+            for i in 0..PARALLEL_AFTER + 8 {
+                let content = if i == PARALLEL_AFTER { big.as_str() } else { "x\n" };
+                fs::write(root.join(format!("f{i:03}.txt")).as_path(), content).unwrap();
+            }
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let stream = searched(&producers, &needle_request(&root, Some(deadline)), false, as_is(), parallel);
+            reached("the queue full", || probe::search(root.as_path()).found >= QUEUE as u64).await;
+            assert!(Instant::now() < deadline, "the queue filled before the deadline");
+            tokio::time::sleep_until((deadline + Duration::from_millis(100)).into()).await;
+            answers.push(shown(&drained(stream).await));
+        }
+        assert_eq!(answers[1], answers[0]);
+        let last = answers[0].last().unwrap();
+        assert_eq!(*last, format!("TimedOut {:?}", Some(first_parallel())), "{} items", answers[0].len());
+        assert!(answers[0].len() < 3001);
+    }
+
+    /// No reader thread starts for a tree that ends at [`PARALLEL_AFTER`] files, or for one with a mount point below
+    /// its root, which stays on one thread; both answer as one thread does.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn no_reader_starts_for_a_tree_that_ends_at_the_threshold_or_stays_on_one_thread() {
+        let producers = Arc::new(Producers::new(scheduler(4, NODE_QUEUE, CLOSE_GRACE)));
+        let (_small, small) = root();
+        numbered(&small, PARALLEL_AFTER);
+        let request = needle_request(&small, None);
+        let alone = drained(searched(&producers, &request, false, as_is(), false)).await;
+        assert_eq!(alone.len(), PARALLEL_AFTER);
+        assert_eq!(shown(&drained(searched(&producers, &request, false, as_is(), true)).await), shown(&alone));
+
+        let (_mounted, mounted) = root();
+        numbered(&mounted, PARALLEL_AFTER + 20);
+        let request = needle_request(&mounted, None);
+        let walked = text_listing(&request, Box::new(tree::RealDirs)).unwrap();
+        let point = mounted.join("mnt").as_path().to_path_buf();
+        locked(&walked.volumes).table = Box::new(move || Some(vec![(point.clone(), "mounted".to_owned())]));
+        let parallel = drained(searched_in(&producers, &request, walked, false, as_is(), true)).await;
+        let alone = drained(searched(&producers, &request, false, as_is(), false)).await;
+        assert_eq!(shown(&parallel), shown(&alone));
+        assert_eq!(alone.len(), PARALLEL_AFTER + 20);
+        assert_eq!(producers.readers_started.load(Ordering::SeqCst), 0);
+    }
+
+    /// A one-way signal between a test and the threads it holds at a point.
+    #[derive(Default)]
+    struct Latch {
+        open: Mutex<bool>,
+        changed: Condvar,
+    }
+
+    impl Latch {
+        fn open(&self) {
+            *self.open.lock().unwrap() = true;
+            self.changed.notify_all();
+        }
+
+        fn is_open(&self) -> bool {
+            *self.open.lock().unwrap()
+        }
+
+        /// A product thread held until the test opens it: no watchdog of its own, the test's waits have one.
+        fn hold(&self) {
+            let mut open = self.open.lock().unwrap();
+            while !*open {
+                open = self.changed.wait(open).unwrap();
+            }
+        }
+
+        /// The test waits for a point to be reached, at most 10 s.
+        fn wait(&self, what: &str) {
+            let open = self.open.lock().unwrap();
+            let (open, _) = self.changed.wait_timeout_while(open, Duration::from_secs(10), |open| !*open).unwrap();
+            assert!(*open, "{what} within 10 s");
+        }
+    }
+
+    fn latch() -> Arc<Latch> {
+        Arc::default()
+    }
+
+    /// Waits until `f` holds, at most 10 s, blocking the thread: for a test whose clock is paused.
+    fn poll_until(what: &str, mut f: impl FnMut() -> bool) {
+        let until = Instant::now() + Duration::from_secs(10);
+        while !f() {
+            assert!(Instant::now() < until, "{what} within 10 s");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// `walked` with its walk held as it lists `held`: the walker is in a listing call nothing cancels until `release`
+    /// opens, `entered` opened once it is.
+    fn walk_held_at(walked: Walked, held: String, entered: Arc<Latch>, release: Arc<Latch>) -> Walked {
+        let Walked { mut listing, volumes } = walked;
+        let listing: Listing = Box::new(std::iter::from_fn(move || {
+            let next = listing.next();
+            if let Some(Ok(Some(file))) = &next
+                && file.file_name().is_some_and(|name| name == held.as_str()) {
+                entered.open();
+                release.hold();
+            }
+            next
+        }));
+        Walked { listing, volumes }
+    }
+
+    /// The name of the file after `n` past [`first_parallel`].
+    fn after_first(n: usize) -> String {
+        format!("f{:03}.txt", PARALLEL_AFTER + n)
+    }
+
+    /// A reader that ends while [`Producers::give_up`] has taken its search's scheduler finds none and waits for the
+    /// readers' notes `give_up` holds: it is marked a given-up thread with the rest, its place freed, and its mark goes
+    /// when it exits; the scheduler then admits a search with its full capacity.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_reader_ending_while_its_search_is_given_up_is_counted_until_it_exits() {
+        let (_dir, root) = root();
+        numbered(&root, 60);
+        let producers = Arc::new(Producers::new(scheduler(2, NODE_QUEUE, Duration::ZERO)));
+        let gate = Arc::new(Gate::default());
+        let (paused, resume, unowned) = (latch(), latch(), latch());
+        {
+            let (paused, resume) = (paused.clone(), resume.clone());
+            pause::set(root.as_path(), pause::Point::GiveUpOwnerTaken, move |_| {
+                paused.open();
+                resume.hold();
+            });
+            let unowned = unowned.clone();
+            pause::set(root.as_path(), pause::Point::ReaderEndUnowned, move |_| unowned.open());
+        }
+        let mut stream = searched(&producers, &needle_request(&root, None), false, gated(gate.clone(), first_parallel(), as_is()), true);
+        for i in 0..PARALLEL_AFTER {
+            assert_eq!(within("an item", stream.next()).await.unwrap().unwrap().text, format!("needle {i}"));
+        }
+        reached("the reader at its gate", || gate.came() == 1).await;
+        drop(stream);
+        paused.wait("give_up past its taking of the scheduler");
+        gate.let_through(1);
+        unowned.wait("the reader's end finding no scheduler");
+        resume.open();
+        settled(&producers, "the reader's mark gone with it, and its search's", ProducerCounts::default()).await;
+        assert_eq!(producers.lock().readers, 0, "no place left counted for a thread that is gone");
+        pause::clear(root.as_path());
+
+        let (_other, other) = self::root();
+        numbered(&other, 60);
+        let before = producers.readers_started.load(Ordering::SeqCst);
+        assert_eq!(drained(searched(&producers, &needle_request(&other, None), false, as_is(), true)).await.len(), 60);
+        assert_eq!(producers.readers_started.load(Ordering::SeqCst) - before, 1, "total 2: the search and one reader");
+    }
+
+    /// A search, total 2, whose walk is held as it lists the file after its head file, whose sole reader gave its place
+    /// to a newcomer held in its read, and whose scan is at its retry for a reader ([`yielded`]).
+    struct Yielded {
+        producers: Arc<Producers>,
+        root: AbsPath,
+        running: Box<dyn EventSource<Result<SearchMatch, FsError>>>,
+        /// The newcomer's items, taken by a task of its own: a stream starts its producer only when it is polled.
+        arriving: tokio::task::JoinHandle<Vec<Result<SearchMatch, FsError>>>,
+        /// Releases the walk.
+        walk: Arc<Latch>,
+        /// Releases the newcomer's read.
+        newcomer: Arc<Latch>,
+        _dirs: (tempfile::TempDir, tempfile::TempDir),
+    }
+
+    async fn yielded() -> Yielded {
+        let (dir, root) = root();
+        numbered(&root, 100);
+        let producers = Arc::new(Producers::new(scheduler(2, NODE_QUEUE, CLOSE_GRACE)));
+        let (walking, walk, at_take, take, retry) = (latch(), latch(), latch(), latch(), latch());
+        {
+            let (at_take, take) = (at_take.clone(), take.clone());
+            let first = AtomicBool::new(true);
+            pause::set(root.as_path(), pause::Point::ReaderTake, move |_| {
+                if first.swap(false, Ordering::SeqCst) {
+                    at_take.open();
+                    take.hold();
+                }
+            });
+            let retry = retry.clone();
+            pause::set(root.as_path(), pause::Point::Regrow, move |_| retry.open());
+        }
+        let request = needle_request(&root, None);
+        let walked = walk_held_at(text_listing(&request, Box::new(tree::RealDirs)).unwrap(), after_first(1), walking.clone(), walk.clone());
+        let mut running = searched_in(&producers, &request, walked, false, as_is(), true);
+        for i in 0..PARALLEL_AFTER {
+            assert_eq!(within("an item", running.next()).await.unwrap().unwrap().text, format!("needle {i}"));
+        }
+        walking.wait("the walk held as it lists the file after the head file");
+        at_take.wait("the sole reader before its first file");
+
+        let (other_dir, other) = self::root();
+        fs::write(other.join("a.txt").as_path(), "needle\n").unwrap();
+        let (reading, newcomer) = (latch(), latch());
+        let open: Opener = {
+            let (reading, newcomer) = (reading.clone(), newcomer.clone());
+            Box::new(move |path| {
+                reading.open();
+                newcomer.hold();
+                Ok(Box::new(File::open(path)?) as Box<dyn Read + Send>)
+            })
+        };
+        let listing: Listing = Box::new(std::iter::once(Ok(Some(other.join("a.txt").as_path().to_path_buf()))));
+        let arriving = tokio::spawn(drained(search_over(&producers, &needle_request(&other, None), listing, open)));
+        until(&producers, "the newcomer waits for a slot", |c| c.waiting == 1).await;
+        take.open();
+        reading.wait("the newcomer admitted in the reader's place, held in its read");
+        retry.wait("the scan at its retry for a reader");
+        Yielded { producers, root, running, arriving, walk, newcomer, _dirs: (dir, other_dir) }
+    }
+
+    /// Once the newcomer that took the sole reader's place ends, the scan's retry takes the place again and the head
+    /// file's result arrives while the walk is still held.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_search_whose_readers_yielded_takes_a_place_again_while_its_walk_is_held() {
+        let Yielded { producers, root, mut running, arriving, walk, newcomer, _dirs } = yielded().await;
+        newcomer.open();
+        assert_eq!(arriving.await.unwrap().len(), 1);
+        let head = within("the head file's result", running.next()).await.unwrap().unwrap();
+        assert_eq!(head.text, format!("needle {PARALLEL_AFTER}"));
+        assert!(!walk.is_open(), "the walk is still held");
+        walk.open();
+        let rest: Vec<String> = drained(running).await.into_iter().map(|item| item.unwrap().text).collect();
+        assert_eq!(rest, (PARALLEL_AFTER + 1..100).map(|i| format!("needle {i}")).collect::<Vec<_>>());
+        settled(&producers, "every thread ended", ProducerCounts::default()).await;
+        pause::clear(root.as_path());
+    }
+
+    /// A deadline that passes while the head file has no reader and the walk and the newcomer are both held is
+    /// answered: the timeout naming the head file, the search's last item.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_search_whose_readers_yielded_answers_its_deadline_with_everything_held() {
+        let Yielded { producers, root, mut running, arriving, walk, newcomer, _dirs } = yielded().await;
+        pause::expire(root.as_path());
+        let answer = within("a terminal answer", running.next()).await.unwrap().unwrap_err();
+        assert!(matches!(answer.kind, FsErrorKind::TimedOut), "{answer:?}");
+        assert_eq!(answer.path.map(|path| path.as_path().to_path_buf()), Some(root.join(first_parallel()).as_path().to_path_buf()));
+        assert!(within("the end after the timeout", running.next()).await.is_none());
+        assert!(!walk.is_open() && !newcomer.is_open(), "answered with both still held");
+        newcomer.open();
+        walk.open();
+        assert_eq!(arriving.await.unwrap().len(), 1);
+        settled(&producers, "every thread ended", ProducerCounts::default()).await;
+        pause::clear(root.as_path());
+    }
+
+    /// A stop that ends the scan's wait for its handoff after the stream's thread took it, before its answer: the scan
+    /// ends the window; the stream's thread, answering, finds it over, walks nothing, and the slot comes back as the
+    /// threads end, with no give-up (the grace is ten seconds).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_handoff_stopped_before_its_answer_ends_the_walk_without_a_give_up() {
+        let (_dir, root) = root();
+        numbered(&root, 60);
+        let producers = Arc::new(Producers::new(scheduler(2, NODE_QUEUE, Duration::from_secs(10))));
+        let (asked, answer, failed, scan, walking) = (latch(), latch(), latch(), latch(), latch());
+        {
+            let (asked, answer) = (asked.clone(), answer.clone());
+            pause::set(root.as_path(), pause::Point::ServeParallel, move |_| {
+                asked.open();
+                answer.hold();
+            });
+            let (failed, scan) = (failed.clone(), scan.clone());
+            pause::set(root.as_path(), pause::Point::StartAskFailed, move |_| {
+                failed.open();
+                scan.hold();
+            });
+            let walking = walking.clone();
+            pause::set(root.as_path(), pause::Point::Walk, move |_| walking.open());
+        }
+        let mut stream = searched(&producers, &needle_request(&root, None), false, as_is(), true);
+        for i in 0..PARALLEL_AFTER {
+            assert_eq!(within("an item", stream.next()).await.unwrap().unwrap().text, format!("needle {i}"));
+        }
+        asked.wait("the stream's thread holding the handoff");
+        drop(stream);
+        failed.wait("the scan ending the window of its unanswered handoff");
+        answer.open();
+        walking.wait("the stream's thread walking into the ended window");
+        scan.open();
+        settled(&producers, "the slot back with no give-up", ProducerCounts::default()).await;
+        assert_eq!(producers.lock().readers, 0);
+        assert_eq!(producers.readers_started.load(Ordering::SeqCst), 0, "no reader started for a handoff not answered");
+        pause::clear(root.as_path());
+    }
+
+    /// The stream's timeout delivered while its scan is between the handoff's answer and the window's publication and
+    /// its walk is in a listing call nothing cancels: the stream, kept, lets go of the producer at its terminal item, so
+    /// with no grace the slot is free before the walk is released, and the stalled count returns to zero once the
+    /// threads end. The deadline is far off on the producers' clock: only the stream's own timer, on the paused clock,
+    /// passes it, once the queued items are taken.
+    #[tokio::test(flavor = "current_thread", start_paused = true)]
+    async fn a_timeout_before_the_window_is_published_frees_the_slot_with_the_walk_held() {
+        let (_dir, root) = root();
+        numbered(&root, 60);
+        let producers = Arc::new(Producers::new(scheduler(2, NODE_QUEUE, Duration::ZERO)));
+        let (handed, publish, walking, walk) = (latch(), latch(), latch(), latch());
+        {
+            let (handed, publish) = (handed.clone(), publish.clone());
+            pause::set(root.as_path(), pause::Point::StartHanded, move |_| {
+                handed.open();
+                publish.hold();
+            });
+        }
+        let request = needle_request(&root, Some(Instant::now() + Duration::from_secs(3600)));
+        let walked = walk_held_at(text_listing(&request, Box::new(tree::RealDirs)).unwrap(), after_first(1), walking.clone(), walk.clone());
+        let mut stream = searched_in(&producers, &request, walked, false, as_is(), true);
+        handed.wait("the handoff answered, the window not published");
+        walking.wait("the walk in its listing call");
+        for i in 0..PARALLEL_AFTER {
+            assert_eq!(stream.next().await.unwrap().unwrap().text, format!("needle {i}"));
+        }
+        let timeout = stream.next().await.unwrap().unwrap_err();
+        assert!(matches!(timeout.kind, FsErrorKind::TimedOut), "{timeout:?}");
+        poll_until("the slot free with the walk still held", || {
+            let counts = producers.counts();
+            counts.live == 0 && counts.abandoned == 0 && counts.stalled > 0
+        });
+        assert!(!walk.is_open() && !publish.is_open());
+        publish.open();
+        walk.open();
+        poll_until("the stalled count back to zero", || producers.counts() == ProducerCounts::default());
+        drop(stream);
+        pause::clear(root.as_path());
+    }
+
+    /// A file whose first read is held until `release` opens, `reading` opened once it is.
+    struct HeldRead {
+        file: File,
+        reading: Arc<Latch>,
+        release: Arc<Latch>,
+        first: bool,
+    }
+
+    impl Read for HeldRead {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if std::mem::take(&mut self.first) {
+                self.reading.open();
+                self.release.hold();
+            }
+            self.file.read(buf)
+        }
+    }
+
+    /// The head file given its turn on time, its first read held across the deadline, returning its matching line: a
+    /// parallel search delivers exactly what one thread does, ending in the timeout naming the file.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_first_read_held_across_the_deadline_answers_as_one_thread_does() {
+        let producers = Arc::new(Producers::new(scheduler(4, NODE_QUEUE, CLOSE_GRACE)));
+        let mut answers = Vec::new();
+        for parallel in [false, true] {
+            let (_dir, root) = root();
+            numbered(&root, 60);
+            let (reading, release, granted) = (latch(), latch(), latch());
+            if parallel {
+                let (granted, head) = (granted.clone(), root.join(first_parallel()).as_path().to_path_buf());
+                pause::set(root.as_path(), pause::Point::Granted, move |path| {
+                    if path == head {
+                        granted.open();
+                    }
+                });
+            } else {
+                granted.open();
+            }
+            let open: SharedOpener = {
+                let (reading, release, held) = (reading.clone(), release.clone(), first_parallel());
+                Arc::new(move |path: &Path| {
+                    let file = File::open(path)?;
+                    Ok(if path.file_name().is_some_and(|name| name == held.as_str()) {
+                        Box::new(HeldRead { file, reading: reading.clone(), release: release.clone(), first: true }) as Box<dyn Read + Send>
+                    } else {
+                        Box::new(file)
+                    })
+                })
+            };
+            let stream = searched(&producers, &needle_request(&root, None), false, open, parallel);
+            reading.wait("the head file's first read under way");
+            granted.wait("the head file's turn given");
+            pause::expire(root.as_path());
+            release.open();
+            answers.push(shown(&drained(stream).await));
+            pause::clear(root.as_path());
+        }
+        assert_eq!(answers[1], answers[0]);
+        // What one thread answers is the measure, whichever it is: the searcher fills its buffer before it reports a
+        // line, so a file of one short line is read again, past the deadline, before the line is delivered.
+        assert_eq!(answers[0].last(), Some(&format!("TimedOut {:?}", Some(first_parallel()))), "{} items", answers[0].len());
+    }
+
+    /// A file whose second read fails, opening `errored` as it does.
+    struct TornSignal {
+        file: File,
+        read: bool,
+        errored: Arc<Latch>,
+    }
+
+    impl Read for TornSignal {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            if std::mem::replace(&mut self.read, true) {
+                self.errored.open();
+                return Err(io::Error::other("torn"));
+            }
+            self.file.read(buf)
+        }
+    }
+
+    /// A file read ahead that ended with a read error, whose turn comes after the deadline passed (between the scan's
+    /// check before the entry and the turn), is answered only with the timeout naming it: on one thread its first
+    /// read's check would have answered it so.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_file_failed_ahead_whose_turn_comes_late_answers_only_its_timeout() {
+        let (_dir, root) = root();
+        numbered(&root, 60);
+        let torn = after_first(2);
+        fs::write(root.join(&torn).as_path(), "x\n").unwrap();
+        let producers = Arc::new(Producers::new(scheduler(4, NODE_QUEUE, CLOSE_GRACE)));
+        let errored = latch();
+        let open: SharedOpener = {
+            let (errored, torn) = (errored.clone(), torn.clone());
+            Arc::new(move |path: &Path| {
+                let file = File::open(path)?;
+                Ok(if path.file_name().is_some_and(|name| name == torn.as_str()) {
+                    Box::new(TornSignal { file, read: false, errored: errored.clone() }) as Box<dyn Read + Send>
+                } else {
+                    Box::new(file)
+                })
+            })
+        };
+        {
+            let (scope, head) = (root.as_path().to_path_buf(), root.join(&torn).as_path().to_path_buf());
+            pause::set(root.as_path(), pause::Point::DeliverEntry, move |path| {
+                if path == head {
+                    errored.hold();
+                    pause::expire(&scope);
+                }
+            });
+        }
+        let items = drained(searched(&producers, &needle_request(&root, None), false, open, true)).await;
+        pause::clear(root.as_path());
+        let mut expected: Vec<String> = (0..PARALLEL_AFTER + 2).map(|i| format!("f{i:03}.txt 1 1 1 {:?}", format!("needle {i}"))).collect();
+        expected.push(format!("TimedOut {:?}", Some(torn)));
+        assert_eq!(shown(&items), expected);
     }
 
     /// Waits until `f` holds, at most 10 s.
@@ -3643,16 +4930,66 @@ fn fsync_wanted() -> bool {
 }
 /// One single-file write at its resolved path.
 #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
-fn write_resolved(locks: &Arc<PathLocks>, resolved: &Resolved, request: &WriteRequest) -> Result<FileStat, FsError> {
+fn write_resolved(locks: &Arc<PathLocks>, resolved: &Resolved, request: &WriteRequest, cancel: Option<&CancellationToken>) -> Result<FileStat, FsError> {
     let _held = locks.acquire([resolved.key.clone()]);
     let target = resolved.path.as_path();
     let expect = evaluate(target, &request.precondition)?;
-    atomic_write(target, &request.content, &expect)?;
+    atomic_write(target, &request.content, &expect, cancel)?;
     stat_path(target)
+}
+/// The multi-file write: every precondition first, then the files one by one; a failure, or a cancel seen before a
+/// file is published, restores the files already replaced.
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
+fn write_batch_resolved(locks: &Arc<PathLocks>, requests: &[WriteRequest], cancel: Option<&CancellationToken>) -> Result<Vec<FileStat>, FsError> {
+    let resolved = requests.iter().map(|r| resolve_write(r.path.as_path())).collect::<Result<Vec<Resolved>, FsError>>()?;
+    let targets: Vec<PathBuf> = resolved.iter().map(|r| r.path.clone()).collect();
+    let _held = locks.acquire(resolved.iter().map(|r| r.key.clone()));
+    // Every precondition and pre-image first: a failed condition writes nothing.
+    let mut images = Vec::with_capacity(requests.len());
+    let mut expects = Vec::with_capacity(requests.len());
+    for (request, target) in requests.iter().zip(&targets) {
+        expects.push(evaluate(target, &request.precondition)?);
+        images.push(pre_image(target)?);
+    }
+    let mut written = 0;
+    let mut failure = None;
+    for (index, (request, target)) in requests.iter().zip(&targets).enumerate() {
+        // Between files (Node's `throwIfAborted` per entry), and again inside the write just before its rename.
+        if cancel.is_some_and(CancellationToken::is_cancelled) {
+            failure = Some(plain(FsErrorKind::Cancelled { left: Vec::new() }, target));
+            break;
+        }
+        if let Err(e) = atomic_write(target, &request.content, &expects[index], cancel) {
+            failure = Some(e);
+            break;
+        }
+        written = index + 1;
+    }
+    if let Some(error) = failure {
+        // Rollback: put every earlier file back in place, remove what the batch created.
+        let mut unrestored = None;
+        for image in images[..written].iter().rev() {
+            let outcome = match &image.content {
+                Some(content) => restore_in_place(&image.target, content, image.mode),
+                None => match fs::remove_file(&image.target) {
+                    Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+                    _ => Ok(()),
+                },
+            };
+            if outcome.is_err() {
+                unrestored.get_or_insert_with(|| image.target.clone());
+            }
+        }
+        return Err(match unrestored {
+            Some(path) => plain(FsErrorKind::OutcomeUnknown, &path),
+            None => error,
+        });
+    }
+    targets.iter().map(|t| stat_path(t)).collect()
 }
 /// Node: `atomicWrite`. The caller holds the write lock of `target`.
 #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
-fn atomic_write(target: &Path, content: &[u8], expect: &Expect) -> Result<(), FsError> {
+fn atomic_write(target: &Path, content: &[u8], expect: &Expect, cancel: Option<&CancellationToken>) -> Result<(), FsError> {
     let existing = match expect {
         Expect::EditVersion { version, original } => {
             if !checked_handle(target, original, *version) {
@@ -3706,11 +5043,20 @@ fn atomic_write(target: &Path, content: &[u8], expect: &Expect) -> Result<(), Fs
             let _ = fs::remove_file(&tmp);
             return Err(conflict);
         }
+        #[cfg(test)]
+        publish_barrier::reach(publish_barrier::Stage::BeforeRename, target, &tmp);
+        // Immediately before publishing (Node rechecks its signal here): a cancelled write never replaces the target.
+        // A cancel that lands after this check finds the rename done, and the write answers as done.
+        if cancel.is_some_and(CancellationToken::is_cancelled) {
+            return Err(cancelled_write(target, &tmp, matches!(expect, Expect::Absent)));
+        }
         match fs::rename(&tmp, target) {
             Ok(()) => {
                 if fsync {
                     sync_directory(target);
                 }
+                #[cfg(test)]
+                publish_barrier::reach(publish_barrier::Stage::Renamed, target, &tmp);
                 return Ok(());
             }
             Err(e) => {
@@ -3722,7 +5068,7 @@ fn atomic_write(target: &Path, content: &[u8], expect: &Expect) -> Result<(), Fs
                 }
                 let _ = fs::remove_file(&tmp);
                 if matches!(expect, Expect::Absent) {
-                    cleanup_empty_placeholder(target);
+                    let _ = cleanup_empty_placeholder(target);
                 }
                 let step = FsStep::Rename {
                     from: AbsPath::new(&tmp).expect("a resolved target is absolute"),
@@ -3754,6 +5100,15 @@ impl FileService for LocalFileService {
             #[cfg(not(windows))]
             let meta = fs::metadata(p);
             let meta = meta.map_err(|e| io_error(&e, p))?;
+            Ok(LocatorStat { kind: entry_kind(meta.file_type()), len: meta.len(), modified: meta.modified().ok(), readonly: meta.permissions().readonly() })
+        }).await?
+    }
+
+    #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
+    async fn lstat_for_locator(&self, lane: InteractiveIo, path: AbsPath) -> Result<LocatorStat, FsError> {
+        on(lane, move || {
+            let p = path.as_path();
+            let meta = fs::symlink_metadata(p).map_err(|e| io_error(&e, p))?;
             Ok(LocatorStat { kind: entry_kind(meta.file_type()), len: meta.len(), modified: meta.modified().ok(), readonly: meta.permissions().readonly() })
         }).await?
     }
@@ -3810,55 +5165,25 @@ impl FileService for LocalFileService {
     #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn write(&self, lane: DurabilityIo, request: WriteRequest) -> Result<FileStat, FsError> {
         let locks = self.locks.clone();
-        on(lane, move || write_resolved(&locks, &resolve_write(request.path.as_path())?, &request)).await?
+        on(lane, move || write_resolved(&locks, &resolve_write(request.path.as_path())?, &request, None)).await?
+    }
+
+    #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
+    async fn write_cancellable(&self, lane: DurabilityIo, request: WriteRequest, cancel: CancellationToken) -> Result<FileStat, FsError> {
+        let locks = self.locks.clone();
+        on(lane, move || write_resolved(&locks, &resolve_write(request.path.as_path())?, &request, Some(&cancel))).await?
     }
 
     #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn write_batch(&self, lane: DurabilityIo, requests: Vec<WriteRequest>) -> Result<Vec<FileStat>, FsError> {
         let locks = self.locks.clone();
-        on(lane, move || {
-            let resolved = requests.iter().map(|r| resolve_write(r.path.as_path())).collect::<Result<Vec<Resolved>, FsError>>()?;
-            let targets: Vec<PathBuf> = resolved.iter().map(|r| r.path.clone()).collect();
-            let _held = locks.acquire(resolved.iter().map(|r| r.key.clone()));
-            // Every precondition and pre-image first: a failed condition writes nothing.
-            let mut images = Vec::with_capacity(requests.len());
-            let mut expects = Vec::with_capacity(requests.len());
-            for (request, target) in requests.iter().zip(&targets) {
-                expects.push(evaluate(target, &request.precondition)?);
-                images.push(pre_image(target)?);
-            }
-            let mut written = 0;
-            let mut failure = None;
-            for (index, (request, target)) in requests.iter().zip(&targets).enumerate() {
-                if let Err(e) = atomic_write(target, &request.content, &expects[index]) {
-                    failure = Some(e);
-                    break;
-                }
-                written = index + 1;
-            }
-            if let Some(error) = failure {
-                // Rollback: put every earlier file back in place, remove what the batch created.
-                let mut unrestored = None;
-                for image in images[..written].iter().rev() {
-                    let outcome = match &image.content {
-                        Some(content) => restore_in_place(&image.target, content, image.mode),
-                        None => match fs::remove_file(&image.target) {
-                            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
-                            _ => Ok(()),
-                        },
-                    };
-                    if outcome.is_err() {
-                        unrestored.get_or_insert_with(|| image.target.clone());
-                    }
-                }
-                return Err(match unrestored {
-                    Some(path) => plain(FsErrorKind::OutcomeUnknown, &path),
-                    None => error,
-                });
-            }
-            targets.iter().map(|t| stat_path(t)).collect()
-        })
-        .await?
+        on(lane, move || write_batch_resolved(&locks, &requests, None)).await?
+    }
+
+    #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
+    async fn write_batch_cancellable(&self, lane: DurabilityIo, requests: Vec<WriteRequest>, cancel: CancellationToken) -> Result<Vec<FileStat>, FsError> {
+        let locks = self.locks.clone();
+        on(lane, move || write_batch_resolved(&locks, &requests, Some(&cancel))).await?
     }
 
     #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
@@ -3942,7 +5267,7 @@ impl FileService for LocalFileService {
             Ok(walked) => walked,
             Err(error) => return failed(error),
         };
-        search_with(&PRODUCERS, &request, walked, Box::new(open_to_search))
+        search_with_output(&PRODUCERS, &request, walked, Box::new(open_to_search), false, Some(Arc::new(open_to_search)))
     }
 
     fn search_summary(&self, _lane: MaintenanceIo, request: SearchRequest) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
@@ -3950,7 +5275,7 @@ impl FileService for LocalFileService {
             Ok(walked) => walked,
             Err(error) => return failed(error),
         };
-        search_with_output(&PRODUCERS, &request, walked, Box::new(open_to_search), true)
+        search_with_output(&PRODUCERS, &request, walked, Box::new(open_to_search), true, Some(Arc::new(open_to_search)))
     }
 }
 /// A walk request's walk, its entries listed through `dirs` ([`tree`]).
@@ -4019,15 +5344,18 @@ fn search_with(
     walked: Walked,
     open: Opener,
 ) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
-    search_with_output(producers, request, walked, open, false)
+    search_with_output(producers, request, walked, open, false, None)
 }
 
+/// [`search_with`] of a summary (`summary`: a row per file) or not, its files read through `parallel` on several
+/// threads too once the tree proves large ([`Parallel`]; `None`: on the stream's thread alone).
 fn search_with_output(
     producers: &Arc<Producers>,
     request: &SearchRequest,
     Walked { listing, volumes }: Walked,
     open: Opener,
     summary: bool,
+    parallel: Option<SharedOpener>,
 ) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
     // A pattern that does not parse is reported with the parser's own text, as Node shows it.
     let matcher = match compile(request) {
@@ -4048,6 +5376,7 @@ fn search_with_output(
             .build(),
         listing,
         open,
+        parallel,
         left: request.limit,
         first_per_file: request.first_per_file,
         summary,
@@ -4155,7 +5484,10 @@ impl SchedulerConfig {
     /// names a volume as the one it reads on ([`Ticket::reading`], at its admission and before a call that reads on
     /// another, [`Producers::reading`]) only while that volume holds fewer than `stuck_per_volume`, under the lock its
     /// give-up is counted under; so given-up threads plus producers reading on the volume grow only by such a naming, to
-    /// at most `stuck_per_volume - 1` plus every producer, and a give-up moves one from the second to the first.
+    /// at most `stuck_per_volume - 1` plus every producer, and a give-up moves one from the second to the first. A
+    /// content search's reader threads are counted as producers are: each takes a place of `total`, only while its
+    /// volume holds fewer than `stuck_per_volume` ([`Producers::read_places`]), and each is a given-up thread of its own
+    /// ([`Producers::give_up`]).
     pub fn max_stranded_per_volume(&self) -> usize {
         self.stuck_per_volume - 1 + self.total + self.interactive_reserve + self.local
     }
@@ -4238,9 +5570,23 @@ struct Ticket {
     /// Notified when the scheduler admits this stream ([`admit`]): only the stream given the slot wakes, however many
     /// wait.
     admitted: Notify,
+    /// The threads its search reads files on besides its own while they run ([`Parallel`]): cancelled with its own
+    /// thread ([`cancel_io`]), and each counted as a given-up thread when it is given up.
+    readers: Mutex<Vec<ReaderThread>>,
     /// Its place in the streams made, in order ([`probe::answer_order`]).
     #[cfg(feature = "count-jobs")]
     seq: u64,
+}
+/// A reader thread of a parallel search ([`Parallel`]), from its place's taking ([`Producers::read_places`]) until its
+/// end ([`ReaderEnd`]), which drops this: its handle, its interrupt and, once given up, its volume's mark.
+struct ReaderThread {
+    id: usize,
+    /// Set once started.
+    thread: Option<std::thread::JoinHandle<()>>,
+    interrupt: Option<Arc<cancel_io::Interrupt>>,
+    /// Set when its producer is given up while it runs ([`Producers::give_up`]): its place is free, and it is counted
+    /// on the volume it reads on until it ends, as a given-up producer thread is ([`Volume`]).
+    mark: Option<Arc<()>>,
 }
 impl Ticket {
     /// The ticket of a stream with a producer, reported to `owner`.
@@ -4260,6 +5606,7 @@ impl Ticket {
             owner: Mutex::new(Some(owner.clone())),
             stuck: Mutex::new(None),
             admitted: Notify::new(),
+            readers: Mutex::new(Vec::new()),
             #[cfg(feature = "count-jobs")]
             seq: probe::stream_made(),
         })
@@ -4288,6 +5635,7 @@ impl Ticket {
             owner: Mutex::new(None),
             stuck: Mutex::new(None),
             admitted: Notify::new(),
+            readers: Mutex::new(Vec::new()),
             #[cfg(feature = "count-jobs")]
             seq: u64::MAX,
         })
@@ -4302,6 +5650,10 @@ struct Sched {
     bulk: VecDeque<Arc<Ticket>>,
     local: VecDeque<Arc<Ticket>>,
     inflight: [usize; 3],
+    /// The places of content searches' reader threads, counted with `inflight` against `total` ([`Producers::read_places`]).
+    readers: usize,
+    /// The number the next reader place is noted by ([`ReaderThread::id`]).
+    next_reader: usize,
     local_live: usize,
     bulk_window: usize,
     healthy_completions: usize,
@@ -4421,10 +5773,22 @@ pub struct Producers {
     sched: Mutex<Sched>,
     /// Notified on every change of the counts.
     changed: Notify,
+    /// Whether a search waits for a slot, set at each dispatch: the readers of running searches give their places back
+    /// meanwhile ([`Window::take`]). Read without the scheduler's lock, which a reader never takes.
+    crowded: Arc<AtomicBool>,
+    /// The windows of the parallel searches, woken when a search starts waiting ([`Producers::dispatch`]).
+    windows: Mutex<Vec<std::sync::Weak<Window>>>,
+    /// The reader threads ever started ([`Readers::spawn`]).
+    #[cfg(test)]
+    readers_started: AtomicUsize,
 }
 impl Producers {
     fn new(config: SchedulerConfig) -> Self {
         Self {
+            crowded: Arc::new(AtomicBool::new(false)),
+            windows: Mutex::new(Vec::new()),
+            #[cfg(test)]
+            readers_started: AtomicUsize::new(0),
             config,
             sched: Mutex::new(Sched {
                 counts: ProducerCounts::default(),
@@ -4433,6 +5797,8 @@ impl Producers {
                 bulk: VecDeque::new(),
                 local: VecDeque::new(),
                 inflight: [0; 3],
+                readers: 0,
+                next_reader: 0,
                 local_live: 0,
                 bulk_window: config.bulk.max(1),
                 healthy_completions: 0,
@@ -4450,6 +5816,57 @@ impl Producers {
     fn counts(&self) -> ProducerCounts {
         let s = self.lock();
         ProducerCounts { stalled: s.volumes.values().map(Volume::stuck).sum(), ..s.counts }
+    }
+
+    /// Takes the places left for threads `ticket`'s content search reads files on besides its own ([`Parallel`]),
+    /// each noted in [`Ticket::readers`]: the capacity [`SchedulerConfig::total`] holds both the searches running and
+    /// these threads ([`Producers::dispatch`]), so searches running together share it, and one running alone reads on
+    /// the rest. None while a search waits for a slot, or while the volume the search reads on holds as many given-up
+    /// threads as one may: a thread reading on a volume is counted where a producer is, so the bounds of
+    /// [`SchedulerConfig::max_stranded_per_volume`] hold of every thread. A place is the thread's until it ends or is
+    /// given up ([`Producers::give_up`]), when it is free again.
+    fn read_places(&self, ticket: &Ticket) -> Vec<usize> {
+        let mut s = self.lock();
+        let reading = locked(&ticket.reading).clone().unwrap_or_default();
+        let stuck = Stuck { config: &self.config, volumes: &s.volumes, last: s.last };
+        if ticket.state.load(Ordering::SeqCst) != RUNNING || s.queue_depth() > 0 || stuck.on(&reading).is_some() {
+            return Vec::new();
+        }
+        let free = self.config.total.saturating_sub(s.inflight.iter().sum::<usize>() + s.readers);
+        s.readers += free;
+        let first = s.next_reader;
+        s.next_reader += free;
+        let mut readers = locked(&ticket.readers);
+        (first..first + free)
+            .map(|id| {
+                readers.push(ReaderThread { id, thread: None, interrupt: None, mark: None });
+                id
+            })
+            .collect()
+    }
+
+    /// `window`'s readers are told when a search starts waiting ([`Producers::dispatch`]).
+    fn watch(&self, window: &Arc<Window>) {
+        let mut windows = locked(&self.windows);
+        windows.retain(|window| window.strong_count() > 0);
+        windows.push(Arc::downgrade(window));
+    }
+
+    /// Reader `id` of `ticket` ended: its place is free unless it was given up (freed then), and its note, with its
+    /// handle, its interrupt and its mark, is dropped.
+    fn reader_ended(&self, ticket: &Ticket, id: usize) {
+        let mut s = self.lock();
+        let ended = {
+            let mut readers = locked(&ticket.readers);
+            readers.iter().position(|reader| reader.id == id).map(|at| readers.swap_remove(at))
+        };
+        if ended.as_ref().is_some_and(|reader| reader.mark.is_none()) {
+            s.readers -= 1;
+        }
+        self.dispatch(&mut s);
+        drop(s);
+        drop(ended);
+        self.changed.notify_waiters();
     }
 
     /// A new stream joins its queue and starts at once if [`Producers::dispatch`] gives it a slot (`Ok(true)`), or else
@@ -4491,7 +5908,8 @@ impl Producers {
     /// dispatched as it arrives, which is the server's admission when its dispatcher keeps up.
     fn dispatch(&self, s: &mut Sched) {
         let c = &self.config;
-        let mut total = s.inflight.iter().sum::<usize>();
+        // Content searches' reader threads take places in the same capacity ([`Producers::read_places`]).
+        let mut total = s.inflight.iter().sum::<usize>() + s.readers;
         let ceiling = c.total + if s.interactive.is_empty() { 0 } else { c.interactive_reserve };
         let stuck = Stuck { config: c, volumes: &s.volumes, last: s.last };
         admit(&mut s.interactive, &mut s.inflight[0], (c.total + c.interactive_reserve, ceiling), &mut total, &mut s.counts, stuck);
@@ -4501,6 +5919,15 @@ impl Producers {
         admit(&mut s.bulk, &mut s.inflight[2], (bulk, c.total), &mut total, &mut s.counts, stuck);
         let mut walks = s.local_live;
         admit(&mut s.local, &mut s.local_live, (c.local, c.local), &mut walks, &mut s.counts, stuck);
+        // A search left waiting is not queued behind running ones: their readers give their places back as each
+        // finishes its file, waking those waiting for one ([`Window::take`]). No lock a reader holds is taken here
+        // under another: a window's is taken only after the scheduler's and the list's.
+        let crowded = s.queue_depth() > 0;
+        if !self.crowded.swap(crowded, Ordering::SeqCst) && crowded && s.readers > 0 {
+            for window in locked(&self.windows).iter().filter_map(std::sync::Weak::upgrade) {
+                window.wake();
+            }
+        }
     }
 
     /// `ticket`'s producer is about to make a call that reads on `volume`: it reads on it from now on, unless the volume
@@ -4582,11 +6009,26 @@ impl Producers {
         let volume = s.volumes.entry(charged).or_insert_with(|| Volume { marks: Arc::new(()), last: ticket.search });
         // The mark is the ticket's before the scheduler is taken: an end that comes between takes it back ([`Started`]).
         *locked(&ticket.stuck) = Some(volume.marks.clone());
+        // The readers' notes are held from before the scheduler is taken until each is marked: a reader ending
+        // meanwhile finds either the scheduler, and reports its end to it, or its mark ([`ReaderEnd`]), so no place
+        // is left counted for a thread that is gone.
+        let mut readers = locked(&ticket.readers);
         if locked(&ticket.owner).take().is_none() {
             locked(&ticket.stuck).take();
             return;
         }
+        #[cfg(test)]
+        pause::at(&ticket.root, pause::Point::GiveUpOwnerTaken, &ticket.root);
+        // Each reader thread still running is a given-up thread too, counted on the same volume (every call of a
+        // parallel search reads on it, [`Volumes::single`]) until it ends; its place is free.
+        let mut marked = 0;
+        for reader in readers.iter_mut().filter(|reader| reader.mark.is_none()) {
+            reader.mark = Some(volume.marks.clone());
+            marked += 1;
+        }
+        drop(readers);
         volume.last = ticket.search;
+        s.readers -= marked;
         s.last = ticket.search;
         ticket.state.store(STALLED, Ordering::SeqCst);
         s.counts.abandoned -= 1;
@@ -4830,6 +6272,12 @@ impl Volumes {
         Ok(())
     }
 
+    /// Whether every call below the root reads on the root's volume ([`charged`]): the mount table was read and names no
+    /// mount point below it.
+    fn single(&self) -> bool {
+        self.mounts.as_ref().is_some_and(Vec::is_empty)
+    }
+
     /// Whether the mount table names `path` a mount point: a folder, told without a call.
     fn mount_point(&self, path: &Path) -> bool {
         self.mounts.as_ref().is_some_and(|mounts| mounts.iter().any(|(point, _)| point == path))
@@ -4842,8 +6290,24 @@ fn serve(link: &IoLink, mut listing: Listing, open: Opener, hold: Hold, volumes:
     let mut file: Option<Box<dyn Read + Send>> = None;
     let mut chunk = vec![0; READ_CHUNK];
     let refused = locked(&volumes).start().err();
+    let mut walk = None;
     while let Some(ask) = link.next_ask() {
         let (answer, read) = match ask {
+            // Its reads on other threads name no volume: they are taken only while every call reads on the root's
+            // volume, the one this thread names, so a give-up still charges the volume of every call in flight.
+            Ask::Parallel(window, own) => {
+                file = None;
+                let parallel = refused.is_none() && locked(&volumes).single();
+                if parallel {
+                    walk = Some((window, own));
+                }
+                #[cfg(test)]
+                {
+                    let root = locked(&volumes).root.clone();
+                    pause::at(&root, pause::Point::ServeParallel, &root);
+                }
+                (Answer::Parallel(parallel), 0)
+            }
             Ask::Next => {
                 file = None;
                 match &refused {
@@ -4875,6 +6339,15 @@ fn serve(link: &IoLink, mut listing: Listing, open: Opener, hold: Hold, volumes:
         if !link.answer(answer, &chunk[..read]) {
             break;
         }
+        if let Some((window, own)) = walk.take() {
+            #[cfg(test)]
+            {
+                let root = locked(&volumes).root.clone();
+                pause::at(&root, pause::Point::Walk, &root);
+            }
+            walk_into(&window, &mut listing, own);
+            break;
+        }
     }
     drop(hold);
     drop(file);
@@ -4899,12 +6372,15 @@ impl Read for Linked<'_> {
 /// walker's own state and one file's search; Node's server, which scans while its walk publishes, also holds the whole
 /// inventory, so this holds less. It stops once the request's `limit` items are sent (one per printed line, a
 /// multi-line match a line each), and checks the stop and the deadline before each entry of the walk and before every
-/// read of a file. Its scan runs on a thread of its own, its blocking calls on the stream's thread ([`IoLink`]).
+/// read of a file. Its scan runs on a thread of its own, its blocking calls on the stream's thread ([`IoLink`]); past
+/// [`PARALLEL_AFTER`] files its files are read on several threads and delivered in the same order ([`Parallel`]).
 struct Searching {
     matcher: Compiled,
     searcher: Searcher,
     listing: Listing,
     open: Opener,
+    /// Opens files on the threads it reads on besides its own once the tree proves large ([`Parallel`]).
+    parallel: Option<SharedOpener>,
     left: Option<usize>,
     /// [`SearchRequest::first_per_file`].
     first_per_file: bool,
@@ -4923,6 +6399,7 @@ impl Produce<SearchMatch> for Searching {
             searcher,
             listing,
             open,
+            parallel,
             left,
             first_per_file,
             summary,
@@ -4936,12 +6413,20 @@ impl Produce<SearchMatch> for Searching {
         let link = Arc::new(IoLink::default());
         let _ = out.ctl.link.set(link.clone());
         let failure = out.clone();
+        #[cfg(feature = "count-jobs")]
+        let found: Found = {
+            let root = root.clone();
+            Arc::new(move || probe::found(&root))
+        };
+        #[cfg(not(feature = "count-jobs"))]
+        let found: Found = Arc::new(|| {});
         let scan = Scan {
             searcher,
             left,
             first_per_file,
             summary,
             link: link.clone(),
+            parallel: parallel.map(|open| Parallel { open, ticket: hold.ticket.clone(), found }),
             #[cfg(feature = "count-jobs")]
             root,
             #[cfg(feature = "count-jobs")]
@@ -4970,12 +6455,18 @@ impl Produce<SearchMatch> for Searching {
     }
 }
 impl Scan {
-    fn run<M: Matcher>(&mut self, matcher: &M, out: &Out<SearchMatch>) {
+    fn run<M: Matcher + Clone + Send + 'static>(&mut self, matcher: &M, out: &Out<SearchMatch>) {
         let ctl = &*out.ctl;
         #[cfg(feature = "count-jobs")]
         let root = self.root.clone();
-        let Scan { searcher, left, first_per_file, summary, link, .. } = self;
-        let (first_per_file, summary, link) = (*first_per_file, *summary, &**link);
+        let found = || {
+            #[cfg(feature = "count-jobs")]
+            probe::found(&root);
+        };
+        let Scan { searcher, left, first_per_file, summary, link, parallel, .. } = self;
+        let how = How { first_per_file: *first_per_file, summary: *summary };
+        let link = &**link;
+        let mut files = 0;
         while *left != Some(0) {
             if ctl.stopped() {
                 return;
@@ -5003,8 +6494,16 @@ impl Scan {
                 }
             };
             let Some(path) = AbsPath::new(&file) else { continue };
+            // A tree that has more files than one thread searches alone is read on several from this file on,
+            // delivered in the same order.
+            if files == PARALLEL_AFTER
+                && let Some(parallel) = parallel.take()
+                && let Some(readers) = parallel.start(path.clone(), matcher, searcher, link, out, how) {
+                return deliver(&readers, out, left);
+            }
+            files += 1;
             ctl.in_file.store(true, Ordering::SeqCst);
-            let opened = match link.ask(ctl, Ask::Open(file.clone())) {
+            let opened = match link.ask(ctl, Ask::Open(file)) {
                 Some((Answer::Open(opened), state)) => {
                     drop(state);
                     opened
@@ -5013,80 +6512,771 @@ impl Scan {
             };
             let mut sent = 0;
             let searched = opened.and_then(|()| {
-                let inner = Linked { link, ctl };
-                if summary {
-                    let mut sink = Summarize { matcher, ctl, first_per_file, count: None };
-                    searcher.search_reader(matcher, inner, &mut sink)?;
-                    ctl.check()?;
-                    if let Some(count) = sink.count {
-                        if !out.send(Ok(SearchMatch { path: path.clone(), line: 1, column: 1, text: String::new(), count })) {
-                            return Ok(true);
-                        }
-                        sent = 1;
-                        #[cfg(feature = "count-jobs")]
-                        probe::found(&root);
-                    }
-                    return Ok(false);
-                }
-                let printed = Printed::default();
-                let mut printer = StandardBuilder::new()
-                    .heading(false)
-                    .path(false)
-                    .max_columns(Some(MAX_COLUMNS))
-                    .max_columns_preview(true)
-                    .build_no_color(printed.clone());
-                let mut sink = Collect {
-                    printer: printer.sink(matcher),
-                    printed,
-                    matcher,
-                    path: &path,
-                    out,
-                    left,
-                    first_per_file,
-                    sent: 0,
-                    closed: false,
-                    #[cfg(feature = "count-jobs")]
-                    root: &root,
-                };
-                let searched = searcher.search_reader(matcher, inner, &mut sink);
-                sent = sink.sent;
-                searched.map(|()| sink.closed)
+                let mut queue = Queue { out, left: &mut *left, found: &found };
+                search_file(searcher, matcher, Linked { link, ctl }, ctl, &path, how, &mut queue, &mut sent)
             });
             ctl.in_file.store(false, Ordering::SeqCst);
-            match searched {
-                Ok(true) => return,
-                Ok(false) => {
-                    if sent > 0 {
-                        ctl.file_with_lines();
-                    }
-                }
-                Err(error) => match halt_of(&error) {
-                    Some(Halt::Stopped) => return,
-                    Some(Halt::Deadline) => {
-                        out.send(Err(timed_out(Some(path))));
-                        return;
-                    }
-                    Some(Halt::Refused(refusal)) => {
-                        out.send(Err(FsError::new(refusal.clone(), None)));
-                        return;
-                    }
-                    None => {
-                        // Node's server answers nothing of a file whose search failed (matching.rs:213-250,
-                        // `scan_with_printer`): the error that names the file withdraws its lines already queued
-                        // (the consumer drops them), and they count no more against the request's limit.
-                        if let Some(left) = left.as_mut() {
-                            *left += sent;
-                        }
-                        if !out.send(Err(io_error(&error, &file))) {
-                            return;
-                        }
-                    }
-                },
+            if !settle(out, left, sent, path, searched) {
+                return;
             }
         }
         if ctl.expired_at_end() {
             out.send(Err(timed_out(None)));
         }
+    }
+}
+
+/// What a file's search reports: [`SearchRequest::first_per_file`], and a row per file ([`Summarize`]) rather than
+/// one per printed line ([`Collect`]).
+#[derive(Clone, Copy)]
+struct How {
+    first_per_file: bool,
+    summary: bool,
+}
+
+/// One file's search, read from `reader`, its items through `turn` (`sent`: the items it took). `Ok(true)`: `turn`
+/// took no more.
+#[allow(clippy::too_many_arguments, reason = "one file's search as both the scan and a parallel reader make it")]
+fn search_file<M: Matcher, R: Read>(
+    searcher: &mut Searcher,
+    matcher: &M,
+    reader: R,
+    ctl: &Control,
+    path: &AbsPath,
+    how: How,
+    turn: &mut dyn Turn,
+    sent: &mut usize,
+) -> io::Result<bool> {
+    if how.summary {
+        let mut sink = Summarize { matcher, ctl, first_per_file: how.first_per_file, count: None };
+        searcher.search_reader(matcher, reader, &mut sink)?;
+        let Some(count) = sink.count else {
+            ctl.check()?;
+            return Ok(false);
+        };
+        turn.wait()?;
+        ctl.check()?;
+        if !turn.emit(SearchMatch { path: path.clone(), line: 1, column: 1, text: String::new(), count }) {
+            return Ok(true);
+        }
+        *sent = 1;
+        return Ok(false);
+    }
+    let printed = Printed::default();
+    let mut printer = StandardBuilder::new()
+        .heading(false)
+        .path(false)
+        .max_columns(Some(MAX_COLUMNS))
+        .max_columns_preview(true)
+        .build_no_color(printed.clone());
+    let mut sink = Collect {
+        printer: printer.sink(matcher),
+        printed,
+        matcher,
+        path,
+        turn,
+        first_per_file: how.first_per_file,
+        sent: 0,
+        closed: false,
+    };
+    let searched = searcher.search_reader(matcher, reader, &mut sink);
+    *sent = sink.sent;
+    searched.map(|()| sink.closed)
+}
+
+/// The scan's answer to a file's search (`searched`, [`search_file`]) once its `sent` items are queued; `false`: the
+/// search ends.
+fn settle(out: &Out<SearchMatch>, left: &mut Option<usize>, sent: usize, path: AbsPath, searched: io::Result<bool>) -> bool {
+    match searched {
+        Ok(true) => false,
+        Ok(false) => {
+            if sent > 0 {
+                out.ctl.file_with_lines();
+            }
+            true
+        }
+        Err(error) => match halt_of(&error) {
+            Some(Halt::Stopped) => false,
+            Some(Halt::Deadline) => {
+                out.send(Err(timed_out(Some(path))));
+                false
+            }
+            Some(Halt::Refused(refusal)) => {
+                out.send(Err(FsError::new(refusal.clone(), None)));
+                false
+            }
+            None => {
+                // Node's server answers nothing of a file whose search failed (matching.rs:213-250,
+                // `scan_with_printer`): the error that names the file withdraws its lines already queued
+                // (the consumer drops them), and they count no more against the request's limit.
+                if let Some(left) = left.as_mut() {
+                    *left += sent;
+                }
+                out.send(Err(io_error(&error, path.as_path())))
+            }
+        },
+    }
+}
+
+/// Opens a file for its search on any thread a search reads on ([`Parallel`]).
+type SharedOpener = Arc<dyn Fn(&Path) -> io::Result<Box<dyn Read + Send>> + Send + Sync>;
+
+/// The files a content search reads on its stream's thread alone before it reads on several ([`Parallel`]): one file,
+/// or a small tree, is searched as before, with no thread started for it.
+const PARALLEL_AFTER: usize = 32;
+
+/// The entries a parallel search's walk runs ahead of its delivery ([`Window`]).
+const WINDOW: usize = 128;
+
+/// How often a parallel search whose next file has no reader looks for a place to read it in ([`deliver`]).
+const REGROW: Duration = Duration::from_millis(25);
+
+/// A content search's reads on threads of its own beside the stream's, from the first file past [`PARALLEL_AFTER`]:
+/// the stream's thread walks the rest of the tree into a [`Window`], reader threads search the files in it, and the
+/// scan hands each file its turn in the walk's order, so what is delivered is what the search on one thread delivers.
+///
+/// The scheduler's invariants hold as they did:
+/// - the readers take places in the capacity the searches running take theirs in, [`SchedulerConfig::total`]
+///   ([`Producers::read_places`], [`Producers::dispatch`]): searches running together share the cores. While a search
+///   waits for a slot, no place is taken and each reader gives its place back once the file it is on is done
+///   ([`Window::take`]), so a newcomer waits for files being read, not for whole searches; the search goes on with
+///   fewer readers, down to its stream's thread alone ([`walk_into`]), and takes places again once none waits
+///   ([`Readers::grow`]);
+/// - its reads go parallel only while every call below the root reads on the root's volume ([`Volumes::single`]), the
+///   one its stream's thread names, and only while that volume may take another thread: a give-up charges every
+///   thread in flight to it, the stream's thread (which waits for its readers, [`walk_into`]) and each reader still
+///   running, each counted until it ends ([`Producers::give_up`]); a volume's refusal comes as before;
+/// - the readers' blocking calls are cancelled with the stream's thread's ([`cancel_io::until_ended`]), and as soon as
+///   the search has its answer ([`cancel_io::readers_until_ended`]).
+struct Parallel {
+    open: SharedOpener,
+    ticket: Arc<Ticket>,
+    /// The count-jobs probe of an item queued ([`probe::found`]).
+    found: Found,
+}
+
+type Found = Arc<dyn Fn() + Send + Sync>;
+
+impl Parallel {
+    /// Takes the places for readers, hands the walk to the stream's thread with `first` as the window's first file,
+    /// and then starts the readers; `None`: the search stays on its own thread, no reader started (no place, a mount
+    /// point below the root, or the stream stopped).
+    fn start<M: Matcher + Clone + Send + 'static>(
+        self,
+        first: AbsPath,
+        matcher: &M,
+        searcher: &Searcher,
+        link: &IoLink,
+        out: &Out<SearchMatch>,
+        how: How,
+    ) -> Option<Readers<M>> {
+        let Parallel { open, ticket, found } = self;
+        let producers = locked(&ticket.owner).clone()?;
+        let ids = producers.read_places(&ticket);
+        if ids.is_empty() {
+            return None;
+        }
+        let window = Arc::new(Window::default());
+        window.lock().slots.push_back(Slot::new(Entry::File(first)));
+        // A place not started is given back as its end drops.
+        let ends: Vec<ReaderEnd> = ids.into_iter().map(|id| ReaderEnd::new(&ticket, &window, id)).collect();
+        let reader = Reader {
+            matcher: matcher.clone(),
+            searcher: searcher.clone(),
+            open,
+            window: window.clone(),
+            ctl: out.ctl.clone(),
+            how,
+            found,
+            #[cfg(test)]
+            root: ticket.root.clone(),
+        };
+        let readers = Readers { reader, ticket, crowded: producers.crowded.clone() };
+        out.ctl.parallel.store(true, Ordering::SeqCst);
+        // A stream that took its end just before the flag was set let go of nothing ([`Streamed::next`]): it set the
+        // stop first, so no walk is handed over to it.
+        if out.ctl.stopped() {
+            return None;
+        }
+        let handed = match link.ask(&out.ctl, Ask::Parallel(window.clone(), Box::new(readers.reader.clone()))) {
+            Some((Answer::Parallel(handed), _)) => Some(handed),
+            _ => None,
+        };
+        if handed != Some(true) {
+            // A stop can end the wait after the stream's thread took the ask: the walk it may start finds the window
+            // over.
+            window.end();
+            #[cfg(test)]
+            pause::at(&readers.ticket.root, pause::Point::StartAskFailed, &readers.ticket.root);
+            if handed == Some(false) {
+                out.ctl.parallel.store(false, Ordering::SeqCst);
+            }
+            return None;
+        }
+        #[cfg(test)]
+        pause::at(&readers.ticket.root, pause::Point::StartHanded, &readers.ticket.root);
+        let _ = out.ctl.window.set(window.clone());
+        // A stop set before the window was the stream's to end ([`Control::halt`]) found none.
+        if out.ctl.stopped() {
+            window.stop();
+        }
+        producers.watch(&window);
+        for end in ends {
+            readers.spawn(end);
+        }
+        Some(readers)
+    }
+}
+
+/// What starts a parallel search's readers: one to clone for each, with the ticket their places are noted in.
+struct Readers<M> {
+    reader: Reader<M>,
+    ticket: Arc<Ticket>,
+    /// Whether a search waits for a slot ([`Producers::crowded`]).
+    crowded: Arc<AtomicBool>,
+}
+
+impl<M: Matcher + Clone + Send + 'static> Readers<M> {
+    /// Starts readers in the places free while no search waits ([`Producers::read_places`]): those its readers gave
+    /// back while one waited, or freed by others since.
+    fn grow(&self) {
+        let Some(producers) = locked(&self.ticket.owner).clone() else { return };
+        for id in producers.read_places(&self.ticket) {
+            self.spawn(ReaderEnd::new(&self.ticket, &self.reader.window, id));
+        }
+    }
+
+    /// Starts the reader of `end`'s place; one that cannot start gives it back (its end drops with the closure).
+    fn spawn(&self, end: ReaderEnd) {
+        let id = end.id;
+        let interrupt = cancel_io::Interrupt::new().ok().map(Arc::new);
+        let entered = interrupt.clone();
+        let (reader, crowded) = (self.reader.clone(), self.crowded.clone());
+        let spawned = std::thread::Builder::new().name("mixdog-fs-read".into()).spawn(move || {
+            cancel_io::enter(entered);
+            let _end = end;
+            reader.run(&crowded);
+        });
+        let Ok(thread) = spawned else { return };
+        // A reader that already ended took its note with it.
+        if let Some(note) = locked(&self.ticket.readers).iter_mut().find(|note| note.id == id) {
+            note.thread = Some(thread);
+            note.interrupt = interrupt;
+        }
+        #[cfg(test)]
+        if let Some(producers) = locked(&self.ticket.owner).clone() {
+            producers.readers_started.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+}
+
+/// A reader's end, however it comes (its thread's end, or never started): its place is given back
+/// ([`Producers::reader_ended`]; once its producer was given up, its note goes, its mark with it), then the window is
+/// told ([`walk_into`]).
+struct ReaderEnd {
+    ticket: Arc<Ticket>,
+    window: Arc<Window>,
+    id: usize,
+}
+
+impl ReaderEnd {
+    fn new(ticket: &Arc<Ticket>, window: &Arc<Window>, id: usize) -> Self {
+        window.lock().alive += 1;
+        Self { ticket: ticket.clone(), window: window.clone(), id }
+    }
+}
+
+impl Drop for ReaderEnd {
+    fn drop(&mut self) {
+        let owner = locked(&self.ticket.owner).clone();
+        match owner {
+            Some(producers) => producers.reader_ended(&self.ticket, self.id),
+            None => {
+                #[cfg(test)]
+                pause::at(&self.ticket.root, pause::Point::ReaderEndUnowned, &self.ticket.root);
+                let ended = {
+                    let mut readers = locked(&self.ticket.readers);
+                    readers.iter().position(|note| note.id == self.id).map(|at| readers.swap_remove(at))
+                };
+                // Its mark goes with its note: the count of given-up threads falls, which no count the scheduler
+                // keeps tells, so it is told where a given-up producer's end is ([`Started`]).
+                drop(ended);
+                #[cfg(feature = "count-jobs")]
+                probe::ended();
+            }
+        }
+        let mut win = self.window.lock();
+        win.alive -= 1;
+        self.window.changed.notify_all();
+    }
+}
+
+/// A walked entry of a parallel search.
+enum Entry {
+    File(AbsPath),
+    /// A walk error, delivered in its place.
+    Failed(FsError),
+    /// The walk's end.
+    End,
+}
+
+/// A file's search in a parallel search.
+enum Work {
+    Pending,
+    Running,
+    /// Searched: whether it opened, its outcome ([`search_file`]) and, if its turn came, the budget it left and the
+    /// items it queued.
+    Finished { opened: bool, searched: io::Result<bool>, turn: Option<(Option<usize>, usize)> },
+}
+
+/// An entry's place in the [`Window`].
+struct Slot {
+    entry: Entry,
+    work: Work,
+}
+
+impl Slot {
+    fn new(entry: Entry) -> Self {
+        Self { entry, work: Work::Pending }
+    }
+
+    fn pending(&self) -> bool {
+        matches!((&self.entry, &self.work), (Entry::File(_), Work::Pending))
+    }
+}
+
+/// A file's turn to be delivered ([`Window::turn`]): the request's budget and the stream's queue, lent to its reader.
+struct Grant {
+    left: Option<usize>,
+    out: Out<SearchMatch>,
+    /// The deadline had passed when the turn came: on one thread the file's first read would have found it so.
+    late: bool,
+}
+
+/// The entries a parallel search walked and has not delivered, in the walk's order, the next to deliver first
+/// ([`Parallel`]). Readers take its files in that order; a reader searches its file until the file's first item, then
+/// waits for the file's turn ([`Lane`]): the scan lends the next file the request's budget and the stream's queue
+/// ([`Grant`]), and its reader goes on as the scan on one thread would, the deadline checked as it starts and before
+/// each read, each item queued as it is built. So a file with no match is searched whole ahead of its turn, and
+/// nothing of a match is built ahead of it: what a search holds ahead of its consumer is its queue and the one item its
+/// next file waits to queue, as on one thread, each file is opened and read once, and the next file always has a
+/// reader (readers take the first file waiting, so it was taken before any after it).
+#[derive(Default)]
+struct Window {
+    state: Mutex<Win>,
+    changed: Condvar,
+    /// The search ended or was stopped: its walk and its readers stop at their next turn.
+    over: AtomicBool,
+}
+
+#[derive(Default)]
+struct Win {
+    slots: VecDeque<Slot>,
+    /// The number of the first slot: an entry's number is its place in the walk since it went parallel.
+    head: u64,
+    /// The next file's turn, until its reader takes it.
+    turn: Option<(u64, Grant)>,
+    /// The readers not yet ended ([`ReaderEnd`]).
+    alive: usize,
+}
+
+impl Win {
+    fn pop(&mut self) -> Slot {
+        self.head += 1;
+        self.slots.pop_front().expect("a slot to deliver")
+    }
+
+    /// The first file waiting for a reader, now its reader's, and its number.
+    fn take(&mut self) -> Option<(u64, AbsPath)> {
+        let head = self.head;
+        let (at, slot) = self.slots.iter_mut().enumerate().find(|(_, slot)| slot.pending())?;
+        slot.work = Work::Running;
+        let Entry::File(path) = &slot.entry else { unreachable!("a pending slot is a file") };
+        Some((head + at as u64, path.clone()))
+    }
+}
+
+impl Window {
+    fn lock(&self) -> MutexGuard<'_, Win> {
+        locked(&self.state)
+    }
+
+    fn wait<'a>(&self, win: MutexGuard<'a, Win>) -> MutexGuard<'a, Win> {
+        self.changed.wait(win).unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn over(&self) -> bool {
+        self.over.load(Ordering::SeqCst)
+    }
+
+    /// The stream stopped ([`Control::halt`]).
+    fn stop(&self) {
+        let _win = self.lock();
+        self.over.store(true, Ordering::SeqCst);
+        self.changed.notify_all();
+    }
+
+    /// The scan ended: the entries left and a turn not taken are dropped.
+    fn end(&self) {
+        let mut win = self.lock();
+        self.over.store(true, Ordering::SeqCst);
+        win.slots.clear();
+        win.turn = None;
+        self.changed.notify_all();
+    }
+
+    /// Wakes the readers waiting for a file: a search waits for a slot ([`Producers::crowded`]).
+    fn wake(&self) {
+        let _win = self.lock();
+        self.changed.notify_all();
+    }
+
+    /// A reader's next file, the first waiting for one, and its number; `None` once the search ended, or while a search
+    /// waits for a slot (`crowded`): the reader then ends, between files, and gives its place back.
+    fn take(&self, crowded: &AtomicBool) -> Option<(u64, AbsPath)> {
+        let mut win = self.lock();
+        loop {
+            if self.over() || crowded.load(Ordering::SeqCst) {
+                return None;
+            }
+            if let Some(file) = win.take() {
+                return Some(file);
+            }
+            win = self.wait(win);
+        }
+    }
+
+    /// Waits for file `seq`'s turn and takes its grant; the stop or the search's end ends the wait.
+    fn turn(&self, ctl: &Control, seq: u64) -> io::Result<Grant> {
+        let mut win = self.lock();
+        loop {
+            if self.over() || ctl.stopped() {
+                return Err(io::Error::other(Halt::Stopped));
+            }
+            if win.turn.as_ref().is_some_and(|(at, _)| *at == seq)
+                && let Some((_, grant)) = win.turn.take() {
+                return Ok(grant);
+            }
+            win = self.wait(win);
+        }
+    }
+
+    /// File `seq` was searched ([`Work::Finished`]).
+    fn finished(&self, seq: u64, opened: bool, searched: io::Result<bool>, turn: Option<(Option<usize>, usize)>) {
+        let mut win = self.lock();
+        if self.over() {
+            return;
+        }
+        let at = usize::try_from(seq - win.head).expect("a running file stays in the window");
+        win.slots[at].work = Work::Finished { opened, searched, turn };
+        self.changed.notify_all();
+    }
+}
+
+/// The parallel search's walk, on the stream's thread ([`serve`]): the rest of `listing` into `window`, at most
+/// [`WINDOW`] entries ahead of the delivery, and, while no reader runs (none was left a place, [`Window::take`]), its
+/// files searched with `own`, so the search goes on on this thread alone. Then it waits for the readers to end, so
+/// this thread's share of the slot ([`Hold`]) stands for theirs: the producer ends with its last thread, and one given
+/// up counts this thread among its stranded ones until then ([`Producers::give_up`]).
+fn walk_into(window: &Window, listing: &mut Listing, mut own: Box<dyn ReadFiles>) {
+    let mut walked = false;
+    loop {
+        let file = {
+            let mut win = window.lock();
+            loop {
+                if window.over() {
+                    break None;
+                }
+                if win.alive == 0
+                    && let Some(file) = win.take() {
+                    break Some(Some(file));
+                }
+                if !walked && win.slots.len() < WINDOW {
+                    break Some(None);
+                }
+                win = window.wait(win);
+            }
+        };
+        match file {
+            None => break,
+            Some(Some((seq, path))) => own.file(seq, path),
+            Some(None) => walked = !walk_one(window, listing),
+        }
+    }
+    drop(own);
+    let mut win = window.lock();
+    while win.alive > 0 {
+        win = window.wait(win);
+    }
+}
+
+/// [`walk_into`]'s next entry into `window`; `false` once the walk has no more (its end, its volume's refusal, or the
+/// search's end). Checks the stop between entries.
+fn walk_one(window: &Window, listing: &mut Listing) -> bool {
+    loop {
+        if window.over() {
+            return false;
+        }
+        let entry = match listing.next() {
+            None => Entry::End,
+            Some(Ok(None)) => continue,
+            Some(Ok(Some(file))) => match AbsPath::new(&file) {
+                Some(path) => Entry::File(path),
+                None => continue,
+            },
+            Some(Err(error)) => Entry::Failed(error),
+        };
+        // Its volume's refusal ends the search ([`Volumes`]).
+        let last = match &entry {
+            Entry::End => true,
+            Entry::Failed(error) => matches!(error.kind, FsErrorKind::CancelStalled { .. }),
+            Entry::File(_) => false,
+        };
+        let mut win = window.lock();
+        if window.over() {
+            return false;
+        }
+        win.slots.push_back(Slot::new(entry));
+        window.changed.notify_all();
+        return !last;
+    }
+}
+
+/// Searches a parallel search's files: a reader thread's ([`Reader::run`]) and the stream's thread's own
+/// ([`walk_into`]).
+trait ReadFiles: Send {
+    /// Searches file `seq` of the window, `path`, and reports it ([`Window::finished`]).
+    fn file(&mut self, seq: u64, path: AbsPath);
+}
+
+/// A parallel search's reader: searches the files of its [`Window`] as the scan would ([`search_file`]), each read
+/// through [`Direct`], its items through its [`Lane`].
+#[derive(Clone)]
+struct Reader<M> {
+    matcher: M,
+    searcher: Searcher,
+    open: SharedOpener,
+    window: Arc<Window>,
+    ctl: Arc<Control>,
+    how: How,
+    found: Found,
+    /// The search's root, the scope of its pause points ([`pause`]).
+    #[cfg(test)]
+    root: PathBuf,
+}
+
+impl<M: Matcher + Send> Reader<M> {
+    /// A reader thread: the window's files until the search ends or a search waits for a slot (`crowded`).
+    fn run(mut self, crowded: &AtomicBool) {
+        loop {
+            #[cfg(test)]
+            pause::at(&self.root, pause::Point::ReaderTake, &self.root);
+            let Some((seq, path)) = self.window.take(crowded) else { break };
+            self.file(seq, path);
+        }
+    }
+}
+
+impl<M: Matcher + Send> ReadFiles for Reader<M> {
+    fn file(&mut self, seq: u64, path: AbsPath) {
+        let Reader { matcher, searcher, open, window, ctl, how, found, .. } = self;
+        let (window, ctl) = (&**window, &**ctl);
+        let mut lane = Lane { window, ctl, seq, grant: None, found: &**found };
+        let mut sent = 0;
+        let file = open(path.as_path());
+        let opened = file.is_ok();
+        let searched = file.and_then(|file| search_file(searcher, matcher, Direct { file, ctl, window }, ctl, &path, *how, &mut lane, &mut sent));
+        // Its grant goes back with the file, the queue's sender with it.
+        let turn = lane.grant.map(|grant| (grant.left, sent));
+        window.finished(seq, opened, searched, turn);
+    }
+}
+
+/// A reader's file ([`Window`]): nothing of it is queued, or built, before its turn.
+struct Lane<'a> {
+    window: &'a Window,
+    ctl: &'a Control,
+    seq: u64,
+    grant: Option<Grant>,
+    found: &'a dyn Fn(),
+}
+
+impl Turn for Lane<'_> {
+    fn wait(&mut self) -> io::Result<()> {
+        if self.grant.is_none() {
+            let grant = self.window.turn(self.ctl, self.seq)?;
+            // The deadline is the one the turn found, not the one a read begun before it returns past: on one thread
+            // each read is checked before it starts, and what it returns is delivered.
+            let late = grant.late;
+            self.grant = Some(grant);
+            if late {
+                return Err(io::Error::other(Halt::Deadline));
+            }
+        }
+        Ok(())
+    }
+
+    fn left(&mut self) -> &mut Option<usize> {
+        &mut self.grant.as_mut().expect("the file's turn came").left
+    }
+
+    fn emit(&mut self, item: SearchMatch) -> bool {
+        let queued = self.grant.as_ref().expect("the file's turn came").out.send(Ok(item));
+        if queued {
+            (self.found)();
+        }
+        queued
+    }
+}
+
+/// A file as a parallel search's reader reads it: at most [`READ_CHUNK`] bytes at a time, each read after a check of
+/// the stop, the deadline and the search's end, as the scan reads one ([`Linked`]).
+struct Direct<'a> {
+    file: Box<dyn Read + Send>,
+    ctl: &'a Control,
+    window: &'a Window,
+}
+
+impl Read for Direct<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.ctl.check()?;
+        if self.window.over() {
+            return Err(io::Error::other(Halt::Stopped));
+        }
+        let n = buf.len().min(READ_CHUNK);
+        // A read [`cancel_io`] cancelled fails once the stop is set.
+        self.file.read(&mut buf[..n]).map_err(|error| if self.ctl.stopped() { io::Error::other(Halt::Stopped) } else { error })
+    }
+}
+
+/// The scan of a parallel search ([`Parallel`]): delivers the [`Window`]'s entries in the walk's order as the scan on
+/// one thread does, each file in its turn ([`Grant`]) then its outcome ([`settle`]); checks the stop and the deadline
+/// before each entry, and ends the window however it ends, cancelling the reads still in flight ([`Delivering`]).
+/// Before each entry it starts readers in the places free while no search waits ([`Readers::grow`]).
+fn deliver<M: Matcher + Clone + Send + 'static>(readers: &Readers<M>, out: &Out<SearchMatch>, left: &mut Option<usize>) {
+    let ctl = &*out.ctl;
+    let window = &*readers.reader.window;
+    let _delivering = Delivering { window, ticket: readers.ticket.clone() };
+    while *left != Some(0) {
+        if ctl.stopped() {
+            return;
+        }
+        if ctl.expired() {
+            out.send(Err(timed_out(None)));
+            return;
+        }
+        readers.grow();
+        let mut win = window.lock();
+        let next = loop {
+            if window.over() {
+                return;
+            }
+            let next = win.slots.front().map(|slot| match &slot.entry {
+                Entry::File(path) => Some(path.clone()),
+                _ => None,
+            });
+            match next {
+                Some(next) => break next,
+                None => win = window.wait(win),
+            }
+        };
+        let Some(path) = next else {
+            let slot = win.pop();
+            window.changed.notify_all();
+            drop(win);
+            match slot.entry {
+                Entry::End => break,
+                Entry::Failed(error) if matches!(error.kind, FsErrorKind::CancelStalled { .. }) => {
+                    out.send(Err(error));
+                    return;
+                }
+                Entry::Failed(error) => {
+                    if !out.send(Err(error)) {
+                        return;
+                    }
+                    continue;
+                }
+                Entry::File(_) => unreachable!("a file is delivered through its items"),
+            }
+        };
+        ctl.in_file.store(true, Ordering::SeqCst);
+        #[cfg(test)]
+        pause::at(&readers.ticket.root, pause::Point::DeliverEntry, path.as_path());
+        // On one thread the file would be read from now on, its first read after a check of the deadline.
+        let late = ctl.expired();
+        if !matches!(win.slots[0].work, Work::Finished { .. }) {
+            let head = win.head;
+            win.turn = Some((head, Grant { left: *left, out: out.clone(), late }));
+            window.changed.notify_all();
+            #[cfg(test)]
+            pause::at(&readers.ticket.root, pause::Point::Granted, path.as_path());
+        }
+        let (opened, searched, turn) = loop {
+            if window.over() {
+                return;
+            }
+            if matches!(win.slots[0].work, Work::Finished { .. }) {
+                let Work::Finished { opened, searched, turn } = win.pop().work else { unreachable!("a finished file") };
+                break (opened, searched, turn);
+            }
+            // No reader is left to take it (each gave its place to a search that waited) and the walk may be in a
+            // directory read: places free again are taken here, looked for now and then, as nothing tells of them.
+            if win.alive == 0 && win.slots[0].pending() {
+                #[cfg(test)]
+                pause::at(&readers.ticket.root, pause::Point::Regrow, path.as_path());
+                drop(win);
+                readers.grow();
+                win = window.lock();
+                // The walk's thread may have taken it meanwhile ([`walk_into`]): its reads then report the deadline.
+                if win.alive == 0 && !window.over() && win.slots[0].pending() {
+                    // Nobody reads the file, so no read of it reports a deadline that passes meanwhile.
+                    if ctl.expired() {
+                        drop(win);
+                        out.send(Err(timed_out(Some(path))));
+                        return;
+                    }
+                    win = window.changed.wait_timeout(win, REGROW).unwrap_or_else(PoisonError::into_inner).0;
+                }
+                continue;
+            }
+            win = window.wait(win);
+        };
+        // On one thread a file opened past the deadline is answered by its first read's check, before anything is
+        // read: so is one read ahead of a late turn, whatever its reads found or failed with.
+        let stopped = matches!(searched.as_ref().err().and_then(halt_of), Some(Halt::Stopped));
+        let searched = if late && opened && !stopped { Err(io::Error::other(Halt::Deadline)) } else { searched };
+        // A file with no match finished without taking its turn.
+        win.turn = None;
+        window.changed.notify_all();
+        drop(win);
+        ctl.in_file.store(false, Ordering::SeqCst);
+        let sent = match turn {
+            Some((after, sent)) => {
+                *left = after;
+                sent
+            }
+            None => 0,
+        };
+        if !settle(out, left, sent, path, searched) {
+            return;
+        }
+    }
+    if ctl.expired_at_end() {
+        out.send(Err(timed_out(None)));
+    }
+}
+
+/// Ends a parallel search's window when its scan ends, however it ends: its readers stop at their next turn, and those
+/// in a blocking call are cancelled, so the slot they hold is freed as soon as the search has its answer.
+struct Delivering<'a> {
+    window: &'a Window,
+    ticket: Arc<Ticket>,
+}
+
+impl Drop for Delivering<'_> {
+    fn drop(&mut self) {
+        self.window.end();
+        cancel_io::readers_until_ended(self.ticket.clone());
     }
 }
 /// A stream fed by a producer thread through a queue of [`QUEUE`] items and [`QUEUE_BYTES`]: the producer runs ahead of
@@ -5158,6 +7348,8 @@ fn streamed<T: Weigh + Send + 'static>(
     };
     let (tx, rx) = mpsc::channel(QUEUE);
     let ctl = Arc::new(Control::new(deadline));
+    #[cfg(test)]
+    pause::control(&ticket.root, &ctl);
     let (done, finished) = oneshot::channel::<()>();
     let out = Out { tx, ctl: ctl.clone() };
     let mut stream = Streamed {
@@ -5267,6 +7459,13 @@ impl<T: Weigh + Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> 
         };
         if matches!(item, None | Some(Err(FsError { kind: FsErrorKind::TimedOut, .. }))) {
             self.rx = None;
+            // A search read on several threads may have reads and its walk still in flight when it has its answer
+            // ([`Parallel`]): they are let go of now, as a dropped stream's are, so one no cancel reaches is given up
+            // after the grace and its slot is free while the caller still holds the stream.
+            if self.ctl.parallel.load(Ordering::SeqCst) {
+                self.ctl.halt();
+                self.producers.release(&self.ticket, self.thread.take(), self.interrupt.take());
+            }
         }
         item
     }

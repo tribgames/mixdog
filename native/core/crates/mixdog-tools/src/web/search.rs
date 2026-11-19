@@ -33,7 +33,8 @@ pub struct NativeSearchRequest {
     pub thread: ThreadId,
     pub query: String,
     pub site: Option<String>,
-    pub locale: Option<String>,
+    /// As the caller gave it: a string label, or the object whose parts are the provider's `user_location`.
+    pub locale: Option<Value>,
     pub context_size: String,
     pub max_results: usize,
     pub prompt: String,
@@ -375,7 +376,7 @@ impl SearchService {
             thread: thread.clone(),
             query: args.query.clone(),
             site: args.site.clone(),
-            locale: locale_label(args),
+            locale: args.locale.clone(),
             context_size: args.context_size.clone(),
             max_results: args.max_results,
             prompt: build_prompt(args),

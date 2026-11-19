@@ -170,7 +170,10 @@ function extractDocxFlow() {
     const weight = Number(cs.fontWeight) || (cs.fontWeight === 'bold' ? 700 : 400);
     const decoration = String(cs.textDecorationLine || cs.textDecoration || '');
     const inlineFill = ['inline', 'inline-block'].includes(cs.display) ? hex(cs.backgroundColor) : null;
+    const anchor = el.closest('a[href]');
+    const href = anchor && /^(https?|mailto|tel):/i.test(anchor.href) ? anchor.href : '';
     return {
+      ...(href ? { href } : {}),
       font: face(cs),
       fontEastAsia: eastAsiaFace(cs),
       size: pt(n(cs.fontSize)),

@@ -1,15 +1,23 @@
-//! An owner-fair turn gate: one holder at a time, and the next turn goes round the owners that wait instead of to the
-//! oldest waiter (Node's `createOwnerFairGate` over `createFairCallScheduler`, `owner-groups.mjs` `pickGroup`).
+//! An owner-fair turn gate: up to `limit` holders at a time, and each free turn goes round the owners that wait instead
+//! of to the oldest waiter (Node's `createOwnerFairGate` over `createFairCallScheduler`, `owner-groups.mjs` `pickGroup`,
+//! which holds one turn; a limit of 1 is that gate exactly).
 //!
-//! Each owner has a queue of its own, first come first served. When the turn is free, the owners with a waiting
-//! entry take it by smooth weighted round-robin at weight 1: every waiting owner's credit grows by one, the owner with
-//! most credit (the first of those at a tie, in the order the owners first queued) is served and pays the number of
-//! waiting owners. Two owners that queue two entries each, `A0 A1 B2 B3`, are served `A0 B2 A1 B3`. An owner's credit
-//! lasts while it holds the turn or waits, and starts again at zero after.
+//! Each owner has a queue of its own, first come first served. While a turn is free, the owners with a waiting entry
+//! that may take it take it by smooth weighted round-robin at weight 1: every such owner's credit grows by one, the
+//! owner with most credit (the first of those at a tie, in the order the owners first queued) is served and pays the
+//! number of such owners. Two owners that queue two entries each, `A0 A1 B2 B3`, are served `A0 B2 A1 B3`. An owner's
+//! credit lasts while it holds a turn or waits, and starts again at zero after.
+//!
+//! With several turns, a waiting owner that holds no turn is served before one that already holds one, and an owner is
+//! not handed a turn that would leave it holding every turn while another owner waits (it may hold `limit - 1` then,
+//! or every turn when nobody else waits), so a waiting owner always gets the next turn that frees within the rotation. An arrival takes a free turn at once only when nobody waits: a free turn and a
+//! waiter never stay side by side, as every change hands out what is free.
 //!
 //! It is [`Gate`](crate::gate::Gate) for callers that must not let one owner's backlog use up another's wait; the plain
-//! gate keeps arrival order for its own users. Cancelling an `enter` that still waits removes its place; a turn
-//! already handed to a cancelled waiter passes on to the next.
+//! gate keeps arrival order for its own users. Cancelling (or dropping) an `enter` that still waits removes its place;
+//! a turn already handed to a cancelled waiter passes on to the next. A guard gives its turn back when dropped, an
+//! unwinding panic included; each entry is handed a turn at most once (its one-shot sender leaves the queue as it
+//! sends).
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -27,8 +35,8 @@ type Handoff = (u64, oneshot::Receiver<()>);
 struct Group {
     owner: String,
     current: i64,
-    /// 1 while this owner holds the turn.
-    active: u32,
+    /// The turns this owner holds.
+    active: usize,
     queue: VecDeque<(u64, oneshot::Sender<()>)>,
 }
 
@@ -38,11 +46,13 @@ impl Group {
     }
 }
 
-#[derive(Default)]
 struct State {
-    held: bool,
+    /// The turns there are (at least 1).
+    limit: usize,
+    /// The turns held; above `limit` only after the limit was lowered under its holders.
+    held: usize,
     next_id: u64,
-    /// In the order the owners first queued or took the turn.
+    /// In the order the owners first queued or took a turn.
     groups: Vec<Group>,
 }
 
@@ -66,23 +76,29 @@ impl State {
         self.groups.iter().any(|g| !g.queue.is_empty())
     }
 
-    /// `None`: the turn is the caller's now. `Some`: the caller queued and waits on the hand-off.
+    /// `None`: a turn is the caller's now. `Some`: the caller queued and waits on the hand-off.
     fn enter(&mut self, owner: &str) -> Option<Handoff> {
-        if !self.held && !self.waiting() {
-            self.held = true;
-            self.group(owner).active += 1;
-            return None;
-        }
         let id = self.next_id;
         self.next_id += 1;
-        let (tx, rx) = oneshot::channel();
+        let (tx, mut rx) = oneshot::channel();
         self.group(owner).queue.push_back((id, tx));
-        Some((id, rx))
+        // A free turn means nobody waited: the caller is the one owner ready, and takes it at no net credit.
+        self.dispatch();
+        if rx.try_recv().is_ok() { None } else { Some((id, rx)) }
     }
 
-    /// The group whose entry is served next: smooth weighted round-robin over the waiting owners.
+    /// The group whose entry is served next: smooth weighted round-robin over the waiting owners that may take a turn,
+    /// those holding none first.
     fn pick(&mut self) -> Option<usize> {
-        let ready: Vec<usize> = (0..self.groups.len()).filter(|&i| !self.groups[i].queue.is_empty()).collect();
+        let waiting_owners = self.groups.iter().filter(|g| !g.queue.is_empty()).count();
+        // While another owner waits, no owner is handed its last free turn (with one turn, every owner may take it).
+        let cap = if waiting_owners > 1 { self.limit.saturating_sub(1).max(1) } else { self.limit };
+        let mut ready: Vec<usize> =
+            (0..self.groups.len()).filter(|&i| !self.groups[i].queue.is_empty() && self.groups[i].active < cap).collect();
+        // An owner holding no turn is served before one that already holds one (with one turn, nobody holds one here).
+        if ready.iter().any(|&i| self.groups[i].active == 0) {
+            ready.retain(|&i| self.groups[i].active == 0);
+        }
         let total = i64::try_from(ready.len()).ok()?;
         let mut chosen: Option<usize> = None;
         for &i in &ready {
@@ -96,19 +112,26 @@ impl State {
         Some(chosen)
     }
 
-    /// The holder `owner` is done: the turn goes to the next live waiter, or the gate is free.
-    fn release(&mut self, owner: &str) {
-        self.group(owner).active = self.group(owner).active.saturating_sub(1);
-        self.held = false;
-        while let Some(at) = self.pick() {
-            let Some((_, next)) = self.groups[at].queue.pop_front() else { continue };
-            if next.send(()).is_ok() {
+    /// Hands every free turn to the next live waiter that may take it, until none is free or none may.
+    fn dispatch(&mut self) {
+        while self.held < self.limit {
+            let Some(at) = self.pick() else { break };
+            // `pick` serves only an owner with a waiting entry. A sender whose receiver is gone was not handed the turn.
+            if let Some((_, next)) = self.groups[at].queue.pop_front()
+                && next.send(()).is_ok()
+            {
                 self.groups[at].active += 1;
-                self.held = true;
-                break;
+                self.held += 1;
             }
         }
         self.drop_idle();
+    }
+
+    /// A holder of `owner` is done: its turn goes to the next live waiter, or is free.
+    fn release(&mut self, owner: &str) {
+        self.group(owner).active = self.group(owner).active.saturating_sub(1);
+        self.held = self.held.saturating_sub(1);
+        self.dispatch();
     }
 
     /// A waiter gave up: it leaves its queue, or returns a turn already handed to it.
@@ -117,7 +140,7 @@ impl State {
             self.release(owner);
         } else {
             self.group(owner).queue.retain(|(waiting, _)| *waiting != id);
-            self.drop_idle();
+            self.dispatch();
         }
     }
 }
@@ -126,7 +149,7 @@ fn lock(state: &Mutex<State>) -> MutexGuard<'_, State> {
     state.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// The turn on an [`OwnerGate`], held until dropped.
+/// A turn on an [`OwnerGate`], held until dropped.
 pub struct OwnerGuard {
     state: Arc<Mutex<State>>,
     owner: String,
@@ -153,14 +176,39 @@ impl Drop for OwnerGuard {
 }
 
 /// One owner-fair gate.
-#[derive(Default)]
 pub struct OwnerGate {
     state: Arc<Mutex<State>>,
 }
 
+impl Default for OwnerGate {
+    fn default() -> Self {
+        Self::with_limit(1)
+    }
+}
+
 impl OwnerGate {
+    /// A gate of one turn.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A gate of `limit` turns (at least 1).
+    pub fn with_limit(limit: usize) -> Self {
+        let state = State { limit: limit.max(1), held: 0, next_id: 0, groups: Vec::new() };
+        Self { state: Arc::new(Mutex::new(state)) }
+    }
+
+    /// The turns there are.
+    pub fn limit(&self) -> usize {
+        lock(&self.state).limit
+    }
+
+    /// Sets the turns there are (at least 1): a raised limit hands its new turns to the waiters at once; under a lowered
+    /// one the holders keep their turns, and no turn is handed out until fewer than the limit are held.
+    pub fn set_limit(&self, limit: usize) {
+        let mut state = lock(&self.state);
+        state.limit = limit.max(1);
+        state.dispatch();
     }
 
     async fn acquire(&self, owner: &str) -> OwnerGuard {
@@ -176,15 +224,15 @@ impl OwnerGate {
         guard
     }
 
-    /// Waits for the turn as `owner`, served by the rotation over the waiting owners; `Err` once `cancel` fires.
+    /// Waits for a turn as `owner`, served by the rotation over the waiting owners; `Err` once `cancel` fires.
     pub async fn enter(&self, owner: &str, cancel: &CancellationToken) -> Result<OwnerGuard, GateCancelled> {
         until_cancelled(cancel, self.acquire(owner)).await
     }
 
-    /// Whether the turn is held or anyone waits for it.
+    /// Whether a turn is held or anyone waits for one.
     pub fn is_busy(&self) -> bool {
         let state = lock(&self.state);
-        state.held || state.waiting()
+        state.held > 0 || state.waiting()
     }
 }
 
@@ -262,5 +310,175 @@ mod tests {
         cancel.cancel();
         assert!(matches!(gate.enter("A", &cancel).await, Err(GateCancelled)));
         assert!(!gate.is_busy());
+    }
+
+    #[tokio::test]
+    async fn owners_hold_turns_at_once_up_to_the_limit() {
+        let gate = OwnerGate::with_limit(3);
+        let never = CancellationToken::new();
+        let a = gate.enter("A", &never).await.unwrap();
+        let b = gate.enter("B", &never).await.unwrap();
+        let c = gate.enter("C", &never).await.unwrap();
+        assert!(![&a, &b, &c].iter().any(|turn| turn.queued()), "three owners hold the three turns at once");
+        let mut d = Box::pin(gate.enter("D", &never));
+        assert!(poll_once(&mut d).await.is_none(), "every turn is held");
+        drop(b);
+        let d = poll_once(&mut d).await.expect("the freed turn is handed over").unwrap();
+        assert!(d.queued());
+        drop((a, c, d));
+        assert!(!gate.is_busy());
+    }
+
+    #[tokio::test]
+    async fn an_owner_is_not_handed_its_last_free_turn_while_another_owner_waits() {
+        let gate = OwnerGate::with_limit(2);
+        let never = CancellationToken::new();
+        // Nobody else waits: one owner may take every turn.
+        let x1 = gate.enter("X", &never).await.unwrap();
+        let x2 = gate.enter("X", &never).await.unwrap();
+        let mut a0 = Box::pin(gate.enter("A", &never));
+        let mut a1 = Box::pin(gate.enter("A", &never));
+        let mut b2 = Box::pin(gate.enter("B", &never));
+        for waiter in [&mut a0, &mut a1, &mut b2] {
+            assert!(poll_once(waiter).await.is_none());
+        }
+        drop(x1);
+        let a0 = poll_once(&mut a0).await.expect("A is first in the rotation").unwrap();
+        assert!(poll_once(&mut a1).await.is_none());
+        assert!(poll_once(&mut b2).await.is_none());
+        // A's next entry would leave A every turn while B waits: the turn is B's.
+        drop(x2);
+        let b2 = poll_once(&mut b2).await.expect("B is served before A holds every turn").unwrap();
+        assert!(poll_once(&mut a1).await.is_none());
+        drop(a0);
+        let a1 = poll_once(&mut a1).await.expect("nobody else waits now").unwrap();
+        drop((a1, b2));
+        assert!(!gate.is_busy());
+    }
+
+    #[tokio::test]
+    async fn an_owner_holding_no_turn_is_served_before_one_that_holds_one() {
+        let gate = OwnerGate::with_limit(3);
+        let never = CancellationToken::new();
+        let a = gate.enter("A", &never).await.unwrap();
+        let x1 = gate.enter("X", &never).await.unwrap();
+        let x2 = gate.enter("X", &never).await.unwrap();
+        let mut a_again = Box::pin(gate.enter("A", &never));
+        let mut b = Box::pin(gate.enter("B", &never));
+        assert!(poll_once(&mut a_again).await.is_none());
+        assert!(poll_once(&mut b).await.is_none());
+        drop(x1);
+        let b = poll_once(&mut b).await.expect("B holds nothing and A holds a turn").unwrap();
+        assert!(poll_once(&mut a_again).await.is_none());
+        drop(x2);
+        let a_again = poll_once(&mut a_again).await.expect("the next free turn is A's").unwrap();
+        drop((a, a_again, b));
+        assert!(!gate.is_busy());
+    }
+
+    #[tokio::test]
+    async fn a_waiter_cancelled_or_dropped_by_its_deadline_leaks_no_turn_among_several_holders() {
+        let gate = OwnerGate::with_limit(2);
+        let never = CancellationToken::new();
+        let h1 = gate.enter("H1", &never).await.unwrap();
+        let h2 = gate.enter("H2", &never).await.unwrap();
+        let cancel_a = CancellationToken::new();
+        let mut a = Box::pin(gate.enter("A", &cancel_a));
+        let mut late = Box::pin(gate.enter("L", &never));
+        let mut b = Box::pin(gate.enter("B", &never));
+        let mut c = Box::pin(gate.enter("C", &never));
+        for waiter in [&mut a, &mut late, &mut b, &mut c] {
+            assert!(poll_once(waiter).await.is_none());
+        }
+        cancel_a.cancel();
+        assert!(matches!(poll_once(&mut a).await, Some(Err(GateCancelled))));
+        drop(a);
+        // A deadline drops the waiting `enter` itself: its place goes with it.
+        drop(late);
+        drop(h1);
+        // The turn reached B, which is dropped before it polls again: it passes on to C, not lost.
+        drop(b);
+        let c = poll_once(&mut c).await.expect("the turn B never took is C's").unwrap();
+        drop(h2);
+        let free = gate.enter("D", &never).await.unwrap();
+        assert!(!free.queued(), "the second turn is free");
+        drop((c, free));
+        assert!(!gate.is_busy());
+    }
+
+    #[tokio::test]
+    async fn a_holder_that_panics_gives_its_turn_back() {
+        let gate = Arc::new(OwnerGate::with_limit(2));
+        let held = gate.clone();
+        let task = tokio::spawn(async move {
+            let _turn = held.enter("A", &CancellationToken::new()).await.unwrap();
+            panic!("the search failed");
+        });
+        assert!(task.await.unwrap_err().is_panic());
+        assert!(!gate.is_busy());
+        let never = CancellationToken::new();
+        let (b, c) = (gate.enter("B", &never).await.unwrap(), gate.enter("C", &never).await.unwrap());
+        assert!(!b.queued() && !c.queued(), "both turns are free");
+    }
+
+    #[tokio::test]
+    async fn a_raised_limit_hands_its_turns_to_the_waiters() {
+        let gate = OwnerGate::new();
+        let never = CancellationToken::new();
+        let held = gate.enter("A", &never).await.unwrap();
+        let mut b = Box::pin(gate.enter("B", &never));
+        assert!(poll_once(&mut b).await.is_none());
+        gate.set_limit(2);
+        assert!(matches!(poll_once(&mut b).await, Some(Ok(_))));
+        drop(held);
+    }
+
+    /// Many owners, cancels among them, on worker threads: never more holders than turns, every entry admitted or
+    /// cancelled exactly once, and the gate free at the end.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn under_contention_no_turn_is_leaked_or_handed_twice() {
+        use std::sync::atomic::AtomicUsize;
+        use std::sync::atomic::Ordering::SeqCst;
+        let gate = Arc::new(OwnerGate::with_limit(3));
+        let (inside, most, admitted, cancelled) =
+            (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        let mut tasks = Vec::new();
+        for n in 0..48usize {
+            let (gate, inside, most, admitted, cancelled) = (gate.clone(), inside.clone(), most.clone(), admitted.clone(), cancelled.clone());
+            tasks.push(tokio::spawn(async move {
+                let cancel = CancellationToken::new();
+                if n % 5 == 0 {
+                    let fire = cancel.clone();
+                    tokio::spawn(async move {
+                        tokio::task::yield_now().await;
+                        fire.cancel();
+                    });
+                }
+                match gate.enter(&format!("owner-{}", n % 4), &cancel).await {
+                    Ok(_turn) => {
+                        let now = inside.fetch_add(1, SeqCst) + 1;
+                        most.fetch_max(now, SeqCst);
+                        tokio::task::yield_now().await;
+                        inside.fetch_sub(1, SeqCst);
+                        admitted.fetch_add(1, SeqCst);
+                    }
+                    Err(GateCancelled) => {
+                        cancelled.fetch_add(1, SeqCst);
+                    }
+                }
+            }));
+        }
+        for task in tasks {
+            task.await.unwrap();
+        }
+        assert!(most.load(SeqCst) <= 3, "{} holders at once", most.load(SeqCst));
+        assert_eq!(admitted.load(SeqCst) + cancelled.load(SeqCst), 48);
+        assert!(!gate.is_busy());
+        let never = CancellationToken::new();
+        let mut turns = Vec::new();
+        for owner in ["free-0", "free-1", "free-2"] {
+            turns.push(gate.enter(owner, &never).await.unwrap());
+        }
+        assert!(turns.iter().all(|turn| !turn.queued()), "all three turns are free again");
     }
 }

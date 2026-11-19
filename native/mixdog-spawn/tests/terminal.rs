@@ -1,6 +1,6 @@
 //! DS-PROC-2, 3 and 8 and the terminal golden corpus: the Node twin's recorded behavior
 //! (`fixtures/terminal-pipeline.json`, `fixtures/terminal-bridge.json`, the shared
-//! `core/fixtures/desktop/terminal/corpus.json`) replayed against the Rust tab layer, and live
+//! `fixtures/terminal-corpus.json`) replayed against the Rust tab layer, and live
 //! tabs over real shells.
 
 mod common;
@@ -1092,7 +1092,7 @@ async fn tabs_under_a_removed_worktree_are_disposed() {
 /// The terminal corpus of the Node twin, replayed operation by operation on a real tab.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn terminal_corpus_replays_on_a_real_tab() {
-    let corpus = fixture("../core/fixtures/desktop/terminal/corpus.json");
+    let corpus = fixture("tests/fixtures/terminal-corpus.json");
     assert_eq!(corpus["domain"], "terminal");
     let rig = rig("corpus").await;
     let mut id = String::new();
@@ -1346,7 +1346,7 @@ fn is_generated(id: &str) -> bool {
 async fn terminal_operation_failure_paths_equal_nodes_recording() {
     use mixdog_spawn::scripted;
     const S: &str = "session-terminal:S";
-    let recorded = fixture("../core/fixtures/terminal-ops/failure-paths.json");
+    let recorded = fixture("tests/fixtures/terminal-failure-paths.json");
     let rig = scripted_rig("failure-paths").await;
     let tabs = &*rig.tabs;
     let cases = recorded["cases"].as_array().unwrap();

@@ -27,6 +27,7 @@ pub mod measure_xlsx;
 pub mod pdf_print;
 pub mod normalize;
 pub mod receipt;
+mod link_target;
 pub mod pptx_build;
 pub mod pptx_html_runner;
 pub mod docx_build;

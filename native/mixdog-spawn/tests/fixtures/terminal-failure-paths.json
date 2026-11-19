@@ -1,0 +1,571 @@
+{
+  "total": 20,
+  "script": {
+    "first": [
+      "hello",
+      "world"
+    ],
+    "second": [
+      "more"
+    ],
+    "exitCode": 7
+  },
+  "cwd": "{cwd}",
+  "cases": [
+    {
+      "name": "tabs of [] with no tab open",
+      "op": "termSessionTabs",
+      "args": [],
+      "result": []
+    },
+    {
+      "name": "tabs of [\"\"] with no tab open",
+      "op": "termSessionTabs",
+      "args": [
+        ""
+      ],
+      "result": []
+    },
+    {
+      "name": "tabs of [null] with no tab open",
+      "op": "termSessionTabs",
+      "args": [
+        null
+      ],
+      "result": []
+    },
+    {
+      "name": "tabs of [123] with no tab open",
+      "op": "termSessionTabs",
+      "args": [
+        123
+      ],
+      "result": []
+    },
+    {
+      "name": "tabs of [\"nope\"] with no tab open",
+      "op": "termSessionTabs",
+      "args": [
+        "nope"
+      ],
+      "result": []
+    },
+    {
+      "name": "attach [] before anything runs",
+      "op": "termAttach",
+      "args": [],
+      "result": null
+    },
+    {
+      "name": "attach [\"\"] before anything runs",
+      "op": "termAttach",
+      "args": [
+        ""
+      ],
+      "result": null
+    },
+    {
+      "name": "attach [null] before anything runs",
+      "op": "termAttach",
+      "args": [
+        null
+      ],
+      "result": null
+    },
+    {
+      "name": "attach [\"nope\"] before anything runs",
+      "op": "termAttach",
+      "args": [
+        "nope"
+      ],
+      "result": null
+    },
+    {
+      "name": "attach [\"session-terminal:S\"] before anything runs",
+      "op": "termAttach",
+      "args": [
+        "session-terminal:S"
+      ],
+      "result": null
+    },
+    {
+      "name": "ensure a session tab",
+      "op": "termEnsure",
+      "args": [
+        "session-terminal:S",
+        "{cwd}",
+        {
+          "path": "powershell.exe"
+        }
+      ],
+      "result": {
+        "id": "session-terminal:S",
+        "replay": ""
+      }
+    },
+    {
+      "name": "ensure null",
+      "op": "termEnsure",
+      "args": [
+        null,
+        "{cwd}",
+        {
+          "path": "powershell.exe"
+        }
+      ],
+      "result": {
+        "id": "<generated>",
+        "replay": ""
+      }
+    },
+    {
+      "name": "ensure \"bad id\"",
+      "op": "termEnsure",
+      "args": [
+        "bad id",
+        "{cwd}",
+        {
+          "path": "powershell.exe"
+        }
+      ],
+      "result": {
+        "id": "<generated>",
+        "replay": ""
+      }
+    },
+    {
+      "name": "ensure \"term_\"",
+      "op": "termEnsure",
+      "args": [
+        "term_",
+        "{cwd}",
+        {
+          "path": "powershell.exe"
+        }
+      ],
+      "result": {
+        "id": "<generated>",
+        "replay": ""
+      }
+    },
+    {
+      "name": "ensure \"\"",
+      "op": "termEnsure",
+      "args": [
+        "",
+        "{cwd}",
+        {
+          "path": "powershell.exe"
+        }
+      ],
+      "result": {
+        "id": "<generated>",
+        "replay": ""
+      }
+    },
+    {
+      "name": "ensure \"session-terminal:\"",
+      "op": "termEnsure",
+      "args": [
+        "session-terminal:",
+        "{cwd}",
+        {
+          "path": "powershell.exe"
+        }
+      ],
+      "result": {
+        "id": "<generated>",
+        "replay": ""
+      }
+    },
+    {
+      "name": "ensure the same id again replays what it printed",
+      "op": "termEnsure",
+      "args": [
+        "session-terminal:S",
+        "{cwd}",
+        {
+          "path": "powershell.exe"
+        }
+      ],
+      "result": {
+        "id": "session-terminal:S",
+        "replay": "hello\r\nworld\r\n"
+      }
+    },
+    {
+      "name": "attach the running tab",
+      "op": "termAttach",
+      "args": [
+        "session-terminal:S"
+      ],
+      "result": {
+        "id": "session-terminal:S",
+        "replay": "hello\r\nworld\r\n"
+      }
+    },
+    {
+      "name": "tabs of S while it runs",
+      "op": "termSessionTabs",
+      "args": [
+        "S"
+      ],
+      "result": [
+        {
+          "tab": 1,
+          "id": "session-terminal:S",
+          "shell": "powershell",
+          "running": true,
+          "cwd": "{cwd}"
+        }
+      ]
+    },
+    {
+      "name": "snapshot since undefined",
+      "op": "termSnapshot",
+      "args": [
+        "session-terminal:S"
+      ],
+      "result": {
+        "text": "hello\r\nworld\r\nmore\r\n",
+        "cursor": 20,
+        "reset": false
+      }
+    },
+    {
+      "name": "snapshot since null",
+      "op": "termSnapshot",
+      "args": [
+        "session-terminal:S",
+        null
+      ],
+      "result": {
+        "text": "hello\r\nworld\r\nmore\r\n",
+        "cursor": 20,
+        "reset": false
+      }
+    },
+    {
+      "name": "snapshot since 0",
+      "op": "termSnapshot",
+      "args": [
+        "session-terminal:S",
+        0
+      ],
+      "result": {
+        "text": "hello\r\nworld\r\nmore\r\n",
+        "cursor": 20,
+        "reset": true
+      }
+    },
+    {
+      "name": "snapshot since {\"rel\":0}",
+      "op": "termSnapshot",
+      "args": [
+        "session-terminal:S",
+        {
+          "rel": 0
+        }
+      ],
+      "result": {
+        "text": "hello\r\nworld\r\nmore\r\n",
+        "cursor": 20,
+        "reset": false
+      }
+    },
+    {
+      "name": "snapshot since {\"rel\":7}",
+      "op": "termSnapshot",
+      "args": [
+        "session-terminal:S",
+        {
+          "rel": 7
+        }
+      ],
+      "result": {
+        "text": "world\r\nmore\r\n",
+        "cursor": 20,
+        "reset": false
+      }
+    },
+    {
+      "name": "snapshot since {\"rel\":19}",
+      "op": "termSnapshot",
+      "args": [
+        "session-terminal:S",
+        {
+          "rel": 19
+        }
+      ],
+      "result": {
+        "text": "\n",
+        "cursor": 20,
+        "reset": false
+      }
+    },
+    {
+      "name": "snapshot since {\"rel\":20}",
+      "op": "termSnapshot",
+      "args": [
+        "session-terminal:S",
+        {
+          "rel": 20
+        }
+      ],
+      "result": {
+        "text": "",
+        "cursor": 20,
+        "reset": false
+      }
+    },
+    {
+      "name": "snapshot since {\"rel\":21}",
+      "op": "termSnapshot",
+      "args": [
+        "session-terminal:S",
+        {
+          "rel": 21
+        }
+      ],
+      "result": {
+        "text": "hello\r\nworld\r\nmore\r\n",
+        "cursor": 20,
+        "reset": true
+      }
+    },
+    {
+      "name": "snapshot since {\"rel\":-1}",
+      "op": "termSnapshot",
+      "args": [
+        "session-terminal:S",
+        {
+          "rel": -1
+        }
+      ],
+      "result": {
+        "text": "hello\r\nworld\r\nmore\r\n",
+        "cursor": 20,
+        "reset": true
+      }
+    },
+    {
+      "name": "snapshot [] of a tab that is not there",
+      "op": "termSnapshot",
+      "args": [],
+      "result": null
+    },
+    {
+      "name": "snapshot [\"\"] of a tab that is not there",
+      "op": "termSnapshot",
+      "args": [
+        ""
+      ],
+      "result": null
+    },
+    {
+      "name": "snapshot [null] of a tab that is not there",
+      "op": "termSnapshot",
+      "args": [
+        null
+      ],
+      "result": null
+    },
+    {
+      "name": "snapshot [\"nope\"] of a tab that is not there",
+      "op": "termSnapshot",
+      "args": [
+        "nope"
+      ],
+      "result": null
+    },
+    {
+      "name": "snapshot [\"nope\",5] of a tab that is not there",
+      "op": "termSnapshot",
+      "args": [
+        "nope",
+        5
+      ],
+      "result": null
+    },
+    {
+      "name": "snapshot [\"SESSION-TERMINAL:S\"] of a tab that is not there",
+      "op": "termSnapshot",
+      "args": [
+        "SESSION-TERMINAL:S"
+      ],
+      "result": null
+    },
+    {
+      "name": "a phone claims the size",
+      "op": "termResize",
+      "args": [
+        "session-terminal:S",
+        100,
+        30,
+        "client-a"
+      ],
+      "result": null
+    },
+    {
+      "name": "attach while the phone owns the size",
+      "op": "termAttach",
+      "args": [
+        "session-terminal:S"
+      ],
+      "result": {
+        "id": "session-terminal:S",
+        "replay": "hello\r\nworld\r\nmore\r\n",
+        "sizeOwner": {
+          "cols": 100,
+          "rows": 30,
+          "owner": "client-a"
+        }
+      }
+    },
+    {
+      "name": "ensure while the phone owns the size",
+      "op": "termEnsure",
+      "args": [
+        "session-terminal:S",
+        "{cwd}",
+        {
+          "path": "powershell.exe"
+        }
+      ],
+      "result": {
+        "id": "session-terminal:S",
+        "replay": "hello\r\nworld\r\nmore\r\n",
+        "sizeOwner": {
+          "cols": 100,
+          "rows": 30,
+          "owner": "client-a"
+        }
+      }
+    },
+    {
+      "name": "the phone releases it",
+      "op": "termResize",
+      "args": [
+        "session-terminal:S",
+        0,
+        0,
+        "client-a"
+      ],
+      "result": null
+    },
+    {
+      "name": "attach after the release",
+      "op": "termAttach",
+      "args": [
+        "session-terminal:S"
+      ],
+      "result": {
+        "id": "session-terminal:S",
+        "replay": "hello\r\nworld\r\nmore\r\n"
+      }
+    },
+    {
+      "name": "attach an exited tab",
+      "op": "termAttach",
+      "args": [
+        "session-terminal:S"
+      ],
+      "result": null
+    },
+    {
+      "name": "snapshot an exited tab",
+      "op": "termSnapshot",
+      "args": [
+        "session-terminal:S"
+      ],
+      "result": {
+        "text": "hello\r\nworld\r\nmore\r\n\r\n[process exited with code 7]\r\n",
+        "cursor": 52,
+        "reset": false
+      }
+    },
+    {
+      "name": "tabs of S after the exit",
+      "op": "termSessionTabs",
+      "args": [
+        "S"
+      ],
+      "result": [
+        {
+          "tab": 1,
+          "id": "session-terminal:S",
+          "shell": "powershell",
+          "running": false,
+          "cwd": "{cwd}"
+        }
+      ]
+    },
+    {
+      "name": "ensure the exited id again",
+      "op": "termEnsure",
+      "args": [
+        "session-terminal:S",
+        "{cwd}",
+        {
+          "path": "powershell.exe"
+        }
+      ],
+      "result": {
+        "id": "session-terminal:S",
+        "replay": ""
+      }
+    },
+    {
+      "name": "attach the respawned tab",
+      "op": "termAttach",
+      "args": [
+        "session-terminal:S"
+      ],
+      "result": {
+        "id": "session-terminal:S",
+        "replay": ""
+      }
+    },
+    {
+      "name": "dispose it",
+      "op": "termDispose",
+      "args": [
+        "session-terminal:S"
+      ],
+      "result": null
+    },
+    {
+      "name": "attach a disposed tab",
+      "op": "termAttach",
+      "args": [
+        "session-terminal:S"
+      ],
+      "result": null
+    },
+    {
+      "name": "snapshot a disposed tab",
+      "op": "termSnapshot",
+      "args": [
+        "session-terminal:S"
+      ],
+      "result": null
+    },
+    {
+      "name": "tabs after the dispose",
+      "op": "termSessionTabs",
+      "args": [
+        "S"
+      ],
+      "result": []
+    },
+    {
+      "name": "write to a tab that is not there",
+      "op": "termWrite",
+      "args": [
+        "nope",
+        "x"
+      ],
+      "result": null
+    }
+  ]
+}

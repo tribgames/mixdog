@@ -598,15 +598,52 @@ async fn begin_tx(ctx: &ToolContext, entries: &[Entry], renames: &[&Section], ba
 /// Node `withRollback`: undoes the batch and words the outcome, including what could not be undone.
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn roll_back(ctx: &ToolContext, tx: &mut Tx, outcome: String) -> R<String> {
-    let mut errors = tx.quarantine.rollback(ctx).await?;
-    let (restore_errors, snapshots) = restore(ctx, std::mem::take(&mut tx.snapshots)).await?;
+    let errors = undo(ctx, tx).await?;
+    Ok(if errors.is_empty() { format!("{outcome}\n{ROLLED_BACK}") } else { incomplete(&outcome, &errors) })
+}
+
+/// The call's context under a token of its own and no deadline, for the cleanup of what the call already changed (a
+/// rollback, a quarantine commit): the call's cancel must not stop it half-way or before it starts.
+fn detached(ctx: &ToolContext) -> ToolContext {
+    ToolContext {
+        call_id: ctx.call_id.clone(),
+        thread_id: ctx.thread_id.clone(),
+        turn_id: ctx.turn_id.clone(),
+        tool: ctx.tool.clone(),
+        cwd: ctx.cwd.clone(),
+        surface: ctx.surface,
+        cancel: tokio_util::sync::CancellationToken::new(),
+        deadline: None,
+        progress: ctx.progress.clone(),
+        io: ctx.io,
+        approvals: ctx.approvals.clone(),
+        files: ctx.files.clone(),
+        processes: ctx.processes.clone(),
+        options: ctx.options.clone(),
+        review: ctx.review.clone(),
+    }
+}
+
+/// Undoes the batch, whether or not the call was cancelled; the answer lists what could not be undone, including
+/// everything a rollback that could not run at all left in place.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+async fn undo(ctx: &ToolContext, tx: &mut Tx) -> R<Vec<String>> {
+    let ctx = &detached(ctx);
+    let not_run = |path: &AbsPath| format!("{} — rollback could not run", normalize_output_path(&path.as_path().to_string_lossy()));
+    let mut errors = tx.quarantine.rollback(ctx).await.unwrap_or_else(|_| vec!["quarantined deletes — rollback could not run".to_owned()]);
+    let paths: Vec<AbsPath> = tx.snapshots.iter().map(|s| s.path.clone()).collect();
+    let (restore_errors, snapshots) = restore(ctx, std::mem::take(&mut tx.snapshots)).await.unwrap_or_else(|_| (paths.iter().map(not_run).collect(), Vec::new()));
     errors.extend(restore_errors);
     // What could not be undone stays on disk, so the review lists it.
-    if !errors.is_empty() {
+    if !errors.is_empty() && !snapshots.is_empty() {
         let paths: Vec<AbsPath> = snapshots.iter().map(|s| s.path.clone()).collect();
         committed_patch(ctx, tx.state.as_deref(), &snapshots, &paths, &tx.renames, true).await;
     }
-    Ok(if errors.is_empty() { format!("{outcome}\n{ROLLED_BACK}") } else { format!("{outcome}\n--- rollback incomplete ---\n{}", errors.join("\n")) })
+    Ok(errors)
+}
+
+fn incomplete(outcome: &str, errors: &[String]) -> String {
+    format!("{outcome}\n--- rollback incomplete ---\n{}", errors.join("\n"))
 }
 
 /// A batch outcome: success commits the quarantine, failure rolls the batch back. `dry` runs
@@ -622,16 +659,21 @@ async fn finish_batch(ctx: &ToolContext, tx: &mut Tx, outcome: R<String>, dry: b
             }
             let paths: Vec<AbsPath> = tx.snapshots.iter().map(|s| s.path.clone()).collect();
             committed_patch(ctx, tx.state.as_deref(), &tx.snapshots, &paths, &tx.renames, true).await;
-            let leftovers = tx.quarantine.commit(ctx).await?;
+            // The batch is published: removing its quarantine copies is cleanup the call's cancel does not stop.
+            let leftovers = tx.quarantine.commit(&detached(ctx)).await?;
             Ok(if leftovers.is_empty() { text } else { format!("{text}\n{}", leftovers.join("\n")) })
         }
         Err(Stop::Text(e)) => {
             let text = wrap(&e, notices);
             if dry { text_err(text) } else { text_err(roll_back(ctx, tx, text).await?) }
         }
-        Err(Stop::Tool(e)) => {
+        Err(Stop::Tool(mut e)) => {
             if !dry {
-                roll_back(ctx, tx, String::new()).await?;
+                // A cancelled or failed batch is undone; what could not be undone is still on disk, so the answer says so.
+                let errors = undo(ctx, tx).await?;
+                if !errors.is_empty() {
+                    e.message_for_model = incomplete(&e.message_for_model, &errors);
+                }
             }
             Err(Stop::Tool(e))
         }
@@ -717,7 +759,10 @@ async fn apply_ops(ctx: &ToolContext, base: &AbsPath, renames: &[RenameOp], entr
                 }
                 return Err(Stop::Text(lines.join("\n")));
             }
-            Ok(_) => {}
+            Ok(_) => {
+                #[cfg(test)]
+                cancel_tests::native_committed();
+            }
         }
     }
     if let Some(message) = js.iter().find_map(|e| e.error.clone()) {
@@ -730,7 +775,8 @@ async fn apply_ops(ctx: &ToolContext, base: &AbsPath, renames: &[RenameOp], entr
     if !protected.is_empty() {
         let targets: Vec<(AbsPath, String)> = protected.iter().map(|e| (e.abs.clone(), e.shown.clone())).collect();
         tx.quarantine.move_aside(ctx, targets).await?.map_err(|m| Stop::Text(format!("Error: {m}")))?;
-        let leftovers = if tx.owns_commit { tx.quarantine.commit(ctx).await? } else { Vec::new() };
+        // The deletes are moved aside, so the unit is applied: committing them is cleanup the call's cancel does not stop.
+        let leftovers = if tx.owns_commit { tx.quarantine.commit(&detached(ctx)).await? } else { Vec::new() };
         let mut lines = vec![format!("Applied {} (JS)", count_label(protected.len(), "File"))];
         lines.extend(protected.iter().map(|e| format!("  OK Delete {}", normalize_output_path(&e.shown))));
         lines.extend(leftovers);
@@ -803,13 +849,22 @@ async fn write_rest(ctx: &ToolContext, renames: &[RenameOp], entries: &[&Entry])
             EKind::Delete => removes.push(e.abs.clone()),
         }
     }
+    // Nothing left to publish (the native engine wrote everything): no cancel check can call committed work aborted.
+    if writes.is_empty() && removes.is_empty() {
+        return Ok(());
+    }
     for w in &writes {
         if let Some(parent) = w.path.as_path().parent().and_then(|p| AbsPath::new(p.to_path_buf()))
             && let Err(e) = guarded(ctx, "apply_patch", ctx.files.create_dir(ctx.io.durability, parent.clone(), true)).await? {
             return text_err(format!("Error: {}", fs_message(&e, "mkdir", parent.as_path())));
         }
     }
-    if let Err(e) = guarded(ctx, "apply_patch", ctx.files.write_batch(ctx.io.durability, writes.clone())).await? {
+    // The batch is awaited to its end, never raced against the cancel: it checks the token before each file and just
+    // before each rename itself, so what it answers is what the disk holds.
+    if let Err(e) = publish_guarded(ctx, "apply_patch", ctx.files.write_batch_cancellable(ctx.io.durability, writes.clone(), ctx.cancel.clone())).await? {
+        if let FsErrorKind::Cancelled { left } = &e.kind {
+            return Err(Stop::Tool(cancelled_write(left)));
+        }
         let at = e.path.clone().unwrap_or_else(|| writes[0].path.clone());
         let name = shown(ctx, &at);
         if matches!(e.kind, FsErrorKind::PreconditionFailed { .. }) {
@@ -827,12 +882,12 @@ async fn write_rest(ctx: &ToolContext, renames: &[RenameOp], entries: &[&Entry])
         return Err(Stop::Tool(fs_failure(&e, &name)));
     }
     for (from, to) in recased {
-        if let Err(e) = guarded(ctx, "apply_patch", ctx.files.rename(ctx.io.durability, from, to.clone(), true)).await? {
+        if let Err(e) = publish_guarded(ctx, "apply_patch", ctx.files.rename(ctx.io.durability, from, to.clone(), true)).await? {
             return Err(Stop::Tool(fs_failure(&e, &shown(ctx, &to))));
         }
     }
     for path in removes {
-        if let Err(e) = guarded(ctx, "apply_patch", ctx.files.remove(ctx.io.durability, path.clone(), false)).await? {
+        if let Err(e) = publish_guarded(ctx, "apply_patch", ctx.files.remove(ctx.io.durability, path.clone(), false)).await? {
             // A rename's source is the executor's own step: its failure is the rename's (the batch
             // restores the paths afterwards).
             if let Some(op) = renames.iter().find(|r| r.src == path) {
@@ -1005,7 +1060,7 @@ async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>,
                     mutated.push(to);
                 }
                 Err(Stop::Text(e)) => failures.push((i, display, format!("Error: {}", e.strip_prefix("Error: ").unwrap_or(&e)))),
-                Err(other) => return Err(other),
+                Err(other) => failures.push((i, display, aborted_unit(other)?)),
             }
             continue;
         }
@@ -1015,7 +1070,10 @@ async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>,
                 failures.push((i, display, format!("Error: {e}")));
                 continue;
             }
-            Err(other) => return Err(other),
+            Err(other) => {
+                failures.push((i, display, aborted_unit(other)?));
+                continue;
+            }
         };
         let Some(entry) = converted else {
             applied.push(format!("(no changes) {display}"));
@@ -1028,7 +1086,7 @@ async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>,
                 mutated.push(entry.abs.clone());
             }
             Err(Stop::Text(e)) => failures.push((i, display, e)),
-            Err(other) => return Err(other),
+            Err(other) => failures.push((i, display, aborted_unit(other)?)),
         }
     }
     Ok(())
@@ -1042,6 +1100,19 @@ async fn run_sequence(ctx: &ToolContext, base: &AbsPath, sections: Vec<Section>,
     let report = sequence_report(units.len(), &applied, &failures, &skipped, mode.continue_after_failure, dry);
     let tail = notices.rejected_tail();
     Ok((wrap(&format!("{report}{tail}"), &mut notices), units))
+}
+
+/// A sequence unit the call's cancellation stopped: its writes check the token before each rename and published nothing
+/// of it, so it is a failed unit of the report (Node's `apply_patch aborted`), and the report still lists the units
+/// that were applied. Any other stop ends the run.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+fn aborted_unit(stop: Stop) -> R<String> {
+    match stop {
+        Stop::Tool(e) if matches!(e.code, ToolErrorCode::Cancelled) => {
+            Ok(if e == cancelled() { "Error: apply_patch aborted".to_owned() } else { e.message_for_model })
+        }
+        other => Err(other),
+    }
 }
 
 /// The report of a multi-section run: all applied, stopped at the first failure, or file-level partial.
@@ -1614,7 +1685,7 @@ async fn run_unified_sequence(ctx: &ToolContext, base: &AbsPath, files: Vec<UFil
                 mutated.extend(touched);
             }
             Err(Stop::Text(e)) => failures.push((i, display, e)),
-            Err(other) => return Err(other),
+            Err(other) => failures.push((i, display, aborted_unit(other)?)),
         }
     }
     Ok(())
@@ -1646,5 +1717,267 @@ impl ApplyPatchTool {
             return Err(fail(error_code(&text), text));
         }
         Ok(with_card_diff(ctx, text_output(text)))
+    }
+}
+
+/// What a write tool answers when its call is cancelled around a publish, against what the disk then holds.
+#[cfg(test)]
+mod cancel_tests {
+    use std::future::Future;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_core_api::domain::common::EventSource;
+    use mixdog_core_api::domain::fs::DirEntry;
+    use mixdog_core_api::domain::fs::FileBytes;
+    use mixdog_core_api::domain::fs::FileService;
+    use mixdog_core_api::domain::fs::FileStat;
+    use mixdog_core_api::domain::fs::FsError;
+    use mixdog_core_api::domain::fs::ReadRange;
+    use mixdog_core_api::domain::fs::SearchMatch;
+    use mixdog_core_api::domain::fs::SearchRequest;
+    use mixdog_core_api::domain::fs::WalkRequest;
+    use mixdog_core_api::domain::fs::WriteRequest;
+    use mixdog_core_api::domain::tool::Tool;
+    use mixdog_core_api::domain::tool::ToolErrorCode;
+    use mixdog_core_api::domain::tool::ToolOutcome;
+    use mixdog_core_api::domain::tool::ToolPart;
+    use mixdog_protocol::JsonValue;
+    use mixdog_rt::DurabilityIo;
+    use mixdog_rt::InteractiveIo;
+    use mixdog_rt::MaintenanceIo;
+    use tokio_util::sync::CancellationToken;
+
+    use super::ApplyPatchTool;
+    use crate::fs::edit::EditTool;
+    use crate::fs::edit::WriteTool;
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum When {
+        /// After the tool's own cancel check, before the write job reaches its rename.
+        AsItStarts,
+        /// After the write job published, before the tool sees its answer.
+        AfterPublish,
+    }
+
+    /// The real disk, with the call's token cancelled at the `nth` (1-based) cancellable write.
+    struct CancelOnWrite {
+        inner: Arc<dyn FileService>,
+        cancel: CancellationToken,
+        nth: usize,
+        when: When,
+        seen: AtomicUsize,
+    }
+
+    impl CancelOnWrite {
+        async fn around<T>(&self, write: impl Future<Output = T>) -> T {
+            let hit = self.seen.fetch_add(1, Ordering::SeqCst) + 1 == self.nth;
+            if hit && self.when == When::AsItStarts {
+                self.cancel.cancel();
+            }
+            let out = write.await;
+            if hit && self.when == When::AfterPublish {
+                self.cancel.cancel();
+            }
+            out
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl FileService for CancelOnWrite {
+        async fn stat(&self, lane: InteractiveIo, path: AbsPath) -> Result<FileStat, FsError> {
+            self.inner.stat(lane, path).await
+        }
+        async fn read(&self, lane: InteractiveIo, path: AbsPath, range: ReadRange) -> Result<FileBytes, FsError> {
+            self.inner.read(lane, path, range).await
+        }
+        async fn list_dir(&self, lane: InteractiveIo, path: AbsPath) -> Result<Vec<DirEntry>, FsError> {
+            self.inner.list_dir(lane, path).await
+        }
+        async fn write(&self, lane: DurabilityIo, request: WriteRequest) -> Result<FileStat, FsError> {
+            self.inner.write(lane, request).await
+        }
+        async fn write_cancellable(&self, lane: DurabilityIo, request: WriteRequest, cancel: CancellationToken) -> Result<FileStat, FsError> {
+            self.around(self.inner.write_cancellable(lane, request, cancel)).await
+        }
+        async fn write_batch(&self, lane: DurabilityIo, requests: Vec<WriteRequest>) -> Result<Vec<FileStat>, FsError> {
+            self.inner.write_batch(lane, requests).await
+        }
+        async fn write_batch_cancellable(&self, lane: DurabilityIo, requests: Vec<WriteRequest>, cancel: CancellationToken) -> Result<Vec<FileStat>, FsError> {
+            self.around(self.inner.write_batch_cancellable(lane, requests, cancel)).await
+        }
+        async fn create_dir(&self, lane: DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), FsError> {
+            self.inner.create_dir(lane, path, recursive).await
+        }
+        async fn rename(&self, lane: DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), FsError> {
+            self.inner.rename(lane, from, to, overwrite).await
+        }
+        async fn copy(&self, lane: DurabilityIo, from: AbsPath, to: AbsPath, overwrite: bool) -> Result<(), FsError> {
+            self.inner.copy(lane, from, to, overwrite).await
+        }
+        async fn remove(&self, lane: DurabilityIo, path: AbsPath, recursive: bool) -> Result<(), FsError> {
+            self.inner.remove(lane, path, recursive).await
+        }
+        fn walk(&self, lane: MaintenanceIo, request: WalkRequest) -> Box<dyn EventSource<Result<DirEntry, FsError>>> {
+            self.inner.walk(lane, request)
+        }
+        fn search_text(&self, lane: MaintenanceIo, request: SearchRequest) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
+            self.inner.search_text(lane, request)
+        }
+    }
+
+    struct Fixture {
+        _dir: tempfile::TempDir,
+        root: std::path::PathBuf,
+        ctx: mixdog_core_api::domain::tool::ToolContext,
+    }
+
+    impl Fixture {
+        async fn new(files: &[(&str, &str)], nth: usize, when: When) -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path().join("work");
+            std::fs::create_dir(&root).unwrap();
+            for (name, content) in files {
+                std::fs::write(root.join(name), content).unwrap();
+            }
+            let cancel = CancellationToken::new();
+            let service = CancelOnWrite {
+                inner: Arc::new(mixdog_workspace::localfs::LocalFileService::new()),
+                cancel: cancel.clone(),
+                nth,
+                when,
+                seen: AtomicUsize::new(0),
+            };
+            let mut ctx = crate::fs::tests::context_seeded(&AbsPath::new(&root).unwrap(), Arc::new(service), Vec::new()).await;
+            ctx.cancel = cancel;
+            Self { _dir: dir, root, ctx }
+        }
+
+        fn names(&self) -> Vec<String> {
+            let mut names: Vec<String> = std::fs::read_dir(&self.root).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+            names.sort();
+            names
+        }
+
+        fn read(&self, name: &str) -> Option<String> {
+            std::fs::read_to_string(self.root.join(name)).ok()
+        }
+    }
+
+    fn text(outcome: &ToolOutcome) -> String {
+        match outcome {
+            Ok(output) => output.parts.iter().filter_map(|p| if let ToolPart::Text(t) = p { Some(t.as_str()) } else { None }).collect::<Vec<_>>().join("\n"),
+            Err(e) => e.message_for_model.clone(),
+        }
+    }
+
+    fn is_cancelled(outcome: &ToolOutcome) -> bool {
+        matches!(outcome, Err(e) if matches!(e.code, ToolErrorCode::Cancelled))
+    }
+
+    fn args(value: JsonValue) -> JsonValue {
+        value
+    }
+
+    #[tokio::test]
+    async fn a_write_cancelled_before_its_rename_answers_cancelled_and_leaves_the_file() {
+        let f = Fixture::new(&[("f.txt", "old")], 1, When::AsItStarts).await;
+        let outcome = WriteTool::new().call(&f.ctx, args(serde_json::json!({ "path": "f.txt", "content": "new" }))).await;
+        assert!(is_cancelled(&outcome), "{}", text(&outcome));
+        assert_eq!(f.read("f.txt").as_deref(), Some("old"));
+        assert_eq!(f.names(), ["f.txt"]);
+    }
+
+    #[tokio::test]
+    async fn a_write_cancelled_after_its_rename_answers_done() {
+        let f = Fixture::new(&[("f.txt", "old")], 1, When::AfterPublish).await;
+        let outcome = WriteTool::new().call(&f.ctx, args(serde_json::json!({ "path": "f.txt", "content": "new" }))).await;
+        assert!(outcome.is_ok(), "{}", text(&outcome));
+        assert!(f.ctx.cancel.is_cancelled());
+        assert_eq!(f.read("f.txt").as_deref(), Some("new"));
+        assert_eq!(f.names(), ["f.txt"]);
+    }
+
+    #[tokio::test]
+    async fn an_edit_cancelled_before_its_rename_answers_cancelled_and_leaves_the_file() {
+        let f = Fixture::new(&[("f.txt", "old line\n")], 1, When::AsItStarts).await;
+        let outcome = EditTool::new().call(&f.ctx, args(serde_json::json!({ "file_path": "f.txt", "old_string": "old", "new_string": "new" }))).await;
+        assert!(is_cancelled(&outcome), "{}", text(&outcome));
+        assert_eq!(f.read("f.txt").as_deref(), Some("old line\n"));
+        assert_eq!(f.names(), ["f.txt"]);
+    }
+
+    const TWO_ADDS: &str = "*** Begin Patch\n*** Add File: a.txt\n+alpha\n*** Add File: b.txt\n+beta\n*** End Patch\n";
+
+    /// Two creates as a unified diff: one atomic batch (a multi-file V4A patch runs file by file instead).
+    const TWO_ADDS_UNIFIED: &str = "--- /dev/null\n+++ b/a.txt\n@@ -0,0 +1 @@\n+alpha\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1 @@\n+beta\n";
+
+    thread_local! {
+        /// The token [`native_committed`] cancels: set by a test on its own (current-thread) runtime.
+        static AFTER_NATIVE: std::cell::RefCell<Option<CancellationToken>> = const { std::cell::RefCell::new(None) };
+    }
+
+    /// Reached once the native engine has written its files, before the next patch phase.
+    pub(super) fn native_committed() {
+        if let Some(cancel) = AFTER_NATIVE.with(|slot| slot.borrow_mut().take()) {
+            cancel.cancel();
+        }
+    }
+
+    /// A native edit of `f.txt`, then a create of `b.txt` (written by the JS writer): two phases of one patch.
+    const EDIT_THEN_ADD: &str = "--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-old\n+new\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1 @@\n+beta\n";
+
+    /// An atomic batch cancelled after its native edit committed, before its create: the edit is rolled back even though
+    /// the call is cancelled, and the answer is a plain cancel because the disk holds nothing of the patch.
+    #[tokio::test]
+    async fn an_atomic_patch_cancelled_after_its_native_edit_rolls_the_edit_back() {
+        let f = Fixture::new(&[("f.txt", "old\n")], 0, When::AsItStarts).await;
+        AFTER_NATIVE.with(|slot| *slot.borrow_mut() = Some(f.ctx.cancel.clone()));
+        let outcome = ApplyPatchTool::new().call(&f.ctx, args(serde_json::json!({ "patch": EDIT_THEN_ADD }))).await;
+        assert!(f.ctx.cancel.is_cancelled(), "the native phase ran");
+        assert!(is_cancelled(&outcome), "{}", text(&outcome));
+        assert!(!text(&outcome).contains("rollback incomplete"), "{}", text(&outcome));
+        assert_eq!(f.read("f.txt").as_deref(), Some("old\n"));
+        assert_eq!(f.names(), ["f.txt"]);
+    }
+
+    /// An ordered patch cancelled right after its first (native) section committed reports that section as applied and
+    /// the next as aborted, as the disk shows.
+    #[tokio::test]
+    async fn an_ordered_patch_cancelled_after_a_native_section_reports_it_applied() {
+        let f = Fixture::new(&[("f.txt", "old\n")], 0, When::AsItStarts).await;
+        AFTER_NATIVE.with(|slot| *slot.borrow_mut() = Some(f.ctx.cancel.clone()));
+        let outcome = ApplyPatchTool::new().call(&f.ctx, args(serde_json::json!({ "patch": EDIT_THEN_ADD, "mode": "ordered" }))).await;
+        let report = text(&outcome);
+        assert!(f.ctx.cancel.is_cancelled(), "the native phase ran");
+        assert!(report.contains("stopped at section 2/2"), "{report}");
+        assert!(report.contains("1 earlier section(s) were applied to disk"), "{report}");
+        assert!(report.contains("apply_patch aborted"), "{report}");
+        assert_eq!(f.read("f.txt").as_deref(), Some("new\n"));
+        assert_eq!(f.names(), ["f.txt"]);
+    }
+
+    /// A batch cancelled as its write starts publishes no entry, and answers a cancel.
+    #[tokio::test]
+    async fn a_cancelled_patch_batch_publishes_no_entry() {
+        let f = Fixture::new(&[], 1, When::AsItStarts).await;
+        let outcome = ApplyPatchTool::new().call(&f.ctx, args(serde_json::json!({ "patch": TWO_ADDS_UNIFIED }))).await;
+        assert!(is_cancelled(&outcome), "{}", text(&outcome));
+        assert!(f.names().is_empty(), "{:?}", f.names());
+    }
+
+    /// An ordered patch cancelled at its second unit keeps the first, publishes nothing of the second, and its report
+    /// says which unit was applied.
+    #[tokio::test]
+    async fn a_sequence_cancelled_at_its_second_unit_reports_the_first_as_applied() {
+        let f = Fixture::new(&[], 2, When::AsItStarts).await;
+        let outcome = ApplyPatchTool::new().call(&f.ctx, args(serde_json::json!({ "patch": TWO_ADDS, "mode": "ordered" }))).await;
+        let report = text(&outcome);
+        assert!(report.contains("1 earlier section(s) were applied to disk"), "{report}");
+        assert!(report.contains("apply_patch aborted"), "{report}");
+        assert_eq!(f.read("a.txt").as_deref(), Some("alpha\n"));
+        assert_eq!(f.names(), ["a.txt"]);
     }
 }

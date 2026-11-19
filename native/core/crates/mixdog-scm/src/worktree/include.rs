@@ -431,6 +431,13 @@ pub fn covered_by_includes(roots: &[String], path: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn directory_entries_are_hashed_in_javascript_string_order() {
+        let mut names = vec!["\u{FF5E}".to_owned(), "\u{1F600}".to_owned(), "a".to_owned()];
+        super::sort_js(&mut names);
+        assert_eq!(names, ["a", "\u{1F600}", "\u{FF5E}"]);
+    }
+
     use super::*;
 
     #[test]
@@ -487,6 +494,12 @@ mod tests {
 
 /// Digest of a copied tree (relative path, type, size, mtime). `None` when the tree is gone or
 /// too large to fingerprint.
+/// `names.sort()` of JavaScript: UTF-16 code-unit order, which puts a supplementary character before U+E000..U+FFFF (Rust's string
+/// order, by code point, does the reverse). A digest recorded by Node hashes its entries in that order.
+fn sort_js(names: &mut [String]) {
+    names.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+}
+
 fn tree_digest(path: &Path) -> Option<String> {
     let mut hash = Sha256::new();
     let mut count = 0usize;
@@ -512,7 +525,7 @@ fn tree_digest(path: &Path) -> Option<String> {
             return Some(());
         }
         let mut names: Vec<String> = std::fs::read_dir(current).ok()?.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
-        names.sort();
+        sort_js(&mut names);
         for name in names {
             let child = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
             walk(&current.join(&name), &child, hash, count)?;

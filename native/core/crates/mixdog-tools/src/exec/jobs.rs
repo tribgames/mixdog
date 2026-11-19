@@ -1285,6 +1285,12 @@ impl Job {
         !self.state().finished
     }
 
+    /// The cause a failed job ended with (`task.error` of the task list); `None` for any other end.
+    pub fn failure_error(&self) -> Option<String> {
+        let state = self.state();
+        self.end_of(&state).filter(|end| end.status == JobStatus::Failed).and_then(|end| end.error).filter(|error| !error.is_empty())
+    }
+
     /// A survivors task cancelled whose processes are not yet confirmed gone: it keeps being terminated.
     pub(crate) fn termination_pending(&self) -> bool {
         let state = self.state();

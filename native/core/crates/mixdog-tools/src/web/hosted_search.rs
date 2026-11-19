@@ -165,8 +165,29 @@ fn tool_types(candidate: &SearchCandidate) -> Vec<String> {
     }
 }
 
+/// Node `nativeWebSearchUserLocation`: an object locale's country, region, city and timezone as the provider's
+/// approximate `user_location`; a string locale, or an object with none of them, sends none.
+fn user_location(locale: Option<&Value>) -> Option<Value> {
+    let object = locale?.as_object()?;
+    let mut location = Map::new();
+    location.insert("type".to_owned(), json!("approximate"));
+    for key in ["country", "region", "city", "timezone"] {
+        let text = match object.get(key) {
+            Some(Value::String(text)) => js_trim(text).to_owned(),
+            Some(Value::Number(number)) => number.to_string(),
+            Some(Value::Bool(flag)) => flag.to_string(),
+            _ => String::new(),
+        };
+        if !text.is_empty() {
+            location.insert(key.to_owned(), json!(text));
+        }
+    }
+    (location.len() > 1).then_some(Value::Object(location))
+}
+
 fn hosted_tool(request: &NativeSearchRequest, tool_type: &str, family: SearchFamily) -> Value {
     let domains = request.site.as_deref().map(allowed_domains).unwrap_or_default();
+    let location = user_location(request.locale.as_ref());
     let kind = if js_trim(tool_type).is_empty() { "web_search" } else { js_trim(tool_type) };
     match family {
         SearchFamily::Gemini => json!({ "type": kind }),
@@ -179,6 +200,9 @@ fn hosted_tool(request: &NativeSearchRequest, tool_type: &str, family: SearchFam
             });
             if !domains.is_empty() {
                 tool["allowed_domains"] = json!(domains);
+            }
+            if let Some(location) = location {
+                tool["user_location"] = location;
             }
             tool
         }
@@ -196,6 +220,9 @@ fn hosted_tool(request: &NativeSearchRequest, tool_type: &str, family: SearchFam
                 tool["search_context_size"] = json!(if size.is_empty() { "low" } else { size });
                 if !domains.is_empty() {
                     tool["filters"] = json!({ "allowed_domains": domains });
+                }
+                if let Some(location) = location {
+                    tool["user_location"] = location;
                 }
             }
             tool
@@ -335,5 +362,35 @@ impl NativeWebSearch for HostedWebSearch {
             }
         }
         Err(NativeSearchError::Failed(format!("native web search failed: {}", errors.join(" | "))))
+    }
+}
+
+#[cfg(test)]
+mod user_location_tests {
+    use super::*;
+
+    fn request(locale: Option<Value>) -> NativeSearchRequest {
+        NativeSearchRequest {
+            thread: ThreadId::from("t"),
+            query: "q".into(),
+            site: None,
+            locale,
+            context_size: "low".into(),
+            max_results: 5,
+            prompt: String::new(),
+        }
+    }
+
+    /// `nativeWebSearchUserLocation`: an object locale reaches Anthropic and OpenAI as an approximate `user_location`.
+    #[test]
+    fn an_object_locale_is_the_providers_user_location() {
+        let locale = json!({ "country": "KR", "city": " Seoul ", "language": "ko", "region": "", "timezone": "Asia/Seoul" });
+        let want = json!({ "type": "approximate", "country": "KR", "city": "Seoul", "timezone": "Asia/Seoul" });
+        let request = request(Some(locale));
+        assert_eq!(hosted_tool(&request, "web_search", SearchFamily::Openai)["user_location"], want);
+        assert_eq!(hosted_tool(&request, "web_search", SearchFamily::Anthropic)["user_location"], want);
+        assert!(hosted_tool(&request, "web_search", SearchFamily::Xai).get("user_location").is_none());
+        assert!(hosted_tool(&self::request(Some(json!("ko-KR"))), "web_search", SearchFamily::Openai).get("user_location").is_none());
+        assert!(hosted_tool(&self::request(Some(json!({ "language": "ko" }))), "web_search", SearchFamily::Openai).get("user_location").is_none());
     }
 }

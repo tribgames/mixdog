@@ -203,7 +203,7 @@ async fn write_checked(
 ) -> Result<(), ToolError> {
     let created = matches!(precondition, WritePrecondition::Absent);
     let request = WriteRequest { path: abs.clone(), content, precondition };
-    match guarded(ctx, "edit", ctx.files.write(ctx.io.durability, request)).await? {
+    match write_guarded(ctx, "edit", request).await? {
         Ok(_) => Ok(()),
         Err(e) if matches!(e.kind, FsErrorKind::PreconditionFailed { .. }) => {
             let why = if created { "was created concurrently; read it before editing" } else { STALE_DURING_EDIT };
@@ -327,7 +327,7 @@ impl Tool for WriteTool {
             let _ = guarded(ctx, "write", ctx.files.create_dir(ctx.io.durability, parent, true)).await?;
         }
         let request = WriteRequest { path: abs.clone(), content: contents.as_bytes().to_vec(), precondition: WritePrecondition::Unconditional };
-        match guarded(ctx, "write", ctx.files.write(ctx.io.durability, request)).await? {
+        match write_guarded(ctx, "write", request).await? {
             Ok(_) => {}
             Err(e) => {
                 return Err(fs_failure_worded(&e, &full, format!("Error: write failed ({})", write_message(&e, abs.as_path()))));

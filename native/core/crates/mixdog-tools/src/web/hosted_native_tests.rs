@@ -555,8 +555,26 @@ async fn check_sends(sends: &[Value], start: i64) {
         }
 
         assert_eq!(Value::Array(heard.lock().unwrap().clone()), case["deltas"], "{name}");
-        assert_eq!(row_views(&ledger), case["rows"].as_array().unwrap().clone(), "{name}");
+        assert_eq!(row_views(&ledger), departed_rows(case), "{name}");
     }
+}
+
+/// Recorded sends whose ledger row a DECIDED DEPARTURE changes: a completed send whose provider reported no usage now
+/// records `outputTokensKnown:false` in its rates (`mixdog-ai` accounting), so the request projection can tell an
+/// unmeasured output from a measured zero. Node's row did not say so.
+const OUTPUT_UNKNOWN_SENDS: &[&str] = &["xai with a tool type and no usage"];
+
+/// The recorded ledger rows of a send with its listed departure applied.
+fn departed_rows(case: &Value) -> Vec<Value> {
+    let mut rows = case["rows"].as_array().unwrap().clone();
+    if OUTPUT_UNKNOWN_SENDS.contains(&case["name"].as_str().unwrap()) {
+        for row in &mut rows {
+            let rates = row["rates"].as_str().unwrap();
+            assert!(!rates.contains("outputTokensKnown"), "{}: the recording already says it", case["name"]);
+            row["rates"] = json!(format!("{},\"outputTokensKnown\":false}}", rates.strip_suffix('}').unwrap()));
+        }
+    }
+    rows
 }
 
 #[tokio::test]

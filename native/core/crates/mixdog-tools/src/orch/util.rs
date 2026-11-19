@@ -111,7 +111,7 @@ mod tests {
         ];
         for def in defs {
             let spec = super::spec_from_def(def, false, &[]);
-            let node = mixdog_js::fixture_tools::definition(&spec.name).expect("a Node definition");
+            let node = crate::departures::definition(&spec.name, mixdog_js::fixture_tools::definition(&spec.name).expect("a Node definition"));
             let got = spec.definition();
             // These owners intentionally diverge from Node's input/reply contract. Their
             // routing annotations remain unchanged and are still compared below.

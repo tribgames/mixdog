@@ -1,3 +1,57 @@
+// The runs of a table cell that holds links: `full` is the text the browser shows for the cell (its trimmed
+// `innerText`, line breaks included), cut into the parts a link covers and the parts none does. Each visible text node
+// is found in `full` in order, so hidden text and breaks come out exactly as `innerText` has them; a cell whose runs
+// would not rebuild `full` (text-transform, say) answers no runs and stays plain text.
+function linkedCellRuns(td, full) {
+  const view = td.ownerDocument.defaultView;
+  const hidden = (node) => {
+    for (let el = node.parentElement; el; el = el.parentElement) {
+      const cs = view.getComputedStyle(el);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return true;
+      if (el === td) return false;
+    }
+    return false;
+  };
+  const runs = [];
+  const push = (text, href) => {
+    if (!text) return;
+    const last = runs[runs.length - 1];
+    if (last && (last.href || '') === href) last.text += text;
+    else runs.push(href ? { text, href } : { text });
+  };
+  const walker = td.ownerDocument.createTreeWalker(td, 4);
+  // Offsets found in folded text are cut from `full`, so the fold must keep every length: a character that folds to
+  // more (İ) would shift each link after it onto the wrong part.
+  const fold = (text) => text.toLowerCase();
+  const lower = fold(full);
+  if (lower.length !== full.length) return [];
+  let at = 0;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (hidden(node)) continue;
+    // Only the HTML whitespace collapses: a non-breaking space stays what `full` has. One at the cell's very edge is
+    // cut from `full` by its trim, so the piece is tried without it when it is not found whole.
+    const whole = node.textContent.replace(/[ \t\n\r\f]+/g, ' ').replace(/^ | $/g, '');
+    if (!whole.trim()) continue;
+    const anchor = node.parentElement.closest('a[href]');
+    const href = anchor && /^(https?|mailto|tel):/i.test(anchor.href) ? anchor.href : '';
+    // Whichever form occurs first from the cursor on, so a later label of the same text is never taken for this one.
+    const found = [whole, whole.trim()]
+      .filter((form) => fold(form).length === form.length)
+      .map((form) => ({ piece: form, start: lower.indexOf(fold(form), at) }))
+      .filter((hit) => hit.start >= 0)
+      .sort((a, b) => a.start - b.start)[0];
+    if (!found) return [];
+    const { piece, start } = found;
+    const gap = full.slice(at, start);
+    const last = runs[runs.length - 1];
+    push(gap, last && last.href === href && !gap.includes('\n') ? href : '');
+    push(full.slice(start, start + piece.length), href);
+    at = start + piece.length;
+  }
+  push(full.slice(at), '');
+  return runs.map((run) => run.text).join('') === full ? runs : [];
+}
+
 // Runs inside the page: everything it needs is defined here. Returns one
 // slide's items in paint order (a parent's box before its children).
 function extractSlide(index) {
@@ -180,7 +234,10 @@ function extractSlide(index) {
       const ps = getComputedStyle(node.parentElement);
       // An inline run with its own background is a marker highlight.
       const highlight = node.parentElement !== el && ps.display.startsWith('inline') ? color(ps.backgroundColor) : null;
+      const anchor = node.parentElement.closest('a[href]');
+      const href = anchor && /^(https?|mailto|tel):/i.test(anchor.href) ? anchor.href : '';
       const style = {
+        ...(href ? { href } : {}),
         hl: highlight ? highlight.hex : null,
         font: family(ps.fontFamily),
         size: px(ps.fontSize),
@@ -259,8 +316,12 @@ function extractSlide(index) {
           const c = color(s[`border${name}Color`]);
           return w > 0 && c && s[`border${name}Style`] !== 'none' ? { w, c: c.hex } : null;
         };
+        const full = td.innerText.trim();
+        // A cell with a link keeps its text as runs, each with its own target.
+        const runs = td.querySelector('a[href]') ? linkedCellRuns(td, full) : [];
         return {
-          text: td.innerText.trim(),
+          text: full,
+          ...(runs.length ? { runs } : {}),
           box: rel(td.getBoundingClientRect()),
           font: family(s.fontFamily),
           size: px(s.fontSize),

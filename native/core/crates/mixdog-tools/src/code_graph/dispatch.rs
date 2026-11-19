@@ -35,6 +35,19 @@ const MODES: [&str; 12] = [
 
 /// Path of `abs` under `root` with forward slashes, or the absolute path when outside it.
 pub(super) fn display_rel(abs: &Path, root: &Path) -> String {
+    if abs.strip_prefix(root).is_err() {
+        // `toDisplayPath`: the prefix match ignores case on every platform, as the drive letter or a folder's casing may differ.
+        let (a, r) = (abs.to_string_lossy().replace('\\', "/"), root.to_string_lossy().replace('\\', "/"));
+        let r = r.trim_end_matches('/');
+        if a.len() >= r.len() && a.is_char_boundary(r.len()) && a[..r.len()].to_lowercase() == r.to_lowercase() {
+            if a.len() == r.len() {
+                return String::new();
+            }
+            if let Some(rest) = a[r.len()..].strip_prefix('/') {
+                return rest.to_owned();
+            }
+        }
+    }
     abs.strip_prefix(root)
         .unwrap_or(abs)
         .to_string_lossy()
@@ -316,5 +329,18 @@ fn answer(
         "references" => modes::references(&ctx),
         "callers" => modes::callers(&ctx),
         _ => modes::callees(&ctx),
+    }
+}
+
+#[cfg(test)]
+mod display_rel_tests {
+    use super::*;
+
+    /// `toDisplayPath`: on every platform a cwd that differs from the indexed root only by case still strips.
+    #[test]
+    fn the_root_prefix_matches_without_regard_to_case() {
+        assert_eq!(display_rel(Path::new("/Proj/Src/a.ts"), Path::new("/proj")), "Src/a.ts");
+        assert_eq!(display_rel(Path::new("/Proj"), Path::new("/proj/")), "");
+        assert_eq!(display_rel(Path::new("/Projects/a.ts"), Path::new("/proj")), "/Projects/a.ts");
     }
 }

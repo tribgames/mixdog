@@ -12,6 +12,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::PoisonError;
+use std::sync::Weak;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use std::time::Instant;
@@ -54,7 +56,8 @@ impl ChangeKind {
     }
 }
 
-/// Receives each pushed batch. Called on the watcher's worker thread; it must not block.
+/// Receives each pushed batch. Called on the watcher's worker thread, and by the end of a [`hold_root`] (its `Overflow`); it must
+/// not block.
 pub trait ChangeSink: Send + Sync + 'static {
     fn changed(&self, watch_id: &str, paths: Vec<String>, kind: ChangeKind);
 }
@@ -102,6 +105,8 @@ struct Sub {
 
 #[derive(Default)]
 struct OsPath {
+    /// The path the backend knows the watch by (the first one registered of its case-folded key).
+    path: PathBuf,
     recursive_refs: usize,
     direct_refs: usize,
     coverage: Option<Arc<()>>,
@@ -112,6 +117,76 @@ struct State {
     subs: HashMap<String, Sub>,
     os: HashMap<PathBuf, OsPath>,
     registry: crate::watch::WatchRegistry,
+    /// Told when a hold's end opens a watch's handles again.
+    sink: Arc<dyn ChangeSink>,
+}
+
+/// The roots no watcher of this process may hold a handle under, one entry per live [`RootHold`].
+static HELD: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+/// Every watcher of this process, for a hold to reach the ones it did not create.
+static WATCHERS: Mutex<Vec<Weak<Mutex<State>>>> = Mutex::new(Vec::new());
+
+fn held(path: &Path) -> bool {
+    HELD.lock().unwrap_or_else(PoisonError::into_inner).iter().any(|root| is_within(root, path))
+}
+
+fn live_watchers() -> Vec<Arc<Mutex<State>>> {
+    let mut all = WATCHERS.lock().unwrap_or_else(PoisonError::into_inner);
+    all.retain(|state| state.strong_count() > 0);
+    all.iter().filter_map(Weak::upgrade).collect()
+}
+
+/// Returns once the backend has acted on every unwatch sent to it before: Windows' backend only queues an unwatch for its own thread,
+/// which closes the handle later, and answers a configure request after everything queued ahead of it. The other backends unwatch
+/// within the call. A request the backend did not answer is no proof: an error.
+fn settle(watcher: &mut RecommendedWatcher) -> WsResult<()> {
+    #[cfg(windows)]
+    watcher
+        .configure(notify::Config::default())
+        .map_err(|error| WsError::new(Reason::Io, format!("The file watcher did not confirm that it closed its watches: {error}")))?;
+    #[cfg(not(windows))]
+    let _ = watcher;
+    Ok(())
+}
+
+/// Keeps every watcher of this process from holding a handle at or under `root` until it is dropped: Windows refuses to rename or
+/// delete a folder while a handle is open inside it. When this returns, the handles there are closed; watches registered there in
+/// the meantime keep their registration without one. The drop opens them again, unless another hold still covers them, and tells
+/// each watch it served `Overflow` (it may have missed changes, and the folder may have been replaced). An error when a watcher
+/// could not confirm its handles closed; the hold is ended then.
+pub fn hold_root(root: &Path) -> WsResult<RootHold> {
+    HELD.lock().unwrap_or_else(PoisonError::into_inner).push(root.to_path_buf());
+    let hold = RootHold { root: root.to_path_buf() };
+    // After the push: a watch opened from now on sees the hold, and one opened before is closed here.
+    for state in live_watchers() {
+        state.lock().unwrap_or_else(PoisonError::into_inner).close_under(Some(root))?;
+    }
+    Ok(hold)
+}
+
+/// A live [`hold_root`].
+pub struct RootHold {
+    root: PathBuf,
+}
+
+impl Drop for RootHold {
+    fn drop(&mut self) {
+        {
+            let mut held = HELD.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(at) = held.iter().position(|root| *root == self.root) {
+                held.remove(at);
+            }
+        }
+        for state in live_watchers() {
+            let (sink, resumed) = {
+                let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+                (state.sink.clone(), state.reopen_under(&self.root))
+            };
+            for id in resumed {
+                sink.changed(&id, Vec::new(), ChangeKind::Overflow);
+            }
+        }
+    }
 }
 
 pub struct FolderWatcher {
@@ -201,15 +276,47 @@ impl State {
         };
         entry.coverage = None;
         let mode = if entry.recursive_refs > 0 { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive };
+        let path = entry.path.clone();
         let Some(w) = self.watcher.as_mut() else { return Ok(()) };
-        let _ = w.unwatch(path);
-        w.watch(path, mode).map_err(|error| watch_failure(&error, path))?;
+        let _ = w.unwatch(&path);
+        // Under a held root the registration stays without a handle; the hold's end opens it.
+        if held(&path) {
+            return Ok(());
+        }
+        w.watch(&path, mode).map_err(|error| watch_failure(&error, &path))?;
         entry.coverage = Some(Arc::new(()));
         Ok(())
     }
 
+    /// Gives up every OS watch at or under `root` (every one for `None`), returning once the backend has closed their handles (and
+    /// any it was told to close before).
+    fn close_under(&mut self, root: Option<&Path>) -> WsResult<()> {
+        let State { watcher, os, .. } = self;
+        let Some(w) = watcher.as_mut() else { return Ok(()) };
+        for entry in os.values_mut().filter(|entry| root.is_none_or(|root| is_within(root, &entry.path))) {
+            entry.coverage = None;
+            let _ = w.unwatch(&entry.path);
+        }
+        settle(w)
+    }
+
+    /// Opens again the OS watches under `root` that no other hold covers; the ids of the watches they serve.
+    fn reopen_under(&mut self, root: &Path) -> Vec<String> {
+        let paths: Vec<PathBuf> = self.os.values().map(|entry| entry.path.clone()).filter(|path| is_within(root, path) && !held(path)).collect();
+        for path in &paths {
+            // One the mutation left missing stays closed; its watches are told all the same.
+            let _ = self.apply(path);
+        }
+        let reopened: Vec<PathBuf> = paths.iter().map(|path| comparable(path)).collect();
+        self.subs
+            .iter()
+            .filter(|(_, sub)| std::iter::once(&sub.path).chain(&sub.git_dirs).any(|path| reopened.contains(&comparable(path))))
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
     fn add_os(&mut self, path: &Path, recursive: bool) -> WsResult<()> {
-        let entry = self.os.entry(comparable(path)).or_default();
+        let entry = self.os.entry(comparable(path)).or_insert_with(|| OsPath { path: path.to_path_buf(), ..OsPath::default() });
         let before = (entry.recursive_refs > 0, entry.direct_refs + entry.recursive_refs > 0);
         let uncovered = entry.coverage.is_none();
         if recursive { entry.recursive_refs += 1 } else { entry.direct_refs += 1 }
@@ -225,6 +332,7 @@ impl State {
     fn remove_os(&mut self, path: &Path, recursive: bool) {
         let key = comparable(path);
         let Some(entry) = self.os.get_mut(&key) else { return };
+        let registered = entry.path.clone();
         let was_recursive = entry.recursive_refs > 0;
         if recursive { entry.recursive_refs = entry.recursive_refs.saturating_sub(1) } else { entry.direct_refs = entry.direct_refs.saturating_sub(1) }
         let empty = entry.recursive_refs + entry.direct_refs == 0;
@@ -233,7 +341,7 @@ impl State {
             self.os.remove(&key);
         }
         if empty || was_recursive != still_recursive {
-            let _ = self.apply(path);
+            let _ = self.apply(&registered);
         }
     }
 }
@@ -253,7 +361,9 @@ impl FolderWatcher {
             subs: HashMap::new(),
             os: HashMap::new(),
             registry: crate::watch::WatchRegistry::default(),
+            sink: sink.clone(),
         }));
+        WATCHERS.lock().unwrap_or_else(PoisonError::into_inner).push(Arc::downgrade(&state));
         let worker_state = state.clone();
         std::thread::Builder::new()
             .name("mixdog-fs-watcher".into())
@@ -342,7 +452,11 @@ impl FolderWatcher {
 impl Drop for FolderWatcher {
     fn drop(&mut self) {
         let _ = self.stop.send(Message::Stop);
-        self.lock().watcher = None;
+        let mut state = self.lock();
+        // Closed before the backend goes: its own stop closes them later, on its thread (see `hold_root`).
+        // Nothing is left to do for a backend that did not answer.
+        let _ = state.close_under(None);
+        state.watcher = None;
     }
 }
 
@@ -605,6 +719,39 @@ mod tests {
         assert!(watcher.recursive_revision(&root).is_none());
         drop(queued);
         assert!(!Arc::ptr_eq(&before, &watcher.recursive_revision(&root).unwrap()));
+    }
+
+    /// A hold closes the handles under its root before it returns (Windows renames the folder at once), keeps a watch registered
+    /// meanwhile without one, never touches the watch of a folder outside it, and at its end opens them again on the new folder
+    /// with an `Overflow` to each watch it served.
+    #[test]
+    fn a_held_root_has_no_handle_until_the_hold_ends_and_other_watches_keep_theirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = crate::pathguard::canonical(dir.path()).unwrap();
+        let (root, other) = (base.join("plugin"), base.join("other"));
+        std::fs::create_dir_all(root.join("skills")).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        let (watcher, rx) = watcher();
+        watcher.watch("skills", &root.join("skills"), true).unwrap();
+        watcher.watch("other", &other, true).unwrap();
+        let untouched = watcher.recursive_revision(&other).unwrap();
+        let hold = hold_root(&root).unwrap();
+        assert!(watcher.recursive_revision(&root.join("skills")).is_none());
+        watcher.watch("late", &root, false).unwrap();
+        std::fs::rename(&root, base.join("plugin.backup")).expect("no handle is open under the held root");
+        std::fs::create_dir_all(root.join("skills")).unwrap();
+        drop(hold);
+        assert!(Arc::ptr_eq(&untouched, &watcher.recursive_revision(&other).unwrap()), "the unrelated watch was reopened");
+        let mut resumed: Vec<String> = rx.try_iter().filter(|(_, _, kind)| *kind == ChangeKind::Overflow).map(|(id, ..)| id).collect();
+        resumed.sort();
+        assert_eq!(resumed, ["late", "skills"]);
+        std::fs::write(root.join("skills").join("new.txt"), "x").unwrap();
+        loop {
+            let (id, paths, _) = rx.recv_timeout(Duration::from_secs(5)).expect("the reopened watch reports the new folder");
+            if id == "skills" && paths.iter().any(|p| p.ends_with("new.txt")) {
+                break;
+            }
+        }
     }
 
     #[test]

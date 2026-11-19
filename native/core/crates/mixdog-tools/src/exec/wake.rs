@@ -54,10 +54,38 @@ impl Waiter {
     }
 }
 
+/// Where a wait that a notification cut short stands against the model's next steps.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum Cut {
+    #[default]
+    None,
+    /// The cut wait's own tool batch has not reached its model-call boundary yet.
+    Fresh,
+    /// The boundary delivered the notification; the model has made no other call since.
+    Armed,
+}
+
+#[derive(Default)]
+struct ThreadState {
+    /// A user message of this turn that no model-call boundary has delivered yet.
+    user_pending: bool,
+    /// A notification due for delivery that no boundary has delivered yet (the task id it names).
+    notice_pending: Option<Option<String>>,
+    cut: Cut,
+}
+
+/// Why a wait may not start.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WaitRefusal {
+    UserMessage,
+    Notification,
+}
+
 #[derive(Default)]
 pub struct WakeHub {
     waiters: Mutex<HashMap<ThreadId, Vec<Arc<Waiter>>>>,
     queued: Mutex<Vec<Arc<dyn QueuedWake>>>,
+    state: Mutex<HashMap<ThreadId, ThreadState>>,
 }
 
 /// An active wait of one thread; dropping it ends the wait.
@@ -92,6 +120,16 @@ impl WakeHub {
                 break;
             }
         }
+        // What the session reported while no wait was active: a wait registered after it must not miss it.
+        if queued.is_none()
+            && let Some(state) = lock(&self.state).get(thread)
+        {
+            queued = if state.user_pending {
+                Some(Wake { reason: WakeReason::UserMessage, detail: None })
+            } else {
+                state.notice_pending.clone().map(|detail| Wake { reason: WakeReason::Notification, detail })
+            };
+        }
         if let Some(wake) = queued {
             waiter.release(wake);
         }
@@ -100,12 +138,59 @@ impl WakeHub {
 
     /// Releases every active wait of `thread`; returns how many it released.
     pub fn interrupt(&self, thread: &ThreadId, reason: WakeReason, detail: Option<String>) -> usize {
+        {
+            let mut states = lock(&self.state);
+            let state = states.entry(thread.clone()).or_default();
+            match reason {
+                WakeReason::UserMessage => state.user_pending = true,
+                WakeReason::Notification => state.notice_pending = Some(detail.clone()),
+            }
+        }
         let waiters: Vec<Arc<Waiter>> =
             lock(&self.waiters).get(thread).cloned().unwrap_or_default();
         waiters
             .iter()
             .filter(|w| w.release(Wake { reason, detail: detail.clone() }))
             .count()
+    }
+
+    /// Whether a wait may start now: not while a user message of this turn is unanswered, and not
+    /// again straight after a notification cut one short with nothing else done since.
+    pub fn refuse_wait(&self, thread: &ThreadId) -> Option<WaitRefusal> {
+        let state = lock(&self.state);
+        let state = state.get(thread)?;
+        if state.user_pending {
+            Some(WaitRefusal::UserMessage)
+        } else if state.cut == Cut::Armed {
+            Some(WaitRefusal::Notification)
+        } else {
+            None
+        }
+    }
+
+    /// A wait ended because a notification arrived.
+    pub fn cut_by_notification(&self, thread: &ThreadId) {
+        lock(&self.state).entry(thread.clone()).or_default().cut = Cut::Fresh;
+    }
+
+    /// A model-call boundary of the thread's run: the cut wait's batch is over (`Fresh` becomes
+    /// `Armed`), and any batch after it means the model did something else (`Armed` is cleared).
+    /// `user_pending` / `notice_pending`: whether a user message, or a notification due for delivery (the
+    /// task id it names), still waits in the queue after this boundary's drain.
+    pub fn boundary(&self, thread: &ThreadId, user_pending: bool, notice_pending: Option<Option<String>>) {
+        let mut states = lock(&self.state);
+        let state = states.entry(thread.clone()).or_default();
+        state.user_pending = user_pending;
+        state.notice_pending = notice_pending;
+        state.cut = match state.cut {
+            Cut::Fresh => Cut::Armed,
+            Cut::Armed | Cut::None => Cut::None,
+        };
+    }
+
+    /// A run of the thread starts or ends: nothing carries over between turns.
+    pub fn reset(&self, thread: &ThreadId) {
+        lock(&self.state).remove(thread);
     }
 
     pub fn active_waits(&self, thread: &ThreadId) -> usize {

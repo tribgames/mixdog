@@ -32,6 +32,7 @@ use mixdog_raster::svg::SvgFonts;
 use serde_json::Value;
 
 use crate::measure_deck::Canvas;
+use crate::link_target::safe_link;
 use crate::pptx_writer::AxisStyle;
 use crate::pptx_writer::Background;
 use crate::pptx_writer::Border;
@@ -44,6 +45,7 @@ use crate::pptx_writer::ColWidths;
 use crate::pptx_writer::Dim;
 use crate::pptx_writer::Fill;
 use crate::pptx_writer::GridLine;
+use crate::pptx_writer::Hyperlink;
 use crate::pptx_writer::ImageOptions;
 use crate::pptx_writer::Line;
 use crate::pptx_writer::Margin;
@@ -462,6 +464,11 @@ pub fn text_placement(item: &Value, canvas_width: f64) -> Result<TextPlacement, 
     })
 }
 
+/// The hyperlink of a run, when its `href` is a target a document may carry; a rejected one leaves plain text.
+fn link_of(run: &Value) -> Option<Hyperlink> {
+    safe_link(text(run, "href")).map(|url| Hyperlink { url: Some(url), ..Hyperlink::default() })
+}
+
 fn add_text(slide: &mut Slide, u: &Units, item: &Value, canvas_width: f64) -> Result<(), String> {
     let mut runs = Vec::new();
     for (li, line) in item["lines"].as_array().map_or(&[][..], Vec::as_slice).iter().enumerate() {
@@ -480,6 +487,7 @@ fn add_text(slide: &mut Slide, u: &Units, item: &Value, canvas_width: f64) -> Re
                     char_spacing: Some(number(style, "ls") * u.pt),
                     highlight: style.get("hl").and_then(Value::as_str).filter(|hl| !hl.is_empty()).map(str::to_owned),
                     soft_break_before: li > 0 && ri == 0,
+                    frame: ShapeOptions { hyperlink: link_of(style), ..ShapeOptions::default() },
                     ..TextOptions::default()
                 }),
             });
@@ -545,8 +553,28 @@ fn add_table(slide: &mut Slide, u: &Units, item: &Value) -> Result<(), String> {
                     let border = &cell["border"];
                     let fill = cell.get("fill").filter(|fill| fill.is_object()).map(hex).filter(|hex| !hex.is_empty()).unwrap_or_else(|| "FFFFFF".to_owned());
                     let span = number(cell, "span");
+                    let linked = cell.get("runs").and_then(Value::as_array).filter(|runs| !runs.is_empty());
                     TableCell::Cell {
-                        text: TextContent::Plain(text(cell, "text").to_owned()),
+                        text: match linked {
+                            // Each run carries the cell's face itself, with its own target (or none).
+                            Some(runs) => TextContent::Runs(
+                                runs.iter()
+                                    .map(|run| TextRun {
+                                        text: text(run, "text").to_owned(),
+                                        options: Some(TextOptions {
+                                            frame: ShapeOptions { hyperlink: link_of(run), ..ShapeOptions::default() },
+                                            font_face: Some(text(cell, "font").to_owned()),
+                                            font_size: Some(number(cell, "size") * u.pt),
+                                            bold: has(cell, "bold"),
+                                            color: Some(hex(&cell["color"])),
+                                            align: Some(text(cell, "align").to_owned()),
+                                            ..TextOptions::default()
+                                        }),
+                                    })
+                                    .collect(),
+                            ),
+                            None => TextContent::Plain(text(cell, "text").to_owned()),
+                        },
                         options: Some(TextOptions {
                             frame: ShapeOptions { fill: Some(Fill::color(&fill)), ..ShapeOptions::default() },
                             font_face: Some(text(cell, "font").to_owned()),
@@ -1198,6 +1226,41 @@ mod tests {
         assert_eq!(cover_offset("27% 50%", 1000.0, 200.0, 2.0), (270.0, 100.0));
         assert_eq!(cover_offset("-40px 0px", 1000.0, 200.0, 2.0), (80.0, 0.0));
         assert_eq!(cover_offset("", 1000.0, 200.0, 2.0), (500.0, 100.0));
+    }
+
+    #[test]
+    fn links_in_a_paragraph_and_in_a_table_cell_resolve_to_their_own_targets_and_a_rejected_scheme_stays_plain() {
+        let run = |label: &str, href: &str| json!({ "text": label, "style": style(28.0, json!({ "href": href })) });
+        let mut linked = paragraph();
+        linked["lines"][1]["runs"] = json!([run("Alpha", "https://a.test/?x=1&y=2"), run("Beta", "mailto:b@b.test"), run("Evil", "javascript:alert(1)"), run("Plain", "")]);
+        let mut cell_item = cell("ignored", 720.0);
+        cell_item["runs"] = json!([
+            { "text": "CellOne", "href": "https://c.test/one" },
+            { "text": " and ", "href": "" },
+            { "text": "CellTwo", "href": "https://c.test/two" },
+            { "text": "CellEvil", "href": "file:///c:/secret" },
+        ]);
+        let table = json!({ "kind": "table", "box": { "x": 96, "y": 720, "w": 400, "h": 60 }, "rows": [[cell_item]] });
+        let zip = build(vec![linked, table]).expect("a deck");
+        let slide = zip.text("ppt/slides/slide1.xml");
+        let rels = zip.text("ppt/slides/_rels/slide1.xml.rels");
+        // The relationship a labelled run points at, resolved through the slide's relationships.
+        let target_of = |label: &str| -> Option<String> {
+            let at = slide.find(&format!("<a:t>{label}</a:t>")).unwrap_or_else(|| panic!("{label} in {slide}"));
+            let run = &slide[slide[..at].rfind("<a:r>").expect("a run")..at];
+            let id = run.split("<a:hlinkClick r:id=\"").nth(1)?.split('"').next()?;
+            let rel = rels.split("<Relationship ").find(|rel| rel.contains(&format!("Id=\"{id}\""))).unwrap_or_else(|| panic!("{id} in {rels}"));
+            assert!(rel.contains("relationships/hyperlink") && rel.contains("TargetMode=\"External\""), "{rel}");
+            Some(rel.split("Target=\"").nth(1)?.split('"').next()?.to_owned())
+        };
+        assert_eq!(target_of("Alpha").as_deref(), Some("https://a.test/?x=1&amp;y=2"));
+        assert_eq!(target_of("Beta").as_deref(), Some("mailto:b@b.test"));
+        assert_eq!(target_of("CellOne").as_deref(), Some("https://c.test/one"));
+        assert_eq!(target_of("CellTwo").as_deref(), Some("https://c.test/two"));
+        for plain in ["Evil", "Plain", " and ", "CellEvil"] {
+            assert_eq!(target_of(plain), None, "{plain}");
+        }
+        assert!(!rels.contains("javascript") && !rels.contains("secret"), "{rels}");
     }
 
     #[test]

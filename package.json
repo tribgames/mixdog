@@ -67,7 +67,7 @@
     "test:release-assets": "node scripts/test-direct.mjs scripts/check-release-version.test.mjs scripts/generate-voice-runtime-manifest.test.mjs",
     "test:release-critical": "npm run test:release-assets",
     "test:spec-advisory": "node scripts/run-advisory-spec.mjs && npm run test:spec-advisory --prefix apps/desktop",
-    "test:office": "node scripts/test-direct.mjs src/runtime/office/authoring/pptx-script-normalize.test.mjs src/runtime/office/portable/font-provisioner.test.mjs src/runtime/office/portable/portable-xml.test.mjs src/runtime/office/pptx-chart-styling.test.mjs src/runtime/office/pptx-kit-index.test.mjs && npm run test:office-approval --prefix apps/desktop",
+    "test:office": "node scripts/test-direct.mjs native/core/crates/mixdog-office-author/assets/page/pptx-cell-runs.test.mjs src/runtime/office/authoring/pptx-script-normalize.test.mjs src/runtime/office/portable/font-provisioner.test.mjs src/runtime/office/portable/portable-xml.test.mjs src/runtime/office/pptx-chart-styling.test.mjs src/runtime/office/pptx-kit-index.test.mjs && npm run test:office-approval --prefix apps/desktop",
     "office:icons": "node scripts/office/build-pptx-icons.mjs",
     "trace:llm": "node scripts/llm-trace-summary.mjs",
     "diag:tools": "node scripts/tool-efficiency-diag.mjs",

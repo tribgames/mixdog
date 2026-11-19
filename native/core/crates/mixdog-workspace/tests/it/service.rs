@@ -655,12 +655,15 @@ impl mixdog_workspace::transfer::TransferSource for FixedSource {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_source_domains_file_is_read_through_the_transfer_methods() {
     let env = env();
-    let began = call(&env, "transfer/beginRead", json!({ "source": { "kind": "export", "id": "s1" } })).await.unwrap();
+    // The desktop's own window reads it; a paired device downloads an export only through a download grant.
+    let began = call_local(&env, "transfer/beginRead", json!({ "source": { "kind": "export", "id": "s1" } })).await.unwrap();
     assert_eq!((began["size"].clone(), began["entry"]["name"].clone(), began["mimeType"].clone()), (json!(8), json!("session.md"), json!("text/markdown")));
-    let range = call(&env, "transfer/readRange", json!({ "transferId": began["transferId"], "offset": 0, "length": 8 })).await.unwrap();
+    let range = call_local(&env, "transfer/readRange", json!({ "transferId": began["transferId"], "offset": 0, "length": 8 })).await.unwrap();
     assert_eq!(range["eof"], true);
+    let relayed = call(&env, "transfer/beginRead", json!({ "source": { "kind": "export", "id": "s1" } })).await;
+    assert!(matches!(relayed, Err(CoreError::PermissionDenied { .. })), "{relayed:?}");
     // A kind nobody serves stays unsupported.
-    let missing = call(&env, "transfer/beginRead", json!({ "source": { "kind": "mediaAsset", "id": "m" } })).await;
+    let missing = call_local(&env, "transfer/beginRead", json!({ "source": { "kind": "mediaAsset", "id": "m" } })).await;
     assert!(matches!(missing, Err(CoreError::DomainError { .. })), "{missing:?}");
 }
 
