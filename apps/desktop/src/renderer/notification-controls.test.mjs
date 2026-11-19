@@ -78,6 +78,52 @@ test('menu wording follows the state; none without host support', async (t) => {
   assert.deepEqual(controls.notificationMenuItems(session), []);
 });
 
+test('an SSH window does not read or write notification settings, including on a settings change', async (t) => {
+  const { root, window } = installTestDom(t, { rootId: 'root', expose: ['HTMLElement', 'CustomEvent'] });
+  mockApi(window);
+  const { withServerGates } = await import('./core-direct/server-gates.ts');
+  window.mixdogDesktop = withServerGates({
+    ...window.mixdogDesktop,
+    connection: { id: 'server', kind: 'ssh', name: 'Server' },
+  });
+  const calls = ['listConversationNotifications', 'getNotificationPreferences', 'setConversationNotification'].map(
+    (method) => [method, t.mock.method(window.mixdogDesktop, method)]
+  );
+  const toasts = [];
+  window.addEventListener('mixdog:desktop-toast', (event) => toasts.push(event.detail));
+  const { createElement } = await import('react');
+  const controls = await import('./notification-controls.tsx');
+  const store = await import('./notification-overrides.ts');
+  const { announceSetupChange } = await import('./setup-change-refresh.ts');
+  const target = { kind: 'agent', id: 'marketer' };
+  await act(async () => root.render(createElement(controls.NotificationMuteMark, { target })));
+  await act(async () => announceSetupChange('settings_changed'));
+  let menu;
+  await act(async () => {
+    await store.refreshConversationNotifications();
+    await store.setConversationNotification(target, { mode: 'muted', until: null });
+    menu = controls.notificationMenuItems(target);
+  });
+  for (const [method, call] of calls) assert.equal(call.mock.callCount(), 0, method);
+  assert.equal(store.conversationNotificationsAvailable(), false);
+  assert.deepEqual(menu, []);
+  assert.deepEqual(toasts, []);
+});
+
+test('a paired remote device keeps its conversation notification controls', async (t) => {
+  const { api, controls, store, window } = await setup(t, {});
+  window.mixdogRemoteServer = 'relay';
+  const before = api.lists;
+  await store.refreshConversationNotifications();
+  assert.ok(api.lists > before);
+  assert.equal(store.conversationNotificationsAvailable(), true);
+  const target = { kind: 'session', id: 'sess_code' };
+  const [mute] = controls.notificationMenuItems(target);
+  assert.equal(mute.label, 'Mute notifications');
+  await act(async () => mute.children.find((item) => item.id === 'notify-mute-forever').onSelect());
+  assert.deepEqual(api.writes, [[target, { mode: 'muted', until: null }]]);
+});
+
 test('menus place the item: bot/room between Rename and Hide, session after Archive', async (t) => {
   await setup(t, {});
   const { agentContactMenuItems, agentRoomMenuItems } = await import('./agent-profile-actions.ts');

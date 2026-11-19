@@ -322,8 +322,9 @@ test('Agent groups can be hidden, stay hidden through pool pushes and remounts, 
     assert.equal(document.querySelectorAll('[data-agent-owner-session-id]').length, 2);
     assert.deepEqual(JSON.parse(window.localStorage.getItem('mixdog.agent-hidden-groups')), []);
     // The contacts read the agent catalog (a read capability), the pool section
-    // and the notification overrides their menu words; nothing else.
+    // and the connection identity and notification overrides their menu words; nothing else.
     assert.deepEqual([...new Set(touched)].filter((key) => key !== 'perfLog').sort(), [
+      'connection',
       'invokeCapability',
       'listAgentPool',
       'listConversationNotifications',
@@ -2697,8 +2698,9 @@ test('a nested Agent row opens its exact child session without touching session 
       []
     );
     // The contacts read the agent catalog (a read capability) and the
-    // notification overrides their menu words; nothing else.
+    // connection identity and notification overrides their menu words; nothing else.
     assert.deepEqual([...new Set(touched)].sort(), [
+      'connection',
       'invokeCapability',
       'listAgentPool',
       'listConversationNotifications',

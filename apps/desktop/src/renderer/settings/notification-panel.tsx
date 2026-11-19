@@ -448,7 +448,7 @@ export function NotificationsPanel({
   api: NotificationsApi;
   openCategory?: (category: SettingsCategory) => void;
 }) {
-  const { state, save, readError, writeError, retry } = useNotificationPreferences(api);
+  const { state, save, readError, writeError, retry } = useNotificationPreferences(isSshConnectionWindow() ? undefined : api);
   const [picked, setPicked] = useState<string | null>(null);
   const notices = (
     <>

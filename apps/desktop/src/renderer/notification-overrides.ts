@@ -15,6 +15,7 @@ import type {
   NotificationTarget,
 } from '../shared/contract-notifications';
 import { errorMessageText } from './ErrorNotice';
+import { isSshConnectionWindow } from './desktop-connection';
 import { showDesktopToast } from './notifications';
 import { subscribeSetupChanges } from './setup-change-refresh';
 
@@ -87,7 +88,7 @@ function publish(patch: Partial<Pick<NotificationSnapshot, 'overrides' | 'scope'
 /** Re-read the override list and this device's scope. */
 export async function refreshConversationNotifications(): Promise<void> {
   const api = window.mixdogDesktop;
-  if (!api?.listConversationNotifications) return;
+  if (isSshConnectionWindow() || !api?.listConversationNotifications) return;
   const mine = ++refreshSeq;
   const [overrides, preferences] = await Promise.allSettled([
     api.listConversationNotifications(),
@@ -111,6 +112,7 @@ export async function refreshConversationNotifications(): Promise<void> {
 }
 
 function subscribe(listener: () => void): () => void {
+  if (isSshConnectionWindow()) return () => {};
   listeners.add(listener);
   if (listeners.size === 1) {
     stopSetupSync = subscribeSetupChanges(() => void refreshConversationNotifications());
@@ -130,8 +132,9 @@ function subscribe(listener: () => void): () => void {
 
 export const notificationSnapshot = () => snapshot;
 
-/** Whether the PC offers per-conversation controls (older hosts do not). */
+/** Whether this window offers per-conversation controls (SSH and older hosts do not). */
 export const conversationNotificationsAvailable = () =>
+  !isSshConnectionWindow() &&
   typeof window !== 'undefined' && typeof window.mixdogDesktop?.setConversationNotification === 'function';
 
 /** A session's overrides apply in this order: the session, its room, its bot. */
@@ -190,7 +193,7 @@ export async function setConversationNotification(
   setting: ConversationNotificationSetting
 ): Promise<void> {
   const api = window.mixdogDesktop;
-  if (!api?.setConversationNotification) return;
+  if (isSshConnectionWindow() || !api?.setConversationNotification) return;
   try {
     const overrides = await api.setConversationNotification(target, setting);
     refreshSeq += 1;

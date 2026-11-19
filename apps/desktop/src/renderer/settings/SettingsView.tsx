@@ -107,12 +107,12 @@ export const SettingsView = memo(function SettingsView({
   // A host that announces open access serves the Providers and Developer pages;
   // an older one refuses their calls, so they stay hidden.
   const hostOpenAccess = useRemoteHostOpenAccess();
-  // A server window has no phone access: Connection pairs phones with THIS PC.
+  // Pairing, notification settings and browser credentials belong to this PC's window.
   const serverWindow = isSshConnectionWindow();
   // The Shortcuts reference is keyboard-only, so the phone drops the tab.
   const phone = useMobileRemoteSurface();
   const hidden = (value: SettingsCategory) =>
-    (serverWindow && (value === 'connection' || value === 'auth')) ||
+    (serverWindow && (value === 'connection' || value === 'auth' || value === 'notifications')) ||
     (phone && value === 'shortcuts') ||
     // 인증 관리 manages this PC's own browser vault; a remote surface has no
     // access to it, so the page shows only on the PC's own window.
@@ -131,7 +131,7 @@ export const SettingsView = memo(function SettingsView({
     (next: SettingsCategory) => {
       const resolved = settingsCategoryForSurface(next, remoteSettings, hostOpenAccess);
       setCategory(
-        (serverWindow && (resolved === 'connection' || resolved === 'auth')) ||
+        (serverWindow && (resolved === 'connection' || resolved === 'auth' || resolved === 'notifications')) ||
           (remoteSettings && resolved === 'auth')
           ? 'general'
           : resolved

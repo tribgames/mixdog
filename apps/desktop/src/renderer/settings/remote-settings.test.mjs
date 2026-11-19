@@ -28,7 +28,7 @@ function api() {
   };
 }
 
-async function renderSettings(t, { remote }) {
+async function renderSettings(t, { remote, ssh = false, initialSection = null }) {
   const { root, document, window } = installTestDom(t, {
     rootId: 'root',
     expose: ['HTMLElement', 'Node', 'Element', 'KeyboardEvent', 'MutationObserver'],
@@ -42,8 +42,12 @@ async function renderSettings(t, { remote }) {
       manageConnections: () => Promise.resolve(true),
     };
   }
+  const desktop = api();
+  if (ssh) window.mixdogDesktop = { ...desktop, connection: { id: 'server', kind: 'ssh', name: 'Server' } };
   const { SettingsView } = await import('./SettingsView');
-  await act(async () => root.render(React.createElement(SettingsView, { api: api(), open: true, onClose: () => {} })));
+  await act(async () =>
+    root.render(React.createElement(SettingsView, { api: desktop, open: true, initialSection, onClose: () => {} }))
+  );
   return document;
 }
 
@@ -64,6 +68,7 @@ test('remote settings: This device group holds Display and Theme, the PC group h
   );
   assert.match(groups[1].querySelector('.mixdog-settings__rail-group-label').textContent, /Home PC/);
   assert.ok(railLabels(document).includes('General'));
+  assert.ok(railLabels(document).includes('Notifications'));
   // General (a PC page): badge names the PC and the device-local settings are gone.
   assert.match(document.querySelector('.mixdog-settings__where').textContent, /Home PC/);
   assert.equal(document.querySelector('.mixdog-settings__where').dataset.settingsWhere, 'pc');
@@ -86,6 +91,7 @@ test('main PC settings: one nav in four headed sections, no badge, display setti
     ['Basics', 'AI behavior', 'Integrations', 'Support']
   );
   assert.equal(document.querySelector('.mixdog-settings__where'), null);
+  assert.ok(railLabels(document).includes('Notifications'));
   assert.equal(document.body.textContent.includes('Display language'), false, 'General no longer holds it');
   await act(async () => document.querySelector('.mixdog-settings__rail-group button[aria-label="Display"]').click());
   assert.equal(document.querySelector('#mixdog-settings-title').textContent, 'Display');
@@ -105,4 +111,10 @@ test('main PC settings: one nav in four headed sections, no badge, display setti
     ),
     'the composer style shows its description'
   );
+});
+
+test('SSH settings hide Notifications and redirect a direct request to General', async (t) => {
+  const document = await renderSettings(t, { remote: false, ssh: true, initialSection: 'notifications' });
+  assert.equal(railLabels(document).includes('Notifications'), false);
+  assert.equal(document.querySelector('#mixdog-settings-title').textContent, 'General');
 });

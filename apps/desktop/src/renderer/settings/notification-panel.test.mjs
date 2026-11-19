@@ -138,8 +138,27 @@ test('the footer link opens Settings › Connection', async (t) => {
 });
 
 test('a paired device starts on itself', async (t) => {
-  const own = await mountPanel(t, makeApi(makeState('c1')));
+  const made = makeApi(makeState('c1'));
+  const own = await mountPanel(t, made, {}, {
+    prepare: (window) => { window.mixdogRemoteServer = 'relay'; },
+  });
   assert.equal(own.document.querySelector('.notif-device-button b').textContent, 'Galaxy S24');
+  await choose(own.document, 'Notification scope', 'Off');
+  assert.deepEqual(made.calls, [['c1', { scope: 'off' }]]);
+});
+
+test('an SSH window does not load or offer notification preferences', async (t) => {
+  const made = makeApi();
+  const { withServerGates } = await import('../core-direct/server-gates.ts');
+  made.api = withServerGates({ ...made.api, connection: { id: 'server', kind: 'ssh', name: 'Server' } });
+  const read = t.mock.method(made.api, 'getNotificationPreferences');
+  const { document, window } = await mountPanel(t, made, {}, {
+    prepare: (window) => { window.mixdogDesktop = made.api; },
+  });
+  await act(async () => window.dispatchEvent(new window.CustomEvent('mixdog:setup-changed')));
+  assert.equal(read.mock.callCount(), 0);
+  assert.equal(document.getElementById('root').textContent, '');
+  assert.deepEqual(made.calls, []);
 });
 
 test('every control writes its patch for the selected device', async (t) => {
