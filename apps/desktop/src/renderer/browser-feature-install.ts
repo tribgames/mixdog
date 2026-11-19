@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 import { desktopSettingsFromConfig } from '../shared/desktop-settings';
 import { isSshConnectionWindow } from './desktop-connection';
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
-import { useSection } from './section-store';
+import { useSection, windowSectionStore } from './section-store';
 import { readDesktopStatus } from './settings/desktop-status-cache';
 import { useDesktopStatus } from './settings/use-desktop-status';
 
@@ -41,7 +41,7 @@ export function useBrowserFeatureInstalled(): boolean | null {
       ? desktopSettingsFromConfig({ desktop }).browserInstalled
       : null;
   const api = window.mixdogDesktop;
-  const fallbackNeeded = !browserPaneUnavailable && held === null;
+  const fallbackNeeded = !browserPaneUnavailable && !windowSectionStore();
   const settings = useDesktopStatus(api, 'settings', fallbackNeeded);
   useEffect(() => {
     if (!fallbackNeeded) return;
@@ -53,7 +53,7 @@ export function useBrowserFeatureInstalled(): boolean | null {
       window.removeEventListener('mixdog:built-in-features-changed', refresh);
     };
   }, [api, fallbackNeeded]);
-  const installed = held ?? settings?.browserInstalled ?? null;
+  const installed = held ?? (fallbackNeeded ? settings?.browserInstalled : null) ?? null;
   useEffect(() => {
     if (installed === null || browserPaneUnavailable) return;
     try {

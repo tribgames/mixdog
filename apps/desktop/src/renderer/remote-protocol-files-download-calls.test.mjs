@@ -69,6 +69,15 @@ test('begin, range and finish pass a well-formed id to the core and refuse a mal
   assert.deepEqual(refused.sent, []);
 });
 
+test('a range one byte over the public 4 MiB limit is refused before acquiring transport', async () => {
+  const client = test.mock.fn(() => assert.fail('an oversized range must not acquire transport'));
+  await assert.rejects(
+    async () => adapter.calls.fileDownloadRange([GRANT, 0, 4 * 1024 * 1024 + 1, VERSION], { client }),
+    { name: 'TypeError', message: 'length is invalid.' }
+  );
+  assert.equal(client.mock.callCount(), 0);
+});
+
 test('abort of an id that is no export of ours ends the core\'s transfer and answers whether it ended', async () => {
   const { sent, call } = scripted({ 'transfer/endRead': { ended: true } });
   assert.equal(await call('fileDownloadAbort', [GRANT]), true);

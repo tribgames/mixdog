@@ -122,14 +122,14 @@ export async function uploadAssets(files) {
   return expected;
 }
 
-const desktopNames = [
+export const DESKTOP_ASSET_NAMES = Object.freeze([
   'latest.yml', 'mixdog-desktop-win-x64.exe', 'mixdog-desktop-win-x64.exe.blockmap',
   'latest-mac.yml',
   ...['arm64', 'x64'].flatMap((arch) => ['dmg', 'zip', 'zip.blockmap'].map((ext) => `mixdog-desktop-mac-${arch}.${ext}`)),
   'latest-linux.yml', 'latest-linux-arm64.yml',
   'mixdog-desktop-linux-arm64.AppImage', 'mixdog-desktop-linux-arm64.deb',
   'mixdog-desktop-linux-x86_64.AppImage', 'mixdog-desktop-linux-amd64.deb',
-];
+]);
 
 const desktopRecords = () => ['WINDOWS_ASSETS', 'MAC_ARM64_ASSETS', 'MAC_X64_ASSETS',
   'LINUX_ARM64_ASSETS', 'LINUX_X64_ASSETS', 'MERGED_FEED'].flatMap((key) => JSON.parse(process.env[key]));
@@ -137,12 +137,12 @@ const desktopRecords = () => ['WINDOWS_ASSETS', 'MAC_ARM64_ASSETS', 'MAC_X64_ASS
 function verifyDesktop() {
   readRelease(true);
   const assets = readAssets();
-  verifyAssets(assets, desktopRecords(), desktopNames);
+  verifyAssets(assets, desktopRecords(), DESKTOP_ASSET_NAMES);
   for (const name of ['latest-linux.yml', 'latest-linux-arm64.yml']) {
     const { id: feedId } = assets.find((asset) => asset.name === name);
     const feed = gh(['api', `repos/${repo}/releases/assets/${feedId}`, '-H', 'Accept: application/octet-stream']);
     const referenced = [...feed.matchAll(/^\s*(?:-\s+)?(?:url|path):\s*['"]?([^'"\s]+)['"]?\s*$/gm)].map((m) => m[1]);
-    if (referenced.some((file) => !desktopNames.includes(file))
+    if (referenced.some((file) => !DESKTOP_ASSET_NAMES.includes(file))
         || ['.AppImage', '.deb'].some((ext) => !referenced.some((file) => file.endsWith(ext)))) {
       throw new Error(`${name} must reference draft assets including both an AppImage and a .deb`);
     }
@@ -169,7 +169,7 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
     verifyDesktop();
   } else if (command === 'publish-desktop') {
     // Re-read immediately before the visibility change, after npm may have taken minutes.
-    publishDraft({ expected: desktopRecords(), names: desktopNames, latest: true, notes: args[0] });
+    publishDraft({ expected: desktopRecords(), names: DESKTOP_ASSET_NAMES, latest: true, notes: args[0] });
   } else {
     throw new Error(`Unknown release asset command: ${command}`);
   }

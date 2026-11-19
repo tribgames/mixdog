@@ -21,8 +21,7 @@ import { PLATFORMS, platformPackageName } from './npm-platforms.mjs';
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Keep in step with the per-platform `requirements` in
-// .github/workflows/release.yml (a unit test compares both). The Linux update
+// Checked against the pre-publish verifier in scripts/ci/release-assets.mjs. The Linux update
 // feeds (latest-linux*.yml) are not parsed here, only required to exist.
 export const ASSET_CONTRACT = Object.freeze([
   'latest-linux-arm64.yml',

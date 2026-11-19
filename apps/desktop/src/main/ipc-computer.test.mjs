@@ -59,13 +59,14 @@ function ipc(operation) {
 test('readiness and approve go through the core and reach the renderer in the old shape', async () => {
   const { handlers, calls } = ipc((name) => (name === 'pcAccessReadiness' ? { ...ready, needsEnroll: true } : { outcome: 'installed' }));
   const row = await handlers.get(DESKTOP_IPC.computerReadiness)({});
-  const approval = await handlers.get(DESKTOP_IPC.approvePcAccess)({});
   if (process.platform === 'win32') {
+    const approval = await handlers.get(DESKTOP_IPC.approvePcAccess)({});
     assert.deepEqual(row.pcAccess, { state: 'needs-enroll' });
     assert.deepEqual(approval, { outcome: 'done' });
     assert.deepEqual(calls, [['pcAccessReadiness', []], ['pcAccessApprove', []]]);
   } else {
     assert.equal(row.pcAccess, undefined);
+    await assert.rejects(handlers.get(DESKTOP_IPC.approvePcAccess)({}), /PC access is not available/);
     assert.equal(calls.length, 0);
   }
 });

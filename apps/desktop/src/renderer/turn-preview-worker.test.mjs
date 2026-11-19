@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, win32 } from 'node:path';
 import test from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
@@ -31,9 +31,10 @@ const removeRoot = (root) => rmSync(root, { recursive: true, force: true, maxRet
 
 /** T1 launches a worker and ends; the worker writes the mockup and a source
  *  file; its completion is drained as the wake turn `wake-1`. */
-async function workerAfterTurnEnded() {
+async function workerAfterTurnEnded(t) {
   _resetTurnSnapshotForTest();
   const root = mkdtempSync(join(tmpdir(), 'mixdog-preview-worker-'));
+  t.after(() => removeRoot(root));
   const t1 = await beginTurnSnapshot(root, LEAD, { checkpointId: 'cp-1' });
   const worker = beginAgentTurnReview(LEAD, `${LEAD}-worker`, { agent: 'worker' });
   await completeTurnSnapshot(LEAD, t1);
@@ -43,12 +44,12 @@ async function workerAfterTurnEnded() {
   ]) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), after);
-    recordTurnDiffChanges(`${LEAD}-worker`, [{ path: join(root, path), displayPath: path, before: null, after }]);
+    // The capture keys use Windows paths; the actual files use the runner's path syntax.
+    recordTurnDiffChanges(`${LEAD}-worker`, [{ path: win32.join(root, path), displayPath: path, before: null, after }]);
   }
   completeAgentTurnReview(worker);
   const wake = await beginTurnSnapshot(root, LEAD, { checkpointId: 'wake-1' });
   await completeTurnSnapshot(LEAD, wake);
-  return root;
 }
 
 async function mountWakeCard(t, replyText) {
@@ -90,8 +91,7 @@ async function mountWakeCard(t, replyText) {
 }
 
 test('a completion-wake report linking the worker’s mockup shows it as a tile, not a changes row', async (t) => {
-  const root = await workerAfterTurnEnded();
-  t.after(() => removeRoot(root));
+  await workerAfterTurnEnded(t);
   const view = await mountWakeCard(t, `The worker built the mockup: [mockup](${MOCKUP}).`);
   // An index page's tile is named by its folder (design/mockups/x/index.html → "x").
   assert.deepEqual(view.tiles, ['x']);
@@ -99,8 +99,7 @@ test('a completion-wake report linking the worker’s mockup shows it as a tile,
 });
 
 test('c: a report that never names the mockup (never surfaced before) gets no tile', async (t) => {
-  const root = await workerAfterTurnEnded();
-  t.after(() => removeRoot(root));
+  await workerAfterTurnEnded(t);
   const view = await mountWakeCard(t, 'The worker finished.');
   assert.deepEqual(view.tiles, []);
   assert.equal(view.changedFiles, '2');

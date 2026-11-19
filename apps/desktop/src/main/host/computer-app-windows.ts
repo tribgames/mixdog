@@ -11,20 +11,14 @@ import type {
   HostComputerAppWindowsResult,
   HostComputerBounds,
 } from '../../../../../packages/protocol/src/index.ts';
-import { nativeWindowNumber } from '../computer/observation/native-window-id';
+import { nativeWindowId as appWindowId } from '../computer/observation/native-window-id';
 import { listComputerUseInternalWindowIds } from '../computer/overlay/internal-windows';
 import { dipToNative } from '../computer/shared/native-coordinates';
 import type { HostConnection } from './connection';
 
 export const HOST_COMPUTER_APP_WINDOWS = 'host/computer/appWindows';
 
-/** The window's id as the native helper lists it; empty when the window has no native handle yet. */
-export function appWindowId(window: BrowserWindow): string {
-  const value = nativeWindowNumber(window);
-  if (value <= 0n) return '';
-  if (process.platform === 'darwin') return `cg:${value}`;
-  return `${process.platform === 'win32' ? 'hwnd' : 'x11'}:0x${value.toString(16).toUpperCase()}`;
-}
+export { appWindowId };
 
 function normalized(id: string): string {
   return id.trim().toLowerCase();

@@ -140,12 +140,15 @@ test('a connected phone follows only changes to the configured orchestration def
   const seen = [];
   const listeners = new Set([(value) => seen.push(value)]);
   let agent = { orchestrationMode: 'focused' };
-  let onChange;
+  const subscribers = new Set();
+  const onChange = (change) => {
+    for (const subscriber of subscribers) subscriber(change);
+  };
   const client = {
     store: {
       appFeed: () => ({ id: 'app', epoch: 'e1', seq: 1 }),
       section: (section, key) => section === 'config' && key === 'agent' ? { value: agent } : undefined,
-      subscribe: (listener) => ((onChange = listener), () => {}),
+      subscribe: (listener) => (subscribers.add(listener), () => subscribers.delete(listener)),
     },
     on: () => () => {},
   };

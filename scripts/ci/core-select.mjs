@@ -54,6 +54,7 @@ const WHOLE = [
   /^native\/core\/(\.cargo|\.config|build-support)\//,
   /^rust-toolchain\.toml$/,
   /^\.github\/workflows\/release-gate\.yml$/,
+  /^\.github\/actions\/install-nextest\/action\.yml$/,
   /^scripts\/ci\//,
 ];
 
@@ -164,6 +165,8 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, met
     const path = slash(raw.trim());
     if (!path) continue;
     if (whole) break;
+    // Only the standalone jobs load this file; workspace jobs use native/core/.config/nextest.toml.
+    if (path === 'native/.config/nextest-standalone.toml') continue;
     if (WHOLE.some((re) => re.test(path))) {
       whole = true;
       reasons.push(`${path}: reaches every crate`);
@@ -250,10 +253,12 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, met
     pgSystems.map((system) => ({ ...system, profile: profile.name })),
   );
 
-  const build = SYSTEMS.filter((system) => scope !== 'none' || (mixdogdDev && system.os === 'linux')).map((system) => ({
+  // The Linux entry scenarios run from the archive and drive the dev daemon even when no Node lane needs it.
+  const needsMixdogdDev = mixdogdDev || selected.some((crate) => crate.name === 'mixdog-entry');
+  const build = SYSTEMS.filter((system) => scope !== 'none' || (needsMixdogdDev && system.os === 'linux')).map((system) => ({
     ...system,
     tests: scope !== 'none',
-    mixdogd: mixdogdDev && system.os === 'linux',
+    mixdogd: needsMixdogdDev && system.os === 'linux',
   }));
   const test = [];
   if (scope !== 'none') {

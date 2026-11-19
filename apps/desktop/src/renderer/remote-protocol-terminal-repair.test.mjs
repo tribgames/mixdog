@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { adapter } from './remote-protocol-terminal.ts';
 import { bounded } from './remote-protocol-terminal-deadlines.mjs';
+import { installTestDom } from './test-support/test-dom.mjs';
 
 /** A protocol client as far as the adapter reads it: its notifications and its (empty) held sections. */
 function client() {
@@ -24,7 +25,8 @@ function client() {
   };
 }
 
-test('after a re-pairing the terminal output of the new client reaches the page and the revoked client is not read', async () => {
+test('after a re-pairing the terminal output of the new client reaches the page and the revoked client is not read', async (t) => {
+  installTestDom(t);
   const heard = [];
   const ctx = {
     activeLanes: new Set(['terminal']),

@@ -68,6 +68,7 @@ test('hidden settings retain subscriptions without rendering and show the latest
         )
       )
     );
+  await render(true);
   await render(false);
   const before = commits;
   for (let index = 0; index < 5; index++) await act(async () => api.publish(index));

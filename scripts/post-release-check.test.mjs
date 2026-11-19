@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { parse } from 'yaml';
 
+import { DESKTOP_ASSET_NAMES } from './ci/release-assets.mjs';
 import {
   ASSET_CONTRACT,
   checkAssetSet,
@@ -53,13 +55,15 @@ const checkMac = (text, overrides = {}) =>
     ...overrides,
   });
 
-// Source-text on purpose: the verifying script is inline in workflow YAML that
-// only runs on GitHub, so its checked-in text is the only surface to compare.
 test('the asset contract matches the exact set release.yml verifies', () => {
-  const release = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
-  const block = /const requirements = \{([\s\S]*?)\s*\};\s*const expected/.exec(release)[1];
-  const names = [...block.replace(/\/\/.*/g, '').matchAll(/'([^']+)'/g)].map((match) => match[1]);
-  assert.deepEqual([...ASSET_CONTRACT].sort(), names.sort());
+  const { jobs } = parse(readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8'));
+  const steps = jobs.publish.steps;
+  const verify = steps.findIndex((step) => /^ *node scripts\/ci\/release-assets\.mjs verify-desktop$/m.test(step.run));
+  const npm = steps.findIndex((step) => /^ *node scripts\/ci\/publish-npm\.mjs /m.test(step.run));
+  const github = steps.findIndex((step) => /^ *node scripts\/ci\/release-assets\.mjs publish-desktop /m.test(step.run));
+  assert.ok(verify >= 0 && verify < npm, 'the draft verifier must run before npm publication');
+  assert.ok(verify < github, 'the draft verifier must run before GitHub publication');
+  assert.deepEqual([...ASSET_CONTRACT].sort(), [...DESKTOP_ASSET_NAMES].sort());
 });
 
 test('Latest must be the new app tag', () => {

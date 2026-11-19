@@ -145,7 +145,7 @@ impl BatchBuilder {
     /// Seal: every expected origin accounted for exactly once, and the count within the plan's limit.
     pub fn seal(mut self) -> Result<PreparedBatch, NotSent> {
         for origin in &self.expected {
-            if !self.got.contains_key(origin) && !self.refusals.iter().any(|r| &r.origin == origin) {
+            if !self.got.contains_key(origin) && !self.refusals.iter().any(|r| r.origin.as_ref() == origin) {
                 self.refusals.push(Refusal::new(origin.clone(), Reason::Missing));
             }
         }
@@ -154,7 +154,7 @@ impl BatchBuilder {
         {
             let over = self.expected.iter().skip(limit as usize).cloned().collect::<Vec<_>>();
             for origin in over {
-                if self.refusals.iter().any(|r| r.origin == origin) {
+                if self.refusals.iter().any(|r| *r.origin == origin) {
                     continue;
                 }
                 self.refusals.push(Refusal::new(origin, Reason::OverCount { limit }));

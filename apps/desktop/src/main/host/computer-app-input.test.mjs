@@ -28,7 +28,11 @@ function fakeWindow(number, { editable = true, title = 'Mixdog', parent = null }
       destroyed = true;
     },
     isDestroyed: () => destroyed,
-    getNativeWindowHandle: () => Buffer.from([number, 0, 0, 0, 0, 0, 0, 0]),
+    getNativeWindowHandle: () => {
+      const handle = Buffer.alloc(8);
+      handle.writeBigUInt64LE(BigInt(number));
+      return handle;
+    },
     getMediaSourceId: () => `window:${number}:0`,
     getBounds: () => ({ x: 100, y: 50, width: 800, height: 600 }),
     getContentBounds: () => ({ x: 110, y: 80, width: 780, height: 560 }),

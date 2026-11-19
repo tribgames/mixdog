@@ -105,16 +105,20 @@ test('a pool starts one more worker only while the earlier ones are busy', async
   const threads = [await request(1), await request(1), await request(1)];
   assert.equal(new Set(threads).size, 1, 'sequential requests reuse the first worker');
 });
-test('a pool grows under load and shrinks back to one warm worker once idle', async () => {
-  const request = createWorkerRequestPool(BLOCKING_WORKER, { size: 3, idleExitMs: 40, eval: true });
-  await Promise.all([100, 100, 100].map((ms) => request(ms)));
+test('a pool grows under load and shrinks back to one warm worker once idle', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const request = createWorkerRequestPool(BLOCKING_WORKER, { size: 3, idleExitMs: IDLE_EXIT_MS, eval: true });
+  const burst = [request(0), request(0), request(0)];
   assert.equal(request.workers(), 3, 'the burst started a worker per concurrent request');
-  const deadline = Date.now() + 5_000;
-  while (request.workers() > 1 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+  await Promise.all(burst);
+  t.mock.timers.tick(IDLE_EXIT_MS - 1);
+  assert.equal(request.workers(), 3, 'the idle deadline has not passed');
+  t.mock.timers.tick(1);
   assert.equal(request.workers(), 1, 'the extra workers retired; the first stays attached');
   // The retired workers are replaced when the next burst needs them.
-  const threads = await Promise.all([60, 60, 60].map((ms) => request(ms)));
+  const threads = await Promise.all([request(0), request(0), request(0)]);
   assert.equal(new Set(threads).size, 3);
+  t.mock.timers.tick(IDLE_EXIT_MS);
 });
 
 test('a failed worker request keeps the timing its worker attached to the error', async () => {

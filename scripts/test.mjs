@@ -96,10 +96,8 @@ const ROOT_PATTERNS = ['*.test.mjs', '*-test.mjs'];
 const DISCOVERY_PATTERNS = ROOTS.flatMap((root) =>
   root === '.' ? ROOT_PATTERNS : (ROOT_PATTERNS_BY_ROOT[root] ?? PATTERNS).map((pattern) => `${root}/${pattern}`)
 );
-// node-oracle holds the one test that replays the rows tests against the old Node
-// tree (MIXDOG_NODE_REFERENCE_REPO, a checkout of b6f10295a): it skips by design
-// without that checkout, so it is run by hand where the checkout exists and is
-// no lane's file.
+// node-oracle contains explicit comparison suites. Their reference checkout
+// or local recordings are not available to the regular lanes.
 const EXCLUDED_DIRS = new Set(['node_modules', '.runtime', 'out', 'dist', 'target', 'node-oracle']);
 const inExcludedDir = (path) => String(path).split(/[\\/]/).some((segment) => EXCLUDED_DIRS.has(segment));
 // Directories (relative to the invoking package) whose tests need a built core, its process-tree helper or cargo, so no

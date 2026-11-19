@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -39,8 +39,8 @@ const cjsEntry = `
   });
 `;
 
-function runNode(cwd, args) {
-  const env = { ...process.env };
+function runNode(cwd, args, overrides = {}) {
+  const env = { ...process.env, ...overrides };
   delete env.NODE_TEST_CONTEXT;
   // MIXDOG_TEST_CONCURRENCY makes the runner add a --test-concurrency flag;
   // these tests pin the runner's own argv.
@@ -346,6 +346,8 @@ test('discovery covers the package root, src, scripts, lib and deploy, excludes 
     'src/out/ignored.test.mjs': '',
     'src/dist/ignored.test.mjs': '',
     'src/target/ignored.test.mjs': '',
+    'src/node-oracle/local-comparison.test.mjs': '',
+    'packages/protocol/test/node-oracle/local-comparison.test.ts': '',
     'scripts/nested/node_modules/ignored.test.mjs': '',
     'scripts/nested/target/ignored-test.mjs': '',
   });
@@ -629,7 +631,7 @@ test('CLI spawn preserves exact flags, reporters, selected paths, stdio, and chi
     t.after(() => rm(dirname(logPath), { recursive: true, force: true }));
     const { failureRecords, scratch, dataDir, ...invariant } = invocation;
     // Every temp variable names the same private per-run root.
-    assert.ok(scratch[0].startsWith(join(tmpdir(), 'mixdog-test-scratch-')), scratch[0]);
+    assert.ok(scratch[0].startsWith(join(await realpath(tmpdir()), 'mixdog-test-scratch-')), scratch[0]);
     assert.deepEqual(scratch, [scratch[0], scratch[0], scratch[0]]);
     // Tests never write the signed-in app's data: it lives under the scratch root.
     assert.equal(dataDir, join(scratch[0], 'data'));
@@ -724,6 +726,35 @@ test('CLI executes selected tests with forwarded imports and name filters, repor
     `${SUMMARY_TAG} FAILED src/fail.test.mjs > fails`,
     `${SUMMARY_TAG} ${policyLine(0)}`,
   ]);
+});
+
+test('test processes see the same scratch path even when the system temp directory is aliased', async (t) => {
+  const cwd = await fixture(t, {
+    'src/scratch.test.mjs': `
+      import assert from 'node:assert/strict';
+      import { realpathSync } from 'node:fs';
+      import { tmpdir } from 'node:os';
+      import test from 'node:test';
+      test('scratch is already resolved', () => assert.equal(tmpdir(), realpathSync(tmpdir())));
+    `,
+  });
+  const target = join(cwd, 'temp');
+  const alias = join(cwd, 'temp-alias');
+  await mkdir(target);
+  await symlink(target, alias, 'junction');
+  const result = runNode(cwd, [runnerPath, 'src/scratch.test.mjs'], { TEMP: alias, TMP: alias, TMPDIR: alias });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /pass 1\b/);
+});
+
+test('an import error fails the file without a misleading pending top-level await diagnostic', async (t) => {
+  const cwd = await fixture(t, { 'src/broken.test.mjs': "import './missing.mjs';\n" });
+  const result = runNode(cwd, [runnerPath, 'src/broken.test.mjs']);
+  const logPath = /^Full test log: (.+)$/m.exec(result.stderr)[1];
+  t.after(() => rm(dirname(logPath), { recursive: true, force: true }));
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /ERR_MODULE_NOT_FOUND.*missing\.mjs/);
+  assert.doesNotMatch(result.stdout + result.stderr, /force-exited before the file's top-level evaluation completed/);
 });
 
 test('a test registered after a still-pending top-level await fails the file instead of vanishing', async (t) => {

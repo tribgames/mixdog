@@ -50,6 +50,7 @@ test('Save with a manual model goes out while a stopped discovery is still runni
         value: request.capability === 'getProviderSetup' ? { api: [], oauth: [] } : null,
       })),
     async invokeCapability(request) {
+      if (request.capability === 'listProviderModels') return { value: [], snapshot: null };
       invoked.push(request.capability);
       if (request.capability === 'discoverCustomProviderModels') return discovery;
       if (request.capability === 'saveCustomProvider') {
@@ -76,7 +77,6 @@ test('Save with a manual model goes out while a stopped discovery is still runni
     await type(document.querySelector('details input'), 'qwen/qwen3-coder');
     await click(button('Add model'));
     await submit();
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
     assert.deepEqual(
       invoked,
       ['discoverCustomProviderModels', 'saveCustomProvider'],

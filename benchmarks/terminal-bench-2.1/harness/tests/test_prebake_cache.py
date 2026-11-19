@@ -1,10 +1,14 @@
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-from harness.prebake_cache import ARTIFACTS, CACHE_TARGET, cache_identity, prepare
+# Unittest discovery puts the tests directory, not the benchmark root, on sys.path.
+BENCH_ROOT = Path(__file__).resolve().parents[2]
+with mock.patch.object(sys, "path", [str(BENCH_ROOT), *sys.path]):
+    from harness.prebake_cache import ARTIFACTS, CACHE_TARGET, cache_identity, prepare
 
 
 class PrebakeCacheTests(unittest.TestCase):

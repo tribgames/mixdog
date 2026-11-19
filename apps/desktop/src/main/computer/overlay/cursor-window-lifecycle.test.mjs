@@ -105,7 +105,12 @@ const { filterComputerUseInternalWindows } = await import('./internal-windows.ts
 const { computerUseCoordinator: coordinator } = await import('../session/coordinator.ts');
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 const begin = (sessionId, mode = 'background') => coordinator.beginCommand({ sessionId, action: 'click', mode });
-const idOf = (window) => `hwnd:0x${(windows.indexOf(window) + 1).toString(16)}`;
+const idOf = (window) => {
+  const number = windows.indexOf(window) + 1;
+  return process.platform === 'darwin'
+    ? `cg:${number}`
+    : `${process.platform === 'win32' ? 'hwnd' : 'x11'}:0x${number.toString(16)}`;
+};
 const show = (sessionId, windowId = 'hwnd:0xABC', mode = 'background') =>
   coordinator.showCursor({
     sessionId,

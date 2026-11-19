@@ -152,31 +152,50 @@ test('an event too large for one section value arrives as ordered parts and is a
   assert.equal(state.tabs[0].id, 't1');
 });
 
-test('an export download round trips through the core\'s export transfer source: authorize, begin, range, finish', async () => {
+const GRANT = '00000000-0000-4000-8000-000000000001';
+const TRANSFER = '00000000-0000-4000-8000-000000000002';
+const EXPORT_VERSION = 'v'.repeat(43);
+
+function exportHost(answers) {
   const sent = [];
   const client = {
     call: async (method, params) => {
       sent.push([method, params]);
-      if (method === 'transfer/beginRead') {
-        return { transferId: '00000000-0000-4000-8000-000000000001', size: 9, mimeType: 'image/png', entry: { name: 'visualize.png', version: 'v'.repeat(43), rangeMaxBytes: 1 << 20 } };
-      }
-      if (method === 'transfer/endRead') return { ended: true };
-      return {};
+      assert.ok(Object.hasOwn(answers, method), `unexpected request ${method}`);
+      const answer = answers[method];
+      return typeof answer === 'function' ? answer(params) : answer;
     },
   };
-  const host = { ctx: {}, client: () => client, declareLane() {} };
+  return { sent, host: { ctx: {}, client: () => client, declareLane() {} } };
+}
+
+test('an export download round trips through the core\'s export transfer source: authorize, begin, range, finish', async () => {
+  const chunk = { transferId: TRANSFER, version: EXPORT_VERSION, offset: 0, length: 9, data: 'MTIzNDU2Nzg5', eof: true };
+  const { sent, host } = exportHost({
+    'transfer/authorizeRead': { grantId: GRANT, size: 9, name: 'visualize.png', mime: 'image/png', version: EXPORT_VERSION },
+    'transfer/redeemGrant': { transferId: TRANSFER, size: 9, version: EXPORT_VERSION },
+    'transfer/readRange': chunk,
+    'transfer/finishRead': { transferId: TRANSFER, size: 9, version: EXPORT_VERSION },
+  });
   const exported = adapter.calls.visualizeExport(['s1', 't1', 'png', 0], host);
   const grant = await files.calls.fileDownloadAuthorize([{ source: exported.source, purpose: 'save' }], host);
-  // The one entry an export belongs to: beginRead with the export source; `authorizeRead` has no such source.
-  assert.deepEqual(sent.map(([method]) => method), ['transfer/beginRead']);
+  assert.deepEqual(sent.map(([method]) => method), ['transfer/authorizeRead']);
   assert.equal(sent[0][1].source.kind, 'export');
+  assert.equal(sent[0][1].sessionId, 's1');
   assert.equal(grant.size, 9);
   const transfer = await files.calls.fileDownloadBegin([grant.grantId], host);
-  assert.equal(transfer.transferId, '00000000-0000-4000-8000-000000000001');
-  assert.equal(sent.length, 1, 'redeeming the grant asks the core for nothing more');
-  const finished = await files.calls.fileDownloadFinish(['00000000-0000-4000-8000-000000000001'], host);
-  assert.deepEqual(sent.at(-1), ['transfer/endRead', { transferId: '00000000-0000-4000-8000-000000000001' }]);
-  assert.equal(finished.transferId, '00000000-0000-4000-8000-000000000001');
+  assert.equal(transfer.transferId, TRANSFER);
+  const received = await files.calls.fileDownloadRange([transfer.transferId, 0, 9, transfer.version], host);
+  assert.deepEqual(received, chunk);
+  assert.equal(received.length, 9);
+  assert.equal(Buffer.from(received.data, 'base64').toString('utf8'), '123456789');
+  const finished = await files.calls.fileDownloadFinish([transfer.transferId], host);
+  assert.equal(finished.transferId, TRANSFER);
+  assert.deepEqual(sent.slice(1), [
+    ['transfer/redeemGrant', { grantId: GRANT }],
+    ['transfer/readRange', { transferId: TRANSFER, offset: 0, length: 9, version: EXPORT_VERSION }],
+    ['transfer/finishRead', { transferId: TRANSFER }],
+  ]);
 });
 
 test('a release behind another publication stays a release: held is exactly as published, absence included', () => {
@@ -218,55 +237,47 @@ test('a phone that connects late gets the current state through the initial read
   assert.equal(states[0].held, undefined);
 });
 
-test('cancelling an export while its authorization finishes ends the real transfer, whichever id the page holds', async () => {
-  const sent = [];
-  const transfer = '00000000-0000-4000-8000-000000000002';
-  const client = {
-    call: async (method, params) => {
-      sent.push([method, params]);
-      if (method === 'transfer/beginRead') return { transferId: transfer, size: 3, mimeType: 'application/pdf', entry: { name: 'visualize.pdf', version: 'v'.repeat(43), rangeMaxBytes: 1 << 20 } };
-      return method === 'transfer/endRead' ? { ended: true } : {};
+test('cancelling an export sends the grant or transfer id the page holds', async () => {
+  const released = new Set();
+  const { sent, host } = exportHost({
+    'transfer/authorizeRead': { grantId: GRANT },
+    'transfer/redeemGrant': { transferId: TRANSFER },
+    'transfer/endRead': ({ transferId }) => {
+      const ended = !released.has(transferId);
+      released.add(transferId);
+      return { ended };
     },
-  };
-  const host = { ctx: {}, client: () => client, declareLane() {} };
+  });
   const source = adapter.calls.visualizeExport(['s1', 't1', 'pdf'], host).source;
   // The page cancelled while the authorization was in flight: the grant that arrives after is aborted by its id.
   const grant = await files.calls.fileDownloadAuthorize([{ source, purpose: 'save' }], host);
   assert.equal(await files.calls.fileDownloadAbort([grant.grantId], host), true);
-  assert.deepEqual(sent.at(-1), ['transfer/endRead', { transferId: transfer }], 'the transfer, not the renderer-only grant id, is ended');
-  // After the transfer id is known, aborting by it ends the same transfer once.
+  assert.deepEqual(sent.at(-1), ['transfer/endRead', { transferId: GRANT }], 'the core releases an unredeemed grant');
+  // After redemption the page instead aborts the transfer.
   const again = await files.calls.fileDownloadAuthorize([{ source, purpose: 'save' }], host);
   const begun = await files.calls.fileDownloadBegin([again.grantId], host);
   sent.length = 0;
   assert.equal(await files.calls.fileDownloadAbort([begun.transferId], host), true);
-  assert.deepEqual(sent, [['transfer/endRead', { transferId: transfer }]]);
-  // The local entry is gone: a repeated abort asks the core, which answers for itself.
+  assert.deepEqual(sent, [['transfer/endRead', { transferId: TRANSFER }]]);
+  // A repeated abort still asks the core, which reports nothing was released.
   sent.length = 0;
-  await files.calls.fileDownloadAbort([grant.grantId], host);
-  assert.deepEqual(sent, [['transfer/endRead', { transferId: grant.grantId }]]);
+  assert.equal(await files.calls.fileDownloadAbort([begun.transferId], host), false);
+  assert.deepEqual(sent, [['transfer/endRead', { transferId: TRANSFER }]]);
 });
 
-test('redeeming an export grant after expiresAt is refused even though the cleanup timer has not fired, and its transfer is ended', async () => {
-  const sent = [];
-  const transfer = '00000000-0000-4000-8000-000000000003';
-  const client = {
-    call: async (method, params) => {
-      sent.push([method, params]);
-      if (method === 'transfer/beginRead') return { transferId: transfer, size: 3, mimeType: 'image/png', entry: { name: 'visualize.png', version: 'v'.repeat(43), rangeMaxBytes: 1 << 20 } };
-      return method === 'transfer/endRead' ? { ended: true } : {};
+test('the phone surfaces the core’s refusal to redeem an expired export grant', async () => {
+  const { sent, host } = exportHost({
+    'transfer/authorizeRead': { grantId: GRANT, expiresAt: 10 },
+    'transfer/redeemGrant': () => {
+      throw Object.assign(new Error('RPC error'), {
+        detail: { data: { reason: 'domainError', code: 'file-download:expired', message: 'The download has expired.' } },
+      });
     },
-  };
-  const host = { ctx: {}, client: () => client, declareLane() {} };
+  });
   const source = adapter.calls.visualizeExport(['s1', 't1', 'png'], host).source;
   const grant = await files.calls.fileDownloadAuthorize([{ source, purpose: 'save' }], host);
-  const realNow = Date.now;
-  Date.now = () => grant.expiresAt + 1;
-  try {
-    await assert.rejects(files.calls.fileDownloadBegin([grant.grantId], host), (error) => error.reason === 'expired');
-  } finally {
-    Date.now = realNow;
-  }
-  assert.deepEqual(sent.at(-1), ['transfer/endRead', { transferId: transfer }], 'the late grant does not keep the transfer alive');
+  await assert.rejects(files.calls.fileDownloadBegin([grant.grantId], host), { code: 'file-download:expired' });
+  assert.deepEqual(sent.at(-1), ['transfer/redeemGrant', { grantId: GRANT }]);
 });
 
 test('the lane is registered on every connection that becomes ready, and notifications flow only while the current one holds it', async () => {

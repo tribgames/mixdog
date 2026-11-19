@@ -5,7 +5,7 @@
 // A method is listed when it is a `ClientMethods` entry that the finite session surface exposes as an action
 // (`<namespace>/<action>` of action-namespaces.mjs). Per method: `thread` is whether its params type has `threadId`,
 // `args` its named params in declared order without `opId` and `threadId`.
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
 const ROOT = new URL('../', import.meta.url)
@@ -67,7 +67,7 @@ export function generate(source, namespaces) {
   const lines = rows.map(([m, thread, args]) => `  '${m}': { thread: ${thread}, args: ${JSON.stringify(args)} },`)
   return {
     mjs: [...HEADER, 'export const METHOD_ARGS = Object.freeze({', ...lines, '});', ''].join('\n'),
-    dmts: `${DECLARATION}\r\n`,
+    dmts: `${DECLARATION}\n`,
   }
 }
 
@@ -85,7 +85,7 @@ async function main() {
     try {
       current = readFileSync(url, 'utf8')
     } catch {}
-    if (current === text) continue
+    if (current?.replaceAll('\r\n', '\n') === text) continue
     drift = true
     if (!check) writeFileSync(url, text)
     else console.error(`${url.pathname} is out of date: run node scripts/gen-session-method-args.mjs`)
@@ -93,4 +93,15 @@ async function main() {
   if (check && drift) process.exit(1)
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) await main()
+// Node 24.0–24.1 predates import.meta.main. Resolve aliases for a CLI file,
+// but stdin and eval need not supply a file in argv[1].
+function isFileEntry(entry) {
+  if (!entry || entry === '-') return false
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(entry)).href
+  } catch {
+    return false
+  }
+}
+
+if (import.meta.main ?? isFileEntry(process.argv[1])) await main()

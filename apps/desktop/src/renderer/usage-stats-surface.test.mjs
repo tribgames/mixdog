@@ -16,7 +16,7 @@ import {
 } from './sidebar-reference-cache.ts';
 import { usageMoney } from './usage-format.ts';
 import { HOVER_POPOVER_CLOSE_DELAY_MS } from './hover-popover.ts';
-import { resolveUsageStatsPeriod } from './test-support/usage-stats-period.recorded.mjs';
+import { resolveUsageStatsPeriod, USAGE_STATS_FIXTURE_NOW } from './test-support/usage-stats-period.recorded.mjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 function harness(context, Component = UsageStatsBody) {
@@ -34,7 +34,7 @@ function harness(context, Component = UsageStatsBody) {
   return async (props) => act(async () => root.render(React.createElement(Component, props)));
 }
 function snapshot(view = 'hour', tokens = 1200, anchor, dates = {}) {
-  const now = new Date(2026, 8, 13, 12).getTime();
+  const now = USAGE_STATS_FIXTURE_NOW;
   const period = resolveUsageStatsPeriod({ view, anchor, now, ...dates });
   const route = {
     turns: 1,

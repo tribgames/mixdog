@@ -283,6 +283,12 @@ test('release graph (reusable call simulated): publish runs only when every inne
   assert.equal(nativeFailed.results['linux-verify-full'], 'skipped');
   assert.equal(nativeFailed.results.publish, 'skipped');
 
+  for (const packager of ['desktop-linux-x64', 'desktop-linux-arm64']) {
+    const packageFailed = releaseRun({}, { [packager]: 'failure' });
+    assert.equal(packageFailed.results['linux-verify-full'], 'skipped', packager);
+    assert.equal(packageFailed.results.publish, 'skipped', packager);
+  }
+
   // The packagers start beside build-desktop-once (they wait for its artifact
   // in-step), so publish must block on the build itself.
   const buildFailed = releaseRun({}, { 'desktop-build': 'failure' });
@@ -327,33 +333,48 @@ test('a release builds server bundles once and verifies its actual Linux package
   for (const name of ['verify', 'build-next', 'update-path', 'container-smoke']) assert.equal(failed[name], 'skipped');
 });
 
-test('release: the Linux verification starts beside the packagers, waits for their package artifact, and repeats no x64 suite', () => {
+test('release: Linux proofs use the packagers’ immutable artifacts and do not repeat the x64 test suites', () => {
   const full = release.jobs['linux-verify-full'];
-  for (const job of ['desktop-linux-x64', 'desktop-linux-arm64']) {
-    assert.ok(!needsOf(full).includes(job), `${job} must not delay the start of the verification`);
+  const desktopPackage = load('desktop-package.yml');
+  for (const arch of ['x64', 'arm64']) {
+    const job = `desktop-linux-${arch}`;
+    assert.ok(needsOf(full).includes(job), `verification must wait for ${job}'s artifact ID`);
     assert.ok(needsOf(release.jobs.publish).includes(job), `publish still needs ${job}`);
+    assert.equal(release.jobs[job].uses, './.github/workflows/desktop-package.yml');
+    assert.equal(release.jobs[job].with.arch, arch);
+    assert.equal(full.with[`package_${arch}_id`], `\${{ needs.${job}.outputs.linux_package_id }}`);
   }
-  assert.equal(full.permissions.actions, 'read', 'the verify jobs poll this run for the package artifact');
+  const packager = desktopPackage.jobs.package;
+  const upload = packager.steps.find((step) => step.name === 'Upload the Linux packages for verification');
+  assert.match(upload.uses, /^actions\/upload-artifact@/);
+  assert.equal(packager.outputs.linux_package_id, `\${{ steps.${upload.id}.outputs.artifact-id }}`);
+  assert.equal(desktopPackage.on.workflow_call.outputs.linux_package_id.value, '${{ jobs.package.outputs.linux_package_id }}');
+
+  assert.equal(full.permissions.actions, 'read');
   assert.equal(full.with.arm64_tests_only, true);
-  // verify waits for the packager's job by name, per arch, before it downloads the artifact.
-  const steps = verify.jobs.verify.steps;
-  const wait = steps.findIndex((step) => step.name === 'Wait for the release package');
-  const download = steps.findIndex((step) => step.name === 'Download the release packages under verification');
-  assert.ok(wait >= 0 && wait < download);
-  assert.equal(steps[wait].if, '${{ inputs.packages_prebuilt }}');
-  assert.match(steps[wait].run, /wait-for-artifact\.sh mixdog-linux-packages-\$\{\{ matrix\.arch \}\} desktop-linux-\$\{\{ matrix\.arch \}\}/);
   assert.equal(verify.permissions.actions, 'read');
-  // The producer's job name is what the wait script matches.
-  const packager = parse(read('desktop-package.yml')).jobs.package;
-  assert.equal(packager.name, 'desktop-${{ inputs.platform }}-${{ inputs.arch }}');
-  const upload = parse(read('desktop-package.yml')).jobs.package.steps.find((step) => step.name === 'Upload the Linux packages for verification');
-  assert.equal(upload.with.name, 'mixdog-linux-packages-${{ inputs.arch }}');
+  const byArch = "matrix.arch == 'arm64' && inputs.package_arm64_id || inputs.package_x64_id";
+  for (const [job, path, ids] of [
+    ['verify', 'apps/desktop/dist', byArch],
+    ['update-path', 'n', "inputs.packages_prebuilt && inputs.package_x64_id || ''"],
+    ['container-smoke', 'pkg', `inputs.packages_prebuilt && (${byArch}) || ''`],
+  ]) {
+    const download = verify.jobs[job].steps.find(
+      (step) => step.uses?.startsWith('actions/download-artifact@') && step.with?.path === path
+    );
+    assert.ok(download, `${job} must download the package it proves`);
+    assert.equal(download.with['artifact-ids'], `\${{ ${ids} }}`, job);
+    assert.equal(download.with['digest-mismatch'], 'error', job);
+  }
+
   // The matrix of the tests job: the standalone lane keeps all six legs, the release's call the three arm64 ones.
   const matrix = verify.jobs.tests.strategy.matrix;
   const [, arm64Only, all] = /fromJSON\(inputs\.arm64_tests_only && '(.*?)' \|\| '(.*?)'\)/.exec(matrix);
-  assert.deepEqual(JSON.parse(arm64Only).include.map((leg) => leg.arch), ['arm64', 'arm64', 'arm64']);
-  assert.deepEqual(JSON.parse(all).include.map((leg) => `${leg.arch}-${leg.suite}-${leg.shard}`), [
-    'x64-root-1', 'x64-desktop-1', 'x64-desktop-2', 'arm64-root-1', 'arm64-desktop-1', 'arm64-desktop-2',
+  const testLegs = (value) => JSON.parse(value).include.map((leg) => `${leg.arch}-${leg.suite}-${leg.shard}`);
+  const arm64Legs = ['arm64-root-1', 'arm64-desktop-1', 'arm64-desktop-2'];
+  assert.deepEqual(testLegs(arm64Only), arm64Legs);
+  assert.deepEqual(testLegs(all), [
+    'x64-root-1', 'x64-desktop-1', 'x64-desktop-2', ...arm64Legs,
   ]);
   assert.equal(verify.on.workflow_call.inputs.arm64_tests_only.default, false);
 });
@@ -392,7 +413,8 @@ test('Linux verification never destroys adopted bundles by calling the restaging
   assert.equal(packageStep.if, '${{ !inputs.packages_prebuilt }}');
   const download = steps.find((step) => step.name === 'Download the release packages under verification');
   assert.equal(download.if, '${{ inputs.packages_prebuilt }}');
-  assert.equal(download.with.name, 'mixdog-linux-packages-${{ matrix.arch }}');
+  const prove = steps.findIndex((step) => step.run?.includes('linux-verify-package.sh apps/desktop/dist'));
+  assert.ok(steps.indexOf(download) < prove, 'the adopted package must be in dist before the proof');
   const upload = steps.find((step) => step.name === 'Upload AppImage, .deb and update feed');
   assert.equal(upload.if, '${{ always() && !inputs.packages_prebuilt }}');
 });

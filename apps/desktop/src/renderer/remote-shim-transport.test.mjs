@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { REMOTE_TRANSPORT_MAX_ACK_DELAY_MS } from '../shared/remote-transport.ts';
 import { createPhoneWorld, protocolDialect } from './test-support/phone-world.mjs';
 
@@ -11,7 +12,7 @@ test('records out are numbered, frames in are delivered in order, and acks are c
   const repo = new URL('../../../../', import.meta.url);
   const options = JSON.parse(readFileSync(new URL('packages/protocol-client/conformance/options.json', repo), 'utf8'));
   const world = await createPhoneWorld({
-    tree: decodeURIComponent(repo.pathname.slice(1)),
+    tree: fileURLToPath(repo),
     dialect: protocolDialect({ ...options.initializeResult, serverVersion: '0.0.0' }),
     mxt: true,
     installed: false,

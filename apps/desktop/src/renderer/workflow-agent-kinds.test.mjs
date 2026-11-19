@@ -78,10 +78,14 @@ test('the Workflows page lists workflow agents, not bots; built-in agents are th
 test('the Lead agent row sits above the built-in agents and edits the Main route', async (t) => {
   const routes = [];
   const api = {
-    async invokeCapability({ capability }) {
+    async invokeCapability({ capability, args }) {
       // The Lead's fallback models live on its preset.
       if (capability === 'listPresets') {
         return { value: [{ id: 'workflow-lead', provider: 'anthropic', model: 'claude-test', fallbacks: [FALLBACK] }] };
+      }
+      if (capability === 'setRoute') {
+        routes.push(args[0]);
+        return { value: { preset: { id: 'workflow-lead', ...args[0], fallbacks: [FALLBACK] } } };
       }
       return { value: undefined };
     },
@@ -90,10 +94,6 @@ test('the Lead agent row sits above the built-in agents and edits the Main route
     },
     async getSnapshot() {
       return { provider: 'anthropic', model: 'claude-test', effort: 'high' };
-    },
-    async setModelRoute(selection) {
-      routes.push(selection);
-      return { ...selection };
     },
   };
   resetSidebarReferenceCache();

@@ -373,6 +373,7 @@ mod tests {
                 input_tokens: Some(10.0),
                 input_tokens_known: Some(true),
                 output_tokens: 5.0,
+                output_tokens_known: true,
                 cached_tokens: 1.0,
                 cache_write_tokens: 2.0,
                 cache_write_1h_tokens: 0.0,

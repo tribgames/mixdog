@@ -4,16 +4,16 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import type { Json } from '../src/api.ts';
-import { connect } from '../src/client.ts';
-import { MockNetwork } from '../src/mock.ts';
-import { sessionReducer, sessionStateOf } from '../src/session-state.ts';
-import type { SessionFold } from '../src/session-state.ts';
+import type { Json } from '../../src/api.ts';
+import { connect } from '../../src/client.ts';
+import { MockNetwork } from '../../src/mock.ts';
+import { sessionReducer, sessionStateOf } from '../../src/session-state.ts';
+import type { SessionFold } from '../../src/session-state.ts';
 
 type O = Record<string, any>;
-const options = JSON.parse(readFileSync(new URL('../conformance/options.json', import.meta.url), 'utf8'));
-const stream = JSON.parse(readFileSync(new URL('../../../native/core/fixtures/session-state/stream.json', import.meta.url), 'utf8'));
-const FIELDS: string[] = JSON.parse(readFileSync(new URL('../../../native/core/fixtures/session-state/MANIFEST.json', import.meta.url), 'utf8')).fieldsCovered;
+const options = JSON.parse(readFileSync(new URL('../../conformance/options.json', import.meta.url), 'utf8'));
+const stream = JSON.parse(readFileSync(new URL('../../../../native/core/fixtures/session-state/stream.json', import.meta.url), 'utf8'));
+const FIELDS: string[] = JSON.parse(readFileSync(new URL('../../../../native/core/fixtures/session-state/MANIFEST.json', import.meta.url), 'utf8')).fieldsCovered;
 
 const OBJ_SECTIONS: Record<string, [string, string[]]> = {
   'thread/runtime/updated': ['runtime', ['busy', 'commandBusy', 'thinking', 'spinner', 'commandStatus', 'progressHint', 'activeTools']],

@@ -39,7 +39,8 @@ pub enum Reason {
 /// One blocker: the image, the reason, the message shown and the local actions that work.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Refusal {
-    pub origin: Origin,
+    /// Boxed so the occurrence metadata does not inflate every preparation result.
+    pub origin: Box<Origin>,
     pub reason: Reason,
     pub actions: Vec<RecoveryAction>,
 }
@@ -53,7 +54,7 @@ impl Refusal {
         } else {
             vec![RecoveryAction::ReplaceImage, RecoveryAction::ContinueWithout]
         };
-        Self { origin, reason, actions }
+        Self { origin: Box::new(origin), reason, actions }
     }
 
     fn clause(&self) -> String {

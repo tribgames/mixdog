@@ -412,6 +412,10 @@
         {
           "id": "doc",
           "producer": "doctest"
+        },
+        {
+          "id": "doc-image-egress",
+          "producer": "doctest"
         }
       ]
     },
@@ -1153,6 +1157,12 @@
       "owner": "release-engineering"
     },
     {
+      "glob": "native/core/crates/mixdog-app-server-daemon/src/testdata/unread_stdin_shell.rs",
+      "class": "fixture",
+      "reason": "stand-in shell compiled directly by rustc for the node_twin unread-stdin test; it defines no tests and is not a Cargo target",
+      "owner": "release-engineering"
+    },
+    {
       "glob": "native/core/crates/mixdog-office-com/tests/support/host-app.ps1",
       "class": "helper",
       "reason": "the PowerShell host application the office-com live tests start; it is not a test",
@@ -1337,6 +1347,30 @@
       "glob": "benchmarks/terminal-bench-2.1/harness/tests/test_graph_runtime.py",
       "class": "not-run-by-decision",
       "reason": "not run by decision: one case builds the native graph through a Docker daemon (src_overlay._run_docker); a hosted Linux runner has Docker, and the gate's Python leg does not use it",
+      "owner": "release-engineering"
+    },
+    {
+      "glob": "packages/protocol-client/test/node-oracle/agent-room-rows.test.ts",
+      "class": "not-run-by-decision",
+      "reason": "manual room-row replay that compares local Rust replay outputs with native/core/fixtures/agent-room-cases/golden.json; the gate does not provision those inputs",
+      "owner": "release-engineering"
+    },
+    {
+      "glob": "packages/protocol-client/test/node-oracle/session-state-parity.test.ts",
+      "class": "not-run-by-decision",
+      "reason": "manual session-state replay whose frames and field list come from the local-only native/core/fixtures/session-state recordings",
+      "owner": "release-engineering"
+    },
+    {
+      "glob": "src/tui/app/node-oracle/slash-commands-replay.test.mjs",
+      "class": "not-run-by-decision",
+      "reason": "manual slash-command replay that compares results with the local-only native/core/fixtures/slash-commands-cases/golden.json",
+      "owner": "release-engineering"
+    },
+    {
+      "glob": "src/tui/node-oracle/quiet-progress-replay.test.mjs",
+      "class": "not-run-by-decision",
+      "reason": "manual quiet-progress replay that compares a local Rust replay output with native/core/fixtures/quiet-progress-cases/golden.json; the gate does not provision those inputs",
       "owner": "release-engineering"
     },
     {
@@ -1525,6 +1559,16 @@
             ]
           }
         ]
+      },
+      {
+        "manifestDir": "native/core/crates/mixdog-image-egress",
+        "requires": [
+          {
+            "anyOf": [
+              "linux/core-tests/1of4#doc-image-egress"
+            ]
+          }
+        ]
       }
     ]
   },
@@ -1541,6 +1585,7 @@
   ],
   "dynamicMatrixJobs": [
     "runtime",
+    "desktop-tests",
     "core-build",
     "core-tests",
     "core-pg"
@@ -1718,7 +1763,7 @@
         "commands": [
           "node scripts/ci/coverage/cli.mjs reconcile --root . --manifest coverage/manifest.json --evidence evidence --rust-lists rust-lists --sha \"$EXPECTED_SHA\" --run-id \"$GITHUB_RUN_ID\" --attempt \"$GITHUB_RUN_ATTEMPT\" --repository \"$GITHUB_REPOSITORY\" --workflow \"$GITHUB_WORKFLOW_REF\""
         ],
-        "digest": "f3f59bfae2cb48da3b0d94609b605c1143db0f7c352bbc2b681b03b2b4e1fb11"
+        "digest": "a9872af81b28f56c1057be05cf9d490013df2918bb8d67fa59e0b2222dc61387"
       },
       "release.yml#prepared-runtime-join": {
         "if": "",

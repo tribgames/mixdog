@@ -174,14 +174,21 @@ test('a healthy wake costs one question to the core and no re-attach', async () 
   assert.equal(await manager.wake(), false, 'the caller must run gap recovery when the core did not confirm');
 });
 
-test('a wake while a sync is still owed runs that sync instead of asking', async () => {
-  const { calls, manager, asked } = rig(true);
+test('a wake while a sync is still owed waits for it before asking', async (t) => {
+  const { manager, asked, held, resuming } = rig(true);
+  t.after(() => manager.stop());
   const gate = manager.synced();
-  await tick();
-  void gate.catch(() => undefined);
+  await resuming;
   const woke = manager.wake();
-  assert.equal(asked.confirms, 0);
-  void woke.catch(() => undefined);
+  try {
+    assert.equal(await settled(woke), 'shut');
+    assert.equal(asked.confirms, 0);
+  } finally {
+    for (const release of held) release();
+    await Promise.all([gate, woke]);
+  }
+  assert.equal(await woke, true);
+  assert.equal(asked.confirms, 1);
 });
 test('each sync carries its own claim: a reconnect between a sync\'s claim and its write cannot hand its frame to the next sync', async () => {
   mock.timers.enable({ apis: ['setTimeout', 'Date'] });

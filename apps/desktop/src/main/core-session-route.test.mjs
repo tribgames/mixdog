@@ -111,7 +111,7 @@ test('quota auto-resume is the config key quotaAutoResume: read from the section
   assert.equal(await coreClient({ config: { quotaAutoResume: true } }).client.getQuotaAutoResume(), true);
   assert.equal(await coreClient({ config: { desktop: {} } }).client.getQuotaAutoResume(), true, 'on unless false');
   assert.equal(await coreClient().client.getQuotaAutoResume(), true);
-  const { calls, client } = coreClient();
+  const { calls, client } = coreClient({ answer: async (_method, params) => ({ values: [params.value] }) });
   assert.equal(await client.setQuotaAutoResume(false), false);
   assert.equal(await client.setQuotaAutoResume(true), true);
   assert.deepEqual(calls, [

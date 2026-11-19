@@ -5,15 +5,50 @@ description: >-
 runs:
   using: composite
   steps:
-    - name: cargo-nextest 0.9.151
+    - name: Install the verified release
       shell: bash
       run: |
-        case "$RUNNER_OS" in
-          Linux) platform=linux ;;
-          macOS) platform=mac ;;
-          Windows) platform=windows-tar ;;
-          *) echo "::error::no cargo-nextest build for $RUNNER_OS"; exit 1 ;;
+        set -euo pipefail
+        version=0.9.151
+        binary=cargo-nextest
+        # SHA-256 digests from the upstream GitHub release, pinned alongside the version.
+        case "$RUNNER_OS:$RUNNER_ARCH" in
+          Linux:X64)
+            target=x86_64-unknown-linux-gnu
+            sha256=1d4ce302b820c41f4b89c5fb9bce45f0f0c94882c1cf08fc360caf08be6e7df4
+            ;;
+          macOS:ARM64|macOS:X64)
+            target=universal-apple-darwin
+            sha256=d1d7d025d4bfc9fb154cd76aea3949bd78534829a0589abefa6e5dd4edb135dd
+            ;;
+          Windows:X64)
+            target=x86_64-pc-windows-msvc
+            sha256=e51bdb4b5883df48f335381b287378edb244318fac65ae0adaf6b9e69298246b
+            binary=cargo-nextest.exe
+            ;;
+          *) echo "::error::no cargo-nextest build for $RUNNER_OS/$RUNNER_ARCH"; exit 1 ;;
         esac
+
+        tmp=$(mktemp -d)
+        trap 'rm -rf -- "$tmp"' EXIT
+        archive=cargo-nextest.tar.gz
+        curl -fsSL --retry 3 --retry-delay 5 --output "$tmp/$archive" \
+          "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-$version/cargo-nextest-$version-$target.tar.gz"
+        if ! (
+          cd "$tmp" || exit 1
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            printf '%s  %s\n' "$sha256" "$archive" | shasum -a 256 -c -
+          else
+            printf '%s  %s\n' "$sha256" "$archive" | sha256sum -c -
+          fi
+        ); then
+          echo "::error::cargo-nextest $version checksum verification failed for $target" >&2
+          exit 1
+        fi
+
         dest="${CARGO_HOME:-$HOME/.cargo}/bin"
-        if command -v cygpath > /dev/null; then dest=$(cygpath -u "$dest"); fi
-        curl -fsSL --retry 3 --retry-delay 5 "https://get.nexte.st/0.9.151/${platform}" | tar -xzf - -C "$dest"
+        if [[ "$RUNNER_OS" == Windows ]]; then dest=$(cygpath -u "$dest"); fi
+        mkdir -p "$dest"
+        tar -xzf "$tmp/$archive" -C "$dest" "$binary"
+        if [[ "$RUNNER_OS" == Windows ]]; then dest=$(cygpath -w "$dest"); fi
+        printf '%s\n' "$dest" >> "$GITHUB_PATH"

@@ -1,62 +1,81 @@
-// The terminal script's checkpoints compare what the user sees: each snapped tab's streamed output becomes the screen the text draws
-// (rows' text and attributes, cursor, size); a reply's `replay` is kept as sent. Differences in how the bytes got there are not differences on screen; any
-// changed, extra or missing visible text, colour, cursor position or size is (see benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs).
+// The real playback comparator processes synthetic phone traces, with the same termData, resize and snap boundaries.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { MARK, play } from '../../../../benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs';
+import { compareTraces, nodeView, stateAt } from './remote-protocol-terminal-compare.mjs';
 
-const PROMPT = 'PS D:\\x> ';
-const text = `${PROMPT}Write-Output ${MARK}\r\n\x1b[m${MARK}\r\n${PROMPT}`;
-const RESIZE = '\x1b[8;30;100t';
+const TAB = 'term_checkpoint';
+const prompt = 'test> ';
+const text = `${prompt}echo DONE\r\nDONE\r\n${prompt}`;
+const data = (bytes) => ({ push: 'termData', event: { id: TAB, data: bytes } });
+const resize = { push: 'sizeOwner', event: { id: TAB, cols: 100, rows: 30, own: true } };
+const snap = { snap: 'result' };
 
-async function trace({ replay, output }) {
-  const script = {
-    cwd: 'D:\\x',
-    ops: [
-      { op: 'call', name: 'termAttach', params: ['t'] },
-      { op: 'snap', name: 's', tabs: ['t'] },
-    ],
+function trace({ replay = text, stream = [data(text)], after = [] } = {}) {
+  return {
+    order: [{ call: 'termAttach', params: [TAB], value: { id: TAB, replay } }, ...stream, snap, ...after],
+    claims: { order: [] },
+    immediate: { order: [] },
   };
-  const order = [];
-  const driver = {
-    call: async () => ({ id: 't', replay, sizeOwner: { cols: 1, rows: 1, own: true } }),
-    waitFor: async () => {},
-    events: () => ({ activity: [], sizeOwner: [], folder: [], run: [], order, output: { t: output } }),
-  };
-  return JSON.parse(JSON.stringify(await play(script, driver)));
 }
 
-test('identical terminal text gives identical traces', async () => {
-  assert.deepEqual(await trace({ replay: text, output: text }), await trace({ replay: text, output: text }));
+const baseline = [trace()];
+const differsAtSnap = /order: term_checkpoint's screen before entry \d+/;
+const withOutput = (output) => trace({ stream: [data(output)] });
+
+test('the same playback screen accepts redrawn and differently chunked output', async () => {
+  const got = trace({ stream: [data(`${prompt}ech`), data(`\x1b[3Decho DONE\r\nDONE\r\n${prompt}`)] });
+  const { exemptions, bytes } = await compareTraces(got, baseline);
+  assert.deepEqual(exemptions, []);
+  assert.ok(bytes.some(({ tab, where, exact }) => tab === TAB && where === 'before entry 1' && !exact));
 });
 
-test('a reply whose replay carries an extra line or corrupted text differs', async () => {
-  const exact = await trace({ replay: text, output: text });
-  assert.notDeepEqual(await trace({ replay: `${text}\r\nextra line`, output: text }), exact);
-  assert.notDeepEqual(await trace({ replay: text.replace(`\x1b[m${MARK}`, '\x1b[mMIXDOG_PH2_DONF'), output: text }), exact);
+test('an attach replay with an extra line or corrupted text is refused as an answer, not a stream difference', async () => {
+  for (const replay of [`${text}\r\nextra line`, text.replace('\r\nDONE', '\r\nDOME')]) {
+    await assert.rejects(compareTraces(trace({ replay }), baseline), /order entry 0[\s\S]*value\.replay: normal line/);
+  }
 });
 
-test('streamed output with an extra line or corrupted text differs', async () => {
-  const exact = await trace({ replay: text, output: text });
-  assert.notDeepEqual(await trace({ replay: text, output: text.replace(`${MARK}\r\n${PROMPT}`, `${MARK}\r\nextra\r\n${PROMPT}`) }), exact);
-  assert.notDeepEqual(await trace({ replay: text, output: `${text}x` }), exact);
+test('an extra line, corrupted text or changed colour in streamed output is refused at the checkpoint', async () => {
+  for (const output of [
+    text.replace(`DONE\r\n${prompt}`, `DONE\r\nextra\r\n${prompt}`),
+    `${text}x`,
+    text.replace(`DONE\r\n${prompt}`, `\x1b[31mDONE\x1b[m\r\n${prompt}`),
+  ]) {
+    await assert.rejects(compareTraces(withOutput(output), baseline), differsAtSnap);
+  }
 });
 
-test('corrupted text after a resize differs', async () => {
-  const exact = await trace({ replay: text, output: `${text}${RESIZE}\x1b[HAfter` });
-  assert.notDeepEqual(await trace({ replay: text, output: `${text}${RESIZE}\x1b[HAfteR` }), exact);
-  assert.notDeepEqual(await trace({ replay: `${text}${RESIZE}\x1b[HAfteR`, output: text }), await trace({ replay: `${text}${RESIZE}\x1b[HAfter`, output: text }));
+test('the checkpoint applies a size-owner push before comparing later output', async () => {
+  const reference = [trace({ stream: [data(text), resize, data('\x1b[HAfter')] })];
+  const { analyses: [analysis] } = await nodeView(reference, 'order');
+  assert.deepEqual(stateAt(analysis, 2, TAB).size, [100, 30]);
+  await assert.rejects(
+    compareTraces(trace({ stream: [data(text), resize, data('\x1b[HAfteR')] }), reference),
+    differsAtSnap
+  );
 });
 
-test('a different colour on the same text differs', async () => {
-  assert.notDeepEqual(await trace({ replay: text, output: text.replace(MARK + '\r\n' + PROMPT, `\x1b[31m${MARK}\x1b[m\r\n${PROMPT}`) }), await trace({ replay: text, output: text }));
-});
-
-test('streamed output that draws the same screen is the same snapshot; a reply is its bytes', async () => {
-  const redrawn = text.replace(`Write-Output ${MARK}`, `Wri\x1b[3DWrite-Output ${MARK}`);
-  assert.notEqual(redrawn, text);
-  assert.deepEqual(await trace({ replay: text, output: redrawn }), await trace({ replay: text, output: text }));
-  assert.notDeepEqual(await trace({ replay: redrawn, output: text }), await trace({ replay: text, output: text }));
+test('the result checkpoint catches title and scrollback changes that are absent from the final screen', async () => {
+  const title = (value) => `\x1b]2;${value}\x07`;
+  const output = (first, heading) => `${title(heading)}${first}\r\n${'intermediate\r\n'.repeat(23)}visible`;
+  // After the checkpoint, clear both the screen and scrollback and restore the same title.
+  const after = [data(`\x1b[3J\x1b[2J\x1b[H${title('Final title')}finished`)];
+  const reference = [trace({ stream: [data(output('Old line', 'Checkpoint title'))], after })];
+  const { analyses: [analysis] } = await nodeView(reference, 'order');
+  const checkpoint = stateAt(analysis, 1, TAB);
+  assert.equal(checkpoint.title, 'Checkpoint title');
+  assert.deepEqual(checkpoint['normal viewport'], [1, 1]);
+  assert.match(checkpoint['normal line 0'], /^Old line/);
+  assert.match(checkpoint['normal line 24'], /^visible/);
+  for (const [first, heading, unit] of [
+    ['Old line', 'Wrong title', 'title'],
+    ['New line', 'Checkpoint title', 'normal line 0'],
+  ]) {
+    const got = trace({ stream: [data(output(first, heading))], after });
+    const { analyses: [candidate] } = await nodeView([got], 'order');
+    assert.deepEqual(stateAt(candidate, 2, TAB), stateAt(analysis, 2, TAB));
+    await assert.rejects(compareTraces(got, reference), new RegExp(`screen before entry 1[\\s\\S]*${unit}: got`));
+  }
 });
 
 // Everything a user can see differs: each pair draws the same characters and differs in one visible thing.
@@ -80,23 +99,18 @@ const visibly = {
 };
 for (const [what, [left, right]] of Object.entries(visibly)) {
   test(`${what} is a different screen`, async () => {
-    assert.notDeepEqual(await trace({ replay: text, output: `${text}${left}` }), await trace({ replay: text, output: `${text}${right}` }));
+    await assert.rejects(compareTraces(withOutput(`${text}${right}`), [withOutput(`${text}${left}`)]), differsAtSnap);
   });
 }
 
 test('no cursor escape and a blinking bar are the same screen: the view\'s own cursor', async () => {
-  assert.deepEqual(await trace({ replay: text, output: text }), await trace({ replay: text, output: `${text}\x1b[5 q` }));
+  await compareTraces(withOutput(`${text}\x1b[5 q`), baseline);
 });
 
-test('an underline colour that no underline shows is not a different screen', async () => {
-  assert.deepEqual(await trace({ replay: text, output: `${text}\x1b[58;2;255;0;0mX\x1b[m` }), await trace({ replay: text, output: `${text}X` }));
-});
-
-// What a blank cell does not show is not a difference; what it does show is.
-test('a foreground colour on blank cells is not a different screen, a background or an underline on them is', async () => {
-  const plain = await trace({ replay: text, output: `${text}ab` });
-  assert.deepEqual(await trace({ replay: text, output: `${text}ab\x1b[1;31m   \x1b[m\x1b[3D` }), plain);
-  assert.notDeepEqual(await trace({ replay: text, output: `${text}ab\x1b[41m   \x1b[m\x1b[3D` }), plain);
-  assert.notDeepEqual(await trace({ replay: text, output: `${text}ab\x1b[4m   \x1b[m\x1b[3D` }), plain);
-  assert.notDeepEqual(await trace({ replay: text, output: `${text}ab\x1b[7m   \x1b[m\x1b[3D` }), plain);
+test('playback compares retained cell attributes, including on blanks', async () => {
+  for (const attr of ['1;31', '41', '4', '7']) {
+    const plain = withOutput(`${text}ab   \x1b[3D`);
+    const decorated = withOutput(`${text}ab\x1b[${attr}m   \x1b[m\x1b[3D`);
+    await assert.rejects(compareTraces(decorated, [plain]), differsAtSnap);
+  }
 });

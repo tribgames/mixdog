@@ -35,8 +35,12 @@ test('Computer Use overlay windows never become automation transition targets', 
     getMediaSourceId: () => `window:${0xb305ca}:0`,
   });
   try {
-    const target = windowRecord('hwnd:0x2F1B18', { pid: 44224 });
-    const cursorOverlay = windowRecord('hwnd:0xB305CA', {
+    const id = (number) =>
+      process.platform === 'darwin'
+        ? `cg:${number}`
+        : `${process.platform === 'win32' ? 'hwnd' : 'x11'}:0x${number.toString(16).toUpperCase()}`;
+    const target = windowRecord(id(0x2f1b18), { pid: 44224 });
+    const cursorOverlay = windowRecord(id(0xb305ca), {
       pid: 44224,
       width: 210,
       height: 82,

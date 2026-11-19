@@ -3,10 +3,10 @@
 // recorded inputs go through the TUI functions a user's keystrokes reach, and the whole observed value is compared, exactly encoded.
 import assert from 'node:assert/strict';import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { exact } from '../../../benchmarks/rust-core/recorders/lib/exact.mjs';
-import { normalizeSlashCommandName, overlayBlocksGlobalTranscriptScroll, slashArgumentHint } from './slash-commands.mjs';
+import { exact } from '../../../../benchmarks/rust-core/recorders/lib/exact.mjs';
+import { normalizeSlashCommandName, overlayBlocksGlobalTranscriptScroll, slashArgumentHint } from '../slash-commands.mjs';
 
-const golden = JSON.parse(readFileSync(new URL('../../../native/core/fixtures/slash-commands-cases/golden.json', import.meta.url), 'utf8'));
+const golden = JSON.parse(readFileSync(new URL('../../../../native/core/fixtures/slash-commands-cases/golden.json', import.meta.url), 'utf8'));
 const recorded = (name) => {
   const found = golden.cases.find((entry) => entry.case === name);
   assert.ok(found, `no recorded case ${name}`);
