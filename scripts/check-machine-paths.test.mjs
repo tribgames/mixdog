@@ -9,14 +9,16 @@ import { ALLOW, MACHINE_PATH, checkMachinePaths, scan } from './check-machine-pa
 
 // Assembled so this file stays clean under its own check.
 const user = 'tem' + 'pe';
+const driveD = 'D:';
+const driveC = 'C:';
 const samples = [
-  `D:\\mixdog-build\\tools\\x.ps1`,
-  `D:/mixdog-build/tmp/w1`,
-  `D:\\\\Project\\\\app`,
+  `${driveD}\\mixdog-build\\tools\\x.ps1`,
+  `${driveD}/mixdog-build/tmp/w1`,
+  `${driveD}\\\\Project\\\\app`,
   `C:\\Users\\${user}\\.mixdog`,
   `C:/Users/${user}/AppData`,
-  `C:\\Project\\mixdog\\src`,
-  `c:/project/mixdog/`,
+  `${driveC}\\Project\\mixdog\\src`,
+  `${driveC.toLowerCase()}/project/mixdog/`,
   `/Users/${user}/work`,
   `/home/${user}/work`,
 ];
