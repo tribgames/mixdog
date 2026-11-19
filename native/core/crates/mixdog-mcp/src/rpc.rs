@@ -53,8 +53,9 @@ pub enum RpcError {
     TotalTimeout,
     #[error("call cancelled")]
     Cancelled,
+    /// The transport's failure in words, and the system error code of a failed socket ([`TransportError::os_code`]).
     #[error("transport error: {0}")]
-    Transport(String),
+    Transport(String, Option<&'static str>),
 }
 
 #[derive(Default, Clone, Copy)]
@@ -84,7 +85,7 @@ async fn write_notices(transport: Arc<dyn Transport>, mut queue: mpsc::Receiver<
         let outcome = transport
             .send(notice.message, NOTICE)
             .await
-            .map_err(|e| RpcError::Transport(e.to_string()));
+            .map_err(|e| RpcError::Transport(e.to_string(), e.os_code()));
         if let Some(sent) = notice.sent {
             let _ = sent.send(outcome);
         }
@@ -273,7 +274,7 @@ impl RpcClient {
     ) -> Result<(), RpcError> {
         self.notices
             .try_send(Notice { message, sent })
-            .map_err(|_| RpcError::Transport("notification queue is full or closed".to_owned()))
+            .map_err(|_| RpcError::Transport("notification queue is full or closed".to_owned(), None))
     }
 
     /// Queues a notification for the writer task and returns; it is never awaited.
@@ -364,7 +365,7 @@ impl RpcClient {
                 result = &mut send, if !sent => {
                     sent = true;
                     if let Err(error) = result {
-                        return Err(RpcError::Transport(error.to_string()));
+                        return Err(RpcError::Transport(error.to_string(), error.os_code()));
                     }
                 }
                 result = &mut *rx => {

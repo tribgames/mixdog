@@ -49,8 +49,23 @@ pub struct HttpTransport {
     gmail: Option<Arc<crate::gmail_app_password::GmailMcp>>,
 }
 
+/// The failed request in words and, beside them, the system error code of the socket failure under it (`ECONNREFUSED`), as
+/// Node's `fetch failed` carried it in its cause: a refused connect is told apart from a timeout by it.
 fn request_error(error: reqwest::Error) -> TransportError {
-    TransportError::Request(error.without_url().to_string())
+    let mut source: Option<&(dyn std::error::Error + 'static)> = std::error::Error::source(&error);
+    let mut code = None;
+    while let Some(cause) = source {
+        if let Some(found) = cause.downcast_ref::<std::io::Error>().and_then(crate::uv_error::error_code) {
+            code = Some(found);
+            break;
+        }
+        source = cause.source();
+    }
+    let message = error.without_url().to_string();
+    match code {
+        Some(code) => TransportError::Socket { message, code },
+        None => TransportError::Request(message),
+    }
 }
 
 impl HttpTransport {
@@ -362,9 +377,45 @@ mod tests {
         fn answered(&self, sent: Option<&str>) {
             let _ = self.events.send(format!("answered {}", sent.unwrap_or_default()));
         }
-        fn refused_after_renewal(&self, attempted: Option<&str>) {
-            let _ = self.events.send(format!("refused again {}", attempted.unwrap_or_default()));
+        fn refused_after_renewal(&self, attempted: Option<&str>, challenge: Option<&str>) {
+            let challenge = challenge.map(|c| format!(" with {c}")).unwrap_or_default();
+            let _ = self.events.send(format!("refused again {}{challenge}", attempted.unwrap_or_default()));
         }
+    }
+
+    /// The renewed token is refused with another challenge than the first refusal's: that last challenge is the one
+    /// reported, so the sign-in answers what finally required it.
+    #[tokio::test]
+    async fn a_refusal_after_renewal_reports_its_own_challenge() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let served = Arc::new(AtomicUsize::new(0));
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let served = Arc::clone(&served);
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 4096];
+                    let _ = socket.read(&mut buf).await;
+                    let reply = if served.fetch_add(1, Ordering::SeqCst) == 0 {
+                        "HTTP/1.1 401 Unauthorized\r\nwww-authenticate: Bearer scope=\"first\"\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                    } else {
+                        "HTTP/1.1 403 Forbidden\r\nwww-authenticate: Bearer error=\"insufficient_scope\", scope=\"second\"\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                    };
+                    let _ = socket.write_all(reply.as_bytes()).await;
+                });
+            }
+        });
+        let (events, mut reports) = unbounded_channel();
+        let auth = Arc::new(Recording { token: Mutex::new("old".to_owned()), renewal: Renewal::Renews, events });
+        let url = Url::parse(&format!("http://{addr}/mcp")).unwrap();
+        let (transport, _rx) = HttpTransport::new(url, &BTreeMap::new(), Some(auth)).unwrap();
+        let sent = transport.post_message(serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "ping"})).await;
+        assert!(matches!(sent, Err(TransportError::AuthRequired)), "{sent:?}");
+        let mut seen = Vec::new();
+        while let Ok(event) = reports.try_recv() {
+            seen.push(event);
+        }
+        assert_eq!(seen, ["renew old", "refused again old with Bearer error=\"insufficient_scope\", scope=\"second\""]);
     }
 
     #[test]
@@ -602,8 +653,9 @@ impl Transport for HttpTransport {
                         return Listener::Failed;
                     };
                     response = replayed;
-                    if crate::transport::refused(response.status().as_u16(), crate::transport::challenge_of(&response).as_deref()) {
-                        auth.refused_after_renewal(attempted.as_deref());
+                    let challenge = crate::transport::challenge_of(&response);
+                    if crate::transport::refused(response.status().as_u16(), challenge.as_deref()) {
+                        auth.refused_after_renewal(attempted.as_deref(), challenge.as_deref());
                         return Listener::Failed;
                     }
                     sent = fresh;
@@ -650,7 +702,7 @@ impl HttpTransport {
             let fresh = auth.token().await?;
             answer = ask(fresh.clone()).await.map_err(TransportError::Request)?;
             if crate::transport::refused(answer.status, answer.www_authenticate.as_deref()) {
-                auth.refused_after_renewal(attempted.as_deref());
+                auth.refused_after_renewal(attempted.as_deref(), answer.www_authenticate.as_deref());
                 return Err(TransportError::AuthRequired);
             }
             sent = fresh;
@@ -701,8 +753,9 @@ impl HttpTransport {
             auth.renew(attempted.clone(), crate::transport::challenge_of(&response)).await?;
             let fresh = auth.token().await?;
             response = post(fresh.clone()).send().await.map_err(request_error)?;
-            if crate::transport::refused(response.status().as_u16(), crate::transport::challenge_of(&response).as_deref()) {
-                auth.refused_after_renewal(attempted.as_deref());
+            let challenge = crate::transport::challenge_of(&response);
+            if crate::transport::refused(response.status().as_u16(), challenge.as_deref()) {
+                auth.refused_after_renewal(attempted.as_deref(), challenge.as_deref());
                 return Err(TransportError::AuthRequired);
             }
             sent = fresh;

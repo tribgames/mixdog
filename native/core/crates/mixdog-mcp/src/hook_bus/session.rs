@@ -71,6 +71,12 @@ impl SessionPostTool {
         Some(BatchOutcome { blocked: dispatched.blocked, reason: dispatched.reason })
     }
 
+    /// `SubagentStop` of a worker turn the model ended: the verdict, for the loop to continue on a block.
+    pub async fn subagent_stop(&self, session_id: &str, agent_type: &str, cwd: &str, stop_hook_active: bool) -> Dispatched {
+        let common = (self.common)(session_id);
+        self.bus.subagent_stop(session_id, agent_type, Path::new(cwd), &common, stop_hook_active).await
+    }
+
     /// `Stop` of a turn the model ended: the verdict, for the loop to continue on a block.
     pub async fn stop(&self, session_id: &str, cwd: &str, stop_hook_active: bool) -> Dispatched {
         let common = (self.common)(session_id);

@@ -225,29 +225,39 @@ fn required_features(frontmatter: &Value) -> Vec<String> {
 /// "directory" by `stat` and so follows a link (a symlink, a Windows junction) to a directory, and reads a link to a file.
 /// Node has no cycle guard of its own (a link to an ancestor repeats the tree until the OS refuses the path, and the
 /// repeats are dropped by name); here a directory already being walked is not entered again.
+/// The listing is breadth-first, as Node's is: a directory's own files come before anything in its
+/// subfolders, so of two skills of one name the shallower one is met (and kept) first.
 fn skill_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    walk_skill_dir(dir, out, &mut Vec::new());
+    let mut queue = std::collections::VecDeque::from([(dir.to_path_buf(), Vec::<PathBuf>::new())]);
+    while let Some((dir, mut ancestors)) = queue.pop_front() {
+        walk_skill_dir(&dir, out, &mut ancestors, &mut queue);
+    }
 }
 
+/// Lists one directory: its `SKILL.md` files go to `out`, its subfolders to the back of `queue`.
 #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-fn walk_skill_dir(dir: &Path, out: &mut Vec<PathBuf>, walking: &mut Vec<PathBuf>) {
+fn walk_skill_dir(
+    dir: &Path,
+    out: &mut Vec<PathBuf>,
+    ancestors: &mut Vec<PathBuf>,
+    queue: &mut std::collections::VecDeque<(PathBuf, Vec<PathBuf>)>,
+) {
     let Ok(real) = std::fs::canonicalize(dir) else { return };
-    if walking.contains(&real) {
+    if ancestors.contains(&real) {
         return;
     }
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     let mut entries: Vec<_> = entries.flatten().collect();
     entries.sort_by_key(|e| e.file_name());
-    walking.push(real);
+    ancestors.push(real);
     for entry in entries {
         let path = entry.path();
         match std::fs::metadata(&path) {
-            Ok(meta) if meta.is_dir() => walk_skill_dir(&path, out, walking),
+            Ok(meta) if meta.is_dir() => queue.push_back((path, ancestors.clone())),
             Ok(meta) if meta.is_file() && entry.file_name() == "SKILL.md" => out.push(path),
             _ => {}
         }
     }
-    walking.pop();
 }
 
 /// Collects skills from `roots` in order (global, plugins, bundled): the first skill of a name
@@ -440,6 +450,21 @@ mod tests {
         skill_files(&skills, &mut found);
         let names: Vec<String> = found.iter().map(|p| p.strip_prefix(&skills).unwrap().components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect::<Vec<_>>().join("/")).collect();
         assert_eq!(names, ["linked/SKILL.md", "plain/SKILL.md"]);
+    }
+
+    /// Node's listing is breadth-first: a shallower `SKILL.md` precedes a deeper one that sorts earlier, so a name
+    /// declared by both keeps the shallower.
+    #[test]
+    #[allow(clippy::disallowed_methods, reason = "a test fixture on a scratch directory")]
+    fn the_listing_is_breadth_first() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("a").join("b")).unwrap();
+        std::fs::create_dir_all(root.path().join("z")).unwrap();
+        std::fs::write(root.path().join("a").join("b").join("SKILL.md"), "deep").unwrap();
+        std::fs::write(root.path().join("z").join("SKILL.md"), "shallow").unwrap();
+        let mut found = Vec::new();
+        skill_files(root.path(), &mut found);
+        assert_eq!(found, [root.path().join("z").join("SKILL.md"), root.path().join("a").join("b").join("SKILL.md")]);
     }
 
     #[cfg(unix)]

@@ -190,11 +190,9 @@ impl SseTransport {
                 .await
                 .map_err(expired)?
                 .map_err(request_error)?;
-            if crate::transport::refused(
-                response.status().as_u16(),
-                crate::transport::challenge_of(&response).as_deref(),
-            ) {
-                auth.refused_after_renewal(attempted.as_deref());
+            let challenge = crate::transport::challenge_of(&response);
+            if crate::transport::refused(response.status().as_u16(), challenge.as_deref()) {
+                auth.refused_after_renewal(attempted.as_deref(), challenge.as_deref());
                 return Err(TransportError::AuthRequired);
             }
             sent = fresh;
@@ -284,8 +282,9 @@ impl SseTransport {
             auth.renew(attempted.clone(), crate::transport::challenge_of(&response)).await?;
             let fresh = auth.token().await?;
             response = post(fresh.clone()).send().await.map_err(request_error)?;
-            if crate::transport::refused(response.status().as_u16(), crate::transport::challenge_of(&response).as_deref()) {
-                auth.refused_after_renewal(attempted.as_deref());
+            let challenge = crate::transport::challenge_of(&response);
+            if crate::transport::refused(response.status().as_u16(), challenge.as_deref()) {
+                auth.refused_after_renewal(attempted.as_deref(), challenge.as_deref());
                 return Err(TransportError::AuthRequired);
             }
             sent = fresh;

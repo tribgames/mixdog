@@ -257,3 +257,148 @@ async fn a_skill_written_under_a_watched_root_pushes_a_change() {
         .unwrap();
     assert!(*changes.borrow() > 0);
 }
+
+/// A skills root added ahead of another (plugin A's manifest gains one before plugin B's) leaves B's registration as it was: its
+/// OS watch is never closed and reopened.
+#[test]
+fn a_root_added_ahead_of_another_keeps_the_other_watch() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().canonicalize().unwrap();
+    let (a, added, b) = (base.join("a"), base.join("a-extra"), base.join("b"));
+    for folder in [&a, &added, &b] {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    let skills = SkillsWatch::new();
+    let watcher = Arc::new(FolderWatcher::new(skills.sink()).unwrap());
+    skills.attach(Arc::clone(&watcher));
+    let targets = |deep: Vec<std::path::PathBuf>| mixdog_mcp::skills_watch::WatchTargets { deep, shallow: Vec::new() };
+    assert!(skills.set_targets(&targets(vec![a.clone(), b.clone()])));
+    let before = watcher.recursive_revision(&b).expect("b is watched");
+    assert!(skills.set_targets(&targets(vec![a.clone(), added.clone(), b.clone()])));
+    assert!(watcher.recursive_revision(&added).is_some());
+    assert!(Arc::ptr_eq(&before, &watcher.recursive_revision(&b).expect("b is watched")), "b's watch was reopened");
+}
+
+/// A `git clone` that writes a plugin with one skill, named after the repository, into the target folder.
+struct CloneGit;
+
+impl mixdog_mcp::plugin_admin::GitRunner for CloneGit {
+    fn run(&self, args: &[String], _: Duration) -> Result<String, String> {
+        if let ["clone", .., url, temp] = args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
+            let name = url.rsplit('/').next().unwrap().trim_end_matches(".git");
+            let skill = Path::new(temp).join("skills").join(name);
+            std::fs::create_dir_all(&skill).map_err(|e| e.to_string())?;
+            std::fs::write(skill.join("SKILL.md"), format!("---\nname: {name}\ndescription: cloned\n---\nbody\n")).map_err(|e| e.to_string())?;
+            std::fs::write(Path::new(temp).join("plugin.json"), format!(r#"{{"name":"{name}"}}"#)).map_err(|e| e.to_string())?;
+        }
+        Ok(String::new())
+    }
+}
+
+type Seen = tokio::sync::mpsc::UnboundedReceiver<(String, Vec<String>, mixdog_workspace::watcher::ChangeKind)>;
+
+/// The one watcher's sink, as the core composes it: the skills watch and every other user of the watcher (here a recorder).
+struct FanOut(Arc<dyn mixdog_workspace::watcher::ChangeSink>, tokio::sync::mpsc::UnboundedSender<(String, Vec<String>, mixdog_workspace::watcher::ChangeKind)>);
+
+impl mixdog_workspace::watcher::ChangeSink for FanOut {
+    fn changed(&self, watch_id: &str, paths: Vec<String>, kind: mixdog_workspace::watcher::ChangeKind) {
+        self.0.changed(watch_id, paths.clone(), kind);
+        let _ = self.1.send((watch_id.to_owned(), paths, kind));
+    }
+}
+
+/// The revision of the recursive watch covering `path`, once no change is waiting to be applied.
+async fn revision(watcher: &FolderWatcher, path: &Path) -> Arc<()> {
+    mixdog_rt::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Some(revision) = watcher.recursive_revision(path) {
+                return revision;
+            }
+            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the folder is watched")
+}
+
+/// Windows refuses to rename a folder with a handle open inside it (EPERM, issue #328). The production update swaps the folder of
+/// an enabled plugin while the skills watch and a session's own watch of its `skills` folder are both registered on the shared
+/// watcher; afterwards both watch the new folder, and the other plugin's watch was never reopened.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_plugin_watched_by_the_catalog_and_a_session_is_updated_and_watched_again() {
+    use mixdog_workspace::watcher::ChangeKind;
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().canonicalize().unwrap();
+    let data = base.join("data");
+    let admin = Arc::new(mixdog_mcp::plugin_admin::PluginAdmin::new(data.clone(), Arc::new(CloneGit), Arc::new(|| {})));
+    let defaults = base.join("defaults");
+    let skills = Arc::new(SkillsWatch::new());
+    let tokens = mixdog_rt::testing::tokens();
+    let catalog = mixdog_mcp::skill_catalog::SkillCatalog::new(
+        data.clone(),
+        tokens.maintenance_io,
+        mixdog_mcp::mcp_glue::McpGlue::skill_roots(admin.clone(), defaults.clone()),
+        Arc::new(NoSettings),
+        &skills,
+    );
+    catalog.watch_roots(skills.clone(), mixdog_mcp::mcp_glue::McpGlue::skill_watch_targets(admin.clone(), defaults));
+    let (record, mut seen): (_, Seen) = tokio::sync::mpsc::unbounded_channel();
+    let watcher = Arc::new(FolderWatcher::new(Arc::new(FanOut(skills.sink(), record))).unwrap());
+    skills.attach(Arc::clone(&watcher));
+    let mut changes = skills.subscribe();
+    let on_lane = |work: Box<dyn FnOnce(&mixdog_rt::InLane<mixdog_rt::MaintenanceIo>) -> serde_json::Value + Send>| async move {
+        tokens.maintenance_io.submit(&CancellationToken::new(), work).unwrap().await.unwrap()
+    };
+    let mut roots = Vec::new();
+    for source in ["acme/demo", "acme/other"] {
+        let adding = Arc::clone(&admin);
+        let plugin = on_lane(Box::new(move |lane| adding.add_plugin(lane, &serde_json::json!(source), None).unwrap())).await;
+        roots.push((plugin["id"].clone(), std::path::PathBuf::from(plugin["root"].as_str().unwrap())));
+    }
+    let [(id, root), (_, other)] = &roots[..] else { unreachable!() };
+    let has = |list: &[mixdog_mcp::skills::Skill], name: &str, description: &str| list.iter().any(|s| s.name == name && s.description == description);
+    let listed = catalog.skills().await.unwrap();
+    assert!(has(listed.as_slice(), "demo", "cloned") && has(listed.as_slice(), "other", "cloned"));
+    assert!(catalog.cached().is_some(), "the catalog registered every skills folder");
+    let untouched = revision(&watcher, &other.join("skills")).await;
+    // A session's own watch of the plugin's skills folder, on the same watcher.
+    watcher.watch("session", &root.join("skills"), true).unwrap();
+
+    let updating = Arc::clone(&admin);
+    let plugin = id.clone();
+    let updated = on_lane(Box::new(move |lane| serde_json::json!(updating.update_plugin(lane, &plugin).map_err(|e| e.0)))).await;
+    assert_eq!(updated["Ok"]["id"], *id, "{updated}");
+
+    // A warm catalog: a list that stays cached past the batch window of the update's own writes.
+    mixdog_rt::time::timeout(Duration::from_secs(10), async {
+        loop {
+            catalog.skills().await.unwrap();
+            mixdog_rt::time::sleep(Duration::from_millis(600)).await;
+            if catalog.cached().is_some() {
+                return;
+            }
+        }
+    })
+    .await
+    .expect("the catalog settles");
+    assert!(Arc::ptr_eq(&untouched, &revision(&watcher, &other.join("skills")).await), "the other plugin's watch was reopened");
+    changes.borrow_and_update();
+    while seen.try_recv().is_ok() {}
+
+    let file = root.join("skills").join("demo").join("SKILL.md");
+    std::fs::write(&file, "---\nname: demo\ndescription: edited\n---\nbody\n").unwrap();
+    let mut notified = (false, false);
+    mixdog_rt::time::timeout(Duration::from_secs(10), async {
+        while notified != (true, true) {
+            let (watch_id, paths, kind) = seen.recv().await.unwrap();
+            if kind != ChangeKind::Overflow && paths.iter().any(|p| Path::new(p) == file) {
+                notified.0 |= watch_id == "session";
+                notified.1 |= watch_id.starts_with("mcp.skills:");
+            }
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("both watches see the new folder (session, skills): {notified:?}"));
+    mixdog_rt::time::timeout(Duration::from_secs(10), changes.changed()).await.expect("the catalog is told").unwrap();
+    assert!(has(catalog.skills().await.unwrap().as_slice(), "demo", "edited"));
+}

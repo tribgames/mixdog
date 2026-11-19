@@ -30,6 +30,8 @@ use mixdog_statefile::create_private_dir_all;
 use mixdog_statefile::read_json;
 use mixdog_statefile::update_json;
 use mixdog_statefile::with_lock;
+use mixdog_workspace::watcher::RootHold;
+use mixdog_workspace::watcher::hold_root;
 
 const REGISTRY_VERSION: u64 = 1;
 
@@ -533,8 +535,21 @@ fn clear_read_only(path: &Path) {
     }
 }
 
+/// Keeps every watch of this process from holding a handle under `path` while it is moved or deleted: Windows refuses either with
+/// a handle open inside (issue #328).
+fn hold(path: &Path) -> std::io::Result<RootHold> {
+    hold_root(path).map_err(|error| std::io::Error::other(error.message))
+}
+
+/// `std::fs::rename` of a folder no watch of this process holds a handle under meanwhile.
+fn rename_held(from: &Path, to: &Path) -> std::io::Result<()> {
+    let _held = hold(from)?;
+    std::fs::rename(from, to)
+}
+
 pub(crate) fn remove_tree(path: &Path) -> std::io::Result<()> {
     let Ok(meta) = std::fs::symlink_metadata(path) else { return Ok(()) };
+    let _held = hold(path)?;
     if meta.file_type().is_symlink() {
         return detach(path);
     }
@@ -589,7 +604,7 @@ fn backup_of(root: &Path) -> PathBuf {
 fn recover_managed_root(root: &Path) -> std::io::Result<PathBuf> {
     let backup = backup_of(root);
     if !root.exists() && backup.exists() {
-        std::fs::rename(&backup, root)?;
+        rename_held(&backup, root)?;
     } else if root.exists() && backup.exists() {
         remove_tree(&backup)?;
     }
@@ -598,6 +613,9 @@ fn recover_managed_root(root: &Path) -> std::io::Result<PathBuf> {
 
 /// Swaps a freshly cloned `temp` in for `root`, putting the previous install back if the swap fails.
 pub(crate) fn publish_managed_root(root: &Path, temp: &Path) -> Result<()> {
+    // No watch of this process holds a handle under the root until the swap is over, whether it worked or not; the other folders
+    // moved or deleted are held by the call that does it.
+    let _held = hold(root).map_err(io)?;
     let backup = recover_managed_root(root).map_err(io)?;
     let mut previous_moved = false;
     let swap = (|| {
@@ -605,10 +623,10 @@ pub(crate) fn publish_managed_root(root: &Path, temp: &Path) -> Result<()> {
             std::fs::rename(root, &backup)?;
             previous_moved = true;
         }
-        std::fs::rename(temp, root)
+        rename_held(temp, root)
     })();
     if let Err(error) = swap {
-        if !root.exists() && previous_moved && backup.exists() && std::fs::rename(&backup, root).is_err() {
+        if !root.exists() && previous_moved && backup.exists() && rename_held(&backup, root).is_err() {
             return fail(format!("plugin publish and rollback both failed for {}", root.display()));
         }
         return Err(io(error));

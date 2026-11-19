@@ -23,6 +23,7 @@ use mixdog_core_api::domain::process::ExitStatus;
 use mixdog_core_api::domain::process::KillReason;
 use mixdog_core_api::domain::process::OutputMode;
 use mixdog_core_api::domain::process::OutputStream;
+use mixdog_core_api::domain::process::ProcessError;
 use mixdog_core_api::domain::process::ProcessEvent;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::process::ProcessOwner;
@@ -123,7 +124,12 @@ pub struct CommandContext<'a> {
     pub plugin_data_dir: &'a Path,
     pub payload: &'a Value,
     pub event: &'a str,
+    /// Told why a detached run failed after the call returned (its payload could not be written): the bus's `hook:error`.
+    pub report_detached: Option<DetachedReport>,
 }
+
+/// Receives the failure of a detached run, which nobody awaits.
+pub type DetachedReport = Arc<dyn Fn(String) + Send + Sync>;
 
 // ---- http ------------------------------------------------------------------------------
 
@@ -238,6 +244,157 @@ mod tests {
         assert_eq!(resolve_header(&serde_json::json!("Bearer ${PATH}"), &allowed), format!("Bearer {path}"));
         assert_eq!(resolve_header(&serde_json::json!("Bearer $PATH"), &[]), "Bearer ");
     }
+
+    /// An event the process's input queue refuses is a failed hook, not a run with empty input.
+    #[tokio::test]
+    async fn a_payload_the_input_queue_refuses_fails_the_hook() {
+        let manager = Arc::new(mixdog_core_api::domain::mock::MockProcessManager::default());
+        manager.saturate(mixdog_core_api::domain::process::ProcessQueue::Input);
+        let runner = CommandRunner::new(manager);
+        let handler = HookHandler {
+            raw: serde_json::json!({"command": "cat", "args": []}),
+            source: std::path::PathBuf::new(),
+            plugin_root: None,
+            plugin_data: None,
+            untrusted: false,
+        };
+        let dir = std::env::temp_dir();
+        let payload = serde_json::json!({"big": "x"});
+        let ctx = CommandContext { project_dir: &dir, project_exists: true, plugin_data_dir: &dir, payload: &payload, event: "Stop", report_detached: None };
+        let run = runner.run(&handler, &ctx).await;
+        assert_eq!(run.exit_code, -1);
+        assert!(run.stderr.contains("could not write the hook input"), "{}", run.stderr);
+    }
+
+    /// An async hook whose payload cannot be written returns at once, and the failure is reported afterwards.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn an_async_hook_reports_a_failed_payload_write_later() {
+        // The background write runs on the runtime's executors, which the process installs at boot.
+        mixdog_rt::testing::tokens();
+        let manager = Arc::new(mixdog_core_api::domain::mock::MockProcessManager::default());
+        manager.saturate(mixdog_core_api::domain::process::ProcessQueue::Input);
+        let runner = CommandRunner::new(manager);
+        let handler = HookHandler {
+            raw: serde_json::json!({"command": "cat", "args": [], "async": true}),
+            source: std::path::PathBuf::new(),
+            plugin_root: None,
+            plugin_data: None,
+            untrusted: false,
+        };
+        let dir = std::env::temp_dir();
+        let payload = serde_json::json!({"big": "x"});
+        let (reported, mut reports) = tokio::sync::mpsc::unbounded_channel();
+        let report: DetachedReport = Arc::new(move |error: String| {
+            let _ = reported.send(error);
+        });
+        let ctx = CommandContext { project_dir: &dir, project_exists: true, plugin_data_dir: &dir, payload: &payload, event: "Stop", report_detached: Some(report) };
+        let run = runner.run(&handler, &ctx).await;
+        assert!(run.is_async && run.exit_code == 0, "{run:?}");
+        let error = mixdog_rt::time::timeout(std::time::Duration::from_secs(20), reports.recv()).await.expect("the failure is reported").unwrap();
+        assert!(error.contains("could not write the hook input"), "{error}");
+    }
+
+    /// The real process manager with a feed and an input queue far smaller than what the hooks below exchange.
+    fn local_runner() -> CommandRunner {
+        local_runner_and_manager().0
+    }
+
+    fn local_runner_and_manager() -> (CommandRunner, Arc<mixdog_spawn::LocalProcessManager>) {
+        let config = mixdog_spawn::ProcessConfig { ring_bytes: 64 * 1024, input_queue_bytes: 64 * 1024, ..mixdog_spawn::ProcessConfig::default() };
+        let manager = Arc::new(mixdog_spawn::LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, config));
+        (CommandRunner::new(manager.clone()), manager)
+    }
+
+    async fn run_hook(runner: &CommandRunner, raw: Value, payload: &Value) -> HandlerRun {
+        let handler = HookHandler { raw, source: std::path::PathBuf::new(), plugin_root: None, plugin_data: None, untrusted: false };
+        let dir = std::env::temp_dir();
+        let ctx = CommandContext { project_dir: &dir, project_exists: true, plugin_data_dir: &dir, payload, event: "Stop", report_detached: None };
+        runner.run(&handler, &ctx).await
+    }
+
+    const BIG: usize = 1024 * 1024;
+
+    /// A hook that writes a megabyte and reads a megabyte of input, in either order, completes well inside its time limit:
+    /// its output is drained while its input is written.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_hook_exchanging_large_input_and_output_in_either_order_completes() {
+        let runner = local_runner();
+        let payload = serde_json::json!({"big": "x".repeat(BIG)});
+        let (shell, write, read) = if cfg!(windows) {
+            (
+                "powershell",
+                format!("[Console]::Out.Write('x' * {BIG}); [Console]::Out.Flush()"),
+                format!("$n = [Console]::In.ReadToEnd().Length; if ($n -lt {BIG}) {{ exit 5 }}"),
+            )
+        } else {
+            ("bash", format!("head -c {BIG} /dev/zero | tr '\\0' x"), format!("n=$(wc -c); [ \"$n\" -ge {BIG} ] || exit 5"))
+        };
+        for script in [format!("{write}; {read}"), format!("{read}; {write}")] {
+            let run = run_hook(&runner, serde_json::json!({"command": script, "shell": shell, "timeout": 60}), &payload).await;
+            assert!(!run.timed_out, "{script}: {}", run.stderr);
+            assert_eq!(run.exit_code, 0, "{script}: {}", run.stderr);
+            assert_eq!(run.stdout.len(), BIG, "{script}");
+        }
+    }
+
+    /// A hook that exits without reading its input breaks the pipe the payload is written to: its exit status reports the
+    /// run, not the write.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_broken_input_pipe_defers_to_the_exit_status() {
+        let runner = local_runner();
+        let payload = serde_json::json!({"big": "x".repeat(4 * BIG)});
+        let raw = if cfg!(windows) {
+            serde_json::json!({"command": "cmd.exe", "args": ["/c", "exit 3"], "timeout": 60})
+        } else {
+            serde_json::json!({"command": "sh", "args": ["-c", "exit 3"], "timeout": 60})
+        };
+        let run = run_hook(&runner, raw, &payload).await;
+        assert!(!run.timed_out && run.spawn_error.is_none(), "{run:?}");
+        assert_eq!(run.exit_code, 3, "{}", run.stderr);
+        assert!(!run.stderr.contains("could not write the hook input"), "{}", run.stderr);
+    }
+
+    /// A hook that closes its input unread, works on and then blocks (exit 2 with its reason) is not ended by the broken pipe:
+    /// its block and reason come back.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_hook_that_closes_its_input_and_works_on_returns_its_block() {
+        let runner = local_runner();
+        let payload = serde_json::json!({"big": "x".repeat(4 * BIG)});
+        let (shell, script) = if cfg!(windows) {
+            (
+                "powershell",
+                concat!(
+                    r#"$k = Add-Type -Name StdIn -Namespace HookTest -PassThru -MemberDefinition '[DllImport("kernel32.dll")] public static extern System.IntPtr GetStdHandle(int n); [DllImport("kernel32.dll")] public static extern bool CloseHandle(System.IntPtr h);'; "#,
+                    r#"[void]$k::CloseHandle($k::GetStdHandle(-10)); Start-Sleep -Milliseconds 1500; [Console]::Error.Write('keep going'); exit 2"#,
+                ),
+            )
+        } else {
+            ("bash", "exec 0<&-; sleep 1; echo 'keep going' >&2; exit 2")
+        };
+        let run = run_hook(&runner, serde_json::json!({"command": script, "shell": shell, "timeout": 60}), &payload).await;
+        assert!(!run.timed_out && run.spawn_error.is_none(), "{run:?}");
+        assert_eq!(run.exit_code, 2, "{}", run.stderr);
+        assert!(run.stderr.contains("keep going"), "{}", run.stderr);
+    }
+
+    /// An async hook that never reads a payload larger than its pipe does not hold the caller: the write is started and the
+    /// run returns.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn an_async_hook_returns_before_its_payload_is_written() {
+        let (runner, manager) = local_runner_and_manager();
+        let payload = serde_json::json!({"big": "x".repeat(4 * BIG)});
+        let raw = if cfg!(windows) {
+            serde_json::json!({"command": "ping", "args": ["-n", "60", "127.0.0.1"], "async": true, "timeout": 60})
+        } else {
+            serde_json::json!({"command": "sleep", "args": ["60"], "async": true, "timeout": 60})
+        };
+        let run = mixdog_rt::time::timeout(std::time::Duration::from_secs(20), run_hook(&runner, raw, &payload)).await;
+        for process in manager.list() {
+            let _ = manager.kill(&process.handle);
+        }
+        let run = run.expect("the async hook returns without waiting for its input to drain");
+        assert!(run.is_async && run.exit_code == 0, "{run:?}");
+    }
 }
 
 
@@ -273,6 +430,8 @@ impl CommandRunner {
         }
         let timeout = handler_timeout(&handler.raw, ctx.event);
         let detached = handler.raw.get("async") == Some(&Value::Bool(true));
+        // Serialized before the spawn: nothing stands between the start and the subscription to the output.
+        let input = json_stringify(ctx.payload).into_bytes();
         let handle = self.handle();
         let request = SpawnRequest {
             handle: handle.clone(),
@@ -285,26 +444,63 @@ impl CommandRunner {
             owner: ProcessOwner::Internal,
             time_limit: Some(timeout),
         };
-        if let Err(error) = self.processes.spawn(request).await {
-            return HandlerRun::spawn_failed(format!("could not start {program}: {error:?}"));
-        }
-        let mut guard = KillOnDrop { processes: Arc::clone(&self.processes), handle: handle.clone(), armed: !detached };
-        let mut events = match self.processes.subscribe(&handle, Some(0)) {
-            Ok(events) => events,
-            Err(error) => return HandlerRun::spawn_failed(format!("could not start {program}: {error:?}")),
-        };
-        // A hook may ignore its input and exit before it drains; the exit status reports that.
-        let input = json_stringify(ctx.payload).into_bytes();
-        let _ = self.processes.write_stdin(&handle, input).await;
-        let _ = self.processes.close_stdin(&handle);
         if detached {
-            // The hook outlives the initiating turn: nothing is captured, and the time limit
-            // keeps its lifetime finite.
+            // The hook outlives the initiating turn (Node's `runDetached`): the write is started and the call returns.
+            // Nothing is captured (no subscriber holds its output back), and the time limit keeps its lifetime finite.
+            if let Err(error) = self.processes.spawn(request).await {
+                return HandlerRun::spawn_failed(format!("could not start {program}: {error:?}"));
+            }
+            let processes = Arc::clone(&self.processes);
+            let report = ctx.report_detached.clone();
+            drop(mixdog_rt::spawn("hook-stdin", mixdog_rt::TaskClass::Work, async move {
+                match processes.write_stdin_whole(&handle, input).await.or_else(input_ended) {
+                    Ok(()) => {
+                        let _ = processes.close_stdin(&handle);
+                    }
+                    // Ended and reported later, as Node's `runDetached` does (`hook spawn failed: …` through `hook:error`).
+                    Err(error) => {
+                        let _ = processes.kill(&handle);
+                        if let Some(report) = report {
+                            report(format!("could not write the hook input: {error:?}"));
+                        }
+                    }
+                }
+            }));
             return HandlerRun { exit_code: 0, is_async: true, ..HandlerRun::default() };
         }
+        // Subscribed in the spawn itself, from the first byte: output the hook writes before the subscription would
+        // otherwise overrun the replay ring.
+        let mut events = match self.processes.spawn_subscribed(request).await {
+            Ok((_, events)) => events,
+            Err(error) => return HandlerRun::spawn_failed(format!("could not start {program}: {error:?}")),
+        };
+        let mut guard = KillOnDrop { processes: Arc::clone(&self.processes), handle: handle.clone(), armed: true };
+        // The whole payload goes in, whatever its size, and then the input is closed.
+        let write = async {
+            let written = self.processes.write_stdin_whole(&handle, input).await;
+            if written.is_ok() {
+                let _ = self.processes.close_stdin(&handle);
+            }
+            written
+        };
+        // The output is drained while the payload is written: a hook that writes much before it reads would otherwise
+        // stall its output feed and, with it, its reading.
+        let mut write = std::pin::pin!(write);
+        let mut written = false;
         let (mut stdout, mut stderr): (Vec<u8>, Vec<u8>) = (Vec::new(), Vec::new());
         let exit = loop {
-            match events.next().await {
+            let event = tokio::select! {
+                result = &mut write, if !written => {
+                    // A failed write ends the run at once; the guard ends the hook.
+                    if let Err(error) = result.or_else(input_ended) {
+                        return HandlerRun::failed(format!("could not write the hook input: {error:?}"), false);
+                    }
+                    written = true;
+                    continue;
+                }
+                event = events.next() => event,
+            };
+            match event {
                 Some(ProcessEvent::Output { stream, bytes, .. }) => {
                     let target = if stream == OutputStream::Stderr { &mut stderr } else { &mut stdout };
                     if target.len() < MAX_BUFFER_BYTES {
@@ -316,6 +512,10 @@ impl CommandRunner {
                 None => break None,
             }
         };
+        // The process is gone, so a write still pending ends now; its outcome decides as one that ended first.
+        if !written && let Err(error) = write.await.or_else(input_ended) {
+            return HandlerRun::failed(format!("could not write the hook input: {error:?}"), false);
+        }
         guard.armed = false;
         let stdout = String::from_utf8_lossy(&stdout).into_owned();
         let stderr_text = decode_shell_bytes(&stderr, host_oem());
@@ -345,6 +545,19 @@ impl CommandRunner {
         }
     }
 }
+/// A hook that exits, or closes its input, before the payload drained (Node's tolerated `EPIPE`/`EOF`): not a failure, the
+/// exit status reports the run. Any other write failure stays one.
+fn input_ended(error: ProcessError) -> Result<(), ProcessError> {
+    let ended = match &error {
+        ProcessError::StdinClosed => true,
+        ProcessError::Io { os_code: Some(code) } => {
+            matches!(std::io::Error::from_raw_os_error(*code).kind(), std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::UnexpectedEof)
+        }
+        _ => false,
+    };
+    if ended { Ok(()) } else { Err(error) }
+}
+
 fn resolve_header(value: &Value, allowed: &[String]) -> String {
     let Some(text) = value.as_str() else { return if value.is_null() { String::new() } else { mixdog_js::value_to_string(value) } };
     let pattern = regex::Regex::new(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))").expect("static pattern");
