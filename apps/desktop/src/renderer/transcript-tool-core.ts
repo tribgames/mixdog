@@ -2,6 +2,7 @@ import type { TranscriptItem } from './desktop-types';
 import type { PatchSectionDigest } from './renderer-logic.mjs';
 import { t, uiFormatLocale } from './i18n';
 import { asRecord, oneLine } from './text-format';
+import { textIdentity } from '../shared/tool-output-revision';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { aggregateToolCategoryEntry, classifyToolCategory, formatToolSurface, toolLoadingTargets } from '../../../../packages/protocol-client/src/rows/tool-surface.mjs';
@@ -120,16 +121,6 @@ export function uiDiffDigest(item: TranscriptItem): UiDiffSummary | null {
   return digest && typeof digest === 'object' && Array.isArray(digest.sections) ? (digest as UiDiffSummary) : null;
 }
 
-/** FNV-1a over the whole text: one linear pass, no allocation. */
-function textHash(text: string): string {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return (hash >>> 0).toString(36);
-}
-
 /** What a fetched full output or diff is bound to: the parts of a row that
  *  change when its output or diff does. A text fetched for one revision is
  *  never shown for another. */
@@ -143,14 +134,14 @@ export function toolRowRevision(item: TranscriptItem): string {
         )
         .join(';')
     : '';
-  const identity = (value: unknown) => (typeof value === 'string' ? `${value.length}.${textHash(value)}` : '0');
+  // A cut row names its whole output's revision (the host computed it over the uncut text): what the phone's copy leaves out cannot
+  // tell two revisions apart, and a read kept for one must not be shown for another.
+  const whole = typeof item.remoteOutputRevision === 'string' ? item.remoteOutputRevision : null;
   return [
     item.remoteOutputTruncated ?? 0,
     item.completedAt ?? '',
     item.count ?? '',
-    identity(item.result),
-    identity(item.rawResult),
-    identity(item.uiDiff),
+    ...(whole === null ? [textIdentity(item.result), textIdentity(item.rawResult), textIdentity(item.uiDiff)] : [whole]),
     signature,
   ].join('|');
 }

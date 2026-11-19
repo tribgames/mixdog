@@ -36,7 +36,8 @@ test('a closed connection to this PC’s own core says why and offers Reconnect,
   await settle();
   const banner = dom.document.querySelector('.conn-link-banner');
   assert.ok(banner, 'a window on its own core shows the loss');
-  assert.match(banner.textContent, /Connection to this-pc lost/);
+  assert.match(banner.textContent, /Connection lost/);
+  assert.doesNotMatch(banner.textContent, /this-pc|Mixdog/);
   assert.match(banner.textContent, /older than the version running on the server\. Update the app/);
   assert.equal(dom.document.documentElement.dataset.connectionDown, 'true');
   const reconnect = [...banner.querySelectorAll('button')].find((b) => b.textContent === 'Reconnect');

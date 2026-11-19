@@ -33,7 +33,8 @@ function switcherPcDetail(pc: SwitcherPc): string {
     return rest ? `SSH · ${rest}` : 'SSH';
   }
   if (pc.current) return pc.thisPc ? t('This PC · In use') : t('In use');
-  const state = pc.online === true ? t('Online') : t('Offline');
+  // An unknown state (the relay could not be asked) is not offline.
+  const state = pc.online === true ? t('Online') : pc.online === false ? t('Offline') : t('Unknown');
   if (pc.windowOpen) return `${state} · ${t('Window open')}`;
   if (!pc.lastConnectedAt) return state;
   return `${state} · ${relativeWhen(pc.lastConnectedAt)}`;

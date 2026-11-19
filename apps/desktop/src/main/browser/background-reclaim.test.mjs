@@ -70,7 +70,7 @@ test('a session may hold six background pages; the error names its count', () =>
   assert.doesNotThrow(() => h.reclaimer.admit('someone-else'));
 });
 
-test('a finished turn reclaims its pages exactly five minutes later', async () => {
+test('a finished turn reclaims its pages exactly at its idle deadline', async () => {
   const h = harness();
   h.add('s', 'a');
   await h.finish('s', 10_000);
@@ -153,7 +153,7 @@ test('a new turn that only reasons keeps the previous turn pages out of reclaim 
   await flush();
   assert.deepEqual(h.closed, []);
   assert.throws(() => h.reclaimer.admit('req', 1, 10_000 + 10 * 60_000), /session other "p" \(turn in progress/);
-  // The turn ending starts the five minutes again.
+  // The turn ending starts the wait again.
   await h.finish('other', 700_000);
   h.reclaimer.sweep(700_000 + FINISHED_TURN_PAGE_IDLE_MS - 1);
   assert.deepEqual(h.closed, []);

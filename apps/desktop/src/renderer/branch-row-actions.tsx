@@ -190,7 +190,7 @@ export function BranchRowActions({
       disabled: state?.kind !== 'managed' || locked || busy,
       title:
         state?.kind !== 'managed'
-          ? t('Only Mixdog-managed worktree folders can be removed.')
+          ? t('Only app-managed worktree folders can be removed.')
           : locked
             ? t("Can't switch while work is running")
             : undefined,

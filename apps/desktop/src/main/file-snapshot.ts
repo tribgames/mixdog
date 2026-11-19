@@ -10,6 +10,7 @@ import { stat } from 'node:fs/promises';
 import { extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Session } from 'electron';
+import { tagRendererSurface } from './process-memory-diagnostics';
 import { projectEntryPathIn } from './project-entry-path';
 import { type OffscreenOrigins, offscreenOrigins } from './visualize/offscreen-origins';
 
@@ -218,6 +219,7 @@ export async function renderFileSnapshot({ fileUrl, root, onlyFile, signal }: Sn
     },
   });
   const contents = window.webContents;
+  tagRendererSurface(window, 'file-snapshot');
   const own = snapshotRendering.origins.open((url) => {
     const file = snapshotFileUrl(root, url.pathname);
     return file && snapshotRequestAllowed(root, file, onlyFile) ? net.fetch(file) : new Response(null, { status: 404 });

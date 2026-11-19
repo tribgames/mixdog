@@ -5,6 +5,7 @@
  * failed render degrades to the original image instead of failing the capture.
  */
 import { BrowserWindow, type NativeImage } from 'electron';
+import { tagRendererSurface } from '../../process-memory-diagnostics';
 
 const OVERLAY_RENDER_TIMEOUT_MS = 5_000;
 
@@ -71,6 +72,7 @@ export async function renderSomOverlay(
         backgroundThrottling: false,
       },
     });
+    tagRendererSurface(overlayWindow, 'computer-som');
     await overlayWindow.loadURL(`data:text/html;base64,${Buffer.from(html).toString('base64')}`);
     const rendered = await new Promise<NativeImage>((resolve, reject) => {
       if (!overlayWindow || overlayWindow.isDestroyed()) {

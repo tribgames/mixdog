@@ -22,6 +22,8 @@ import { renderComputerOverlayWindows } from './render-windows';
 export type { ComputerUseOverlayControls } from './controls';
 
 const STOP_SHORTCUT = 'CommandOrControl+Alt+Escape';
+/** How long the hidden pill windows are kept for the next command before their renderers are released. */
+export const OVERLAY_IDLE_RETIRE_MS = 5 * 60_000;
 
 export interface ComputerUseOverlay {
   dispose(): void;
@@ -70,8 +72,30 @@ export function createComputerUseOverlay(
   const fade = createOverlayFade({
     liveEntries: windows.liveEntries,
     visible: () => latestPresentation.visible,
-    onHidden: () => setComputerUsePillShown(false),
+    onHidden: () => {
+      setComputerUsePillShown(false);
+      armIdleRetire();
+    },
   });
+
+  /** A hidden pill window still holds its own renderer process (tens of MiB
+   *  plus GPU surfaces) for as long as the app runs. Once nothing has been
+   *  shown for a while the windows are destroyed; the next visible render
+   *  makes them again (`syncToDisplays`), costing one window creation. */
+  let retireTimer: NodeJS.Timeout | null = null;
+  const cancelIdleRetire = (): void => {
+    if (retireTimer) clearTimeout(retireTimer);
+    retireTimer = null;
+  };
+  function armIdleRetire(): void {
+    // One timer per hidden stretch: a repeated hide report must not postpone it.
+    if (retireTimer || disposed) return;
+    retireTimer = setTimeout(() => {
+      retireTimer = null;
+      if (!disposed && !latestPresentation.visible) windows.destroyAll();
+    }, OVERLAY_IDLE_RETIRE_MS);
+    retireTimer.unref?.();
+  }
 
   const stop = (): void => {
     void controller.invoke('stop', latestPresentation.sessionIds);
@@ -102,6 +126,7 @@ export function createComputerUseOverlay(
     const revision = latestSnapshot.revision;
     const presentation = computerUseOverlayPresentation(latestSnapshot, locale, { ...controller.state(), shortcutUnavailable });
     latestPresentation = presentation;
+    if (presentation.visible) cancelIdleRetire();
     const shellDraws = indicator ? await helperReady() : false;
     // Disposal may have happened while readiness was pending: nothing below
     // may run, or it would set presence that no subscription is left to clear.
@@ -216,6 +241,7 @@ export function createComputerUseOverlay(
       disposed = true;
       unsubscribe();
       fade.dispose();
+      cancelIdleRetire();
       if (settleTimer) clearTimeout(settleTimer);
       settleTimer = null;
       screen.removeListener('display-metrics-changed', onDisplaysChanged);

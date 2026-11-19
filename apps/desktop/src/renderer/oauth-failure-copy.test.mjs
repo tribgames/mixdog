@@ -55,7 +55,7 @@ test('a request failure and a timeout of the token exchange read in the UI langu
       }).catch((caught) => caught);
       assert.equal(
         pasteErrorText(error),
-        'Devin이 로그인을 완료하지 못했습니다. 로그인을 다시 시작해 주세요. 계속 실패하면 나중에 다시 시도해 주세요.'
+        'Devin이 로그인을 완료하지 못했습니다. 로그인을 다시 시작하세요. 계속 실패하면 잠시 후 다시 시도하세요.'
       );
       assert.equal(errorSummary(error), 'Devin이 로그인을 완료하지 못했습니다.');
     }

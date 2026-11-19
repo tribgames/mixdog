@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { installTestDom } from '../test-support/test-dom.mjs';
 import { retitleSessionTabs, useAppSessionActivity } from './use-app-session-activity.ts';
 import { useSessionCatalog } from '../app-session-catalog.ts';
+import { markPartialCatalog } from '../../shared/session-catalog.ts';
 import { writeCachedSessionCatalog } from '../session-catalog-cache.ts';
 import { restorableSessionIds } from '../use-pane-workspace-restore.ts';
 
@@ -42,15 +43,18 @@ async function fixture(t, { cached = [], listed, tabs }) {
   document.body.append(host);
   const root = createRoot(host);
   const closedPaneKeys = [];
+  const readyCalls = [];
+  const reconcileUnread = () => {};
+  const setSessionCatalogReady = (ready) => readyCalls.push(ready);
   let current;
   function Harness() {
-    const catalog = useSessionCatalog(() => {});
+    const catalog = useSessionCatalog(reconcileUnread);
     const [workspaceTabs, setTabs] = useState(tabs);
     useAppSessionActivity({
       sessions: catalog.sessions,
       setTabs,
       refreshSessions: catalog.refreshSessions,
-      setSessionCatalogReady() {},
+      setSessionCatalogReady,
       subscribeSessionsRemoved: catalog.subscribeRemoved,
       closePaneTab: (key) => closedPaneKeys.push(key),
     });
@@ -66,6 +70,7 @@ async function fixture(t, { cached = [], listed, tabs }) {
   return {
     state: () => current,
     closedPaneKeys,
+    readyCalls,
     push: (ids) => act(async () => pushListener(ids.map(session))),
     refresh: () => act(async () => current.catalog.refreshSessions().catch(() => undefined)),
     setListing: (next) => {
@@ -185,4 +190,25 @@ test('restore: a worker session of a listed Lead keeps its tab', () => {
     ]
   );
   assert.deepEqual([...ids].sort(), ['lead', 'worker']);
+});
+
+test('a first page closes no tab and does not ready the catalog; a walk that failed behind it is read again and readies it once whole', async (t) => {
+  let reads = 0;
+  const f = await fixture(t, {
+    cached: ['a', 'b'],
+    tabs: twoTabs,
+    listed: async () => {
+      reads += 1;
+      if (reads === 1) return markPartialCatalog(['a'].map(session));
+      if (reads === 2) throw new Error('connection lost');
+      return ['a', 'b'].map(session);
+    },
+  });
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 50)));
+  assert.deepEqual(keys(f), ['session:a', 'session:b'], 'the session on a later page keeps its tab');
+  assert.deepEqual(f.closedPaneKeys, []);
+  assert.deepEqual(f.readyCalls, [], 'a first page is not the catalog');
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 1_200)));
+  assert.deepEqual(f.readyCalls, [true], 'ready once the whole list arrived');
+  assert.deepEqual(keys(f), ['session:a', 'session:b']);
 });

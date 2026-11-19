@@ -16,6 +16,7 @@
  * itself; a provider that refuses embedded sign-in ends it as refused.
  */
 import { BrowserWindow, nativeTheme, screen, type Session, type WebContents, WebContentsView } from 'electron';
+import { tagRendererSurface } from '../process-memory-diagnostics';
 
 import { nativeT } from '../native-i18n';
 import {
@@ -236,7 +237,10 @@ function guardContents(
       },
     };
   });
-  contents.on('did-create-window', (child) => guardContents(child.webContents, parent, deps, onBlocked));
+  contents.on('did-create-window', (child) => {
+    tagRendererSurface(child, 'browser-login-popup');
+    guardContents(child.webContents, parent, deps, onBlocked);
+  });
 }
 
 /** The site's page in `window`: its navigation guarded, the window titled
@@ -322,6 +326,7 @@ export function createBrowserLoginPopup(deps: BrowserLoginPopupDeps) {
 
   function createWindow(entry: Entry, url: string): void {
     const window = openLoginWindow(deps);
+    tagRendererSurface(window, 'browser-login-shell');
     entry.window = window;
     const view = attachSiteView(window, deps.session());
     const status = createShellStatus(window);
@@ -339,6 +344,7 @@ export function createBrowserLoginPopup(deps: BrowserLoginPopupDeps) {
       status.push();
     };
     const site = view.webContents;
+    tagRendererSurface(window, 'browser-login-site', site);
     // A crash of either side ends the window, never as a success.
     const crashed = () => finish(entry, { state: 'closed' });
     watchSitePage(site, window, deps, { navigated, blocked: status.blocked, crashed });

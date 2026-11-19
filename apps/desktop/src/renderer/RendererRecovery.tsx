@@ -329,12 +329,12 @@ export function DesktopBootFailure({ failure }: { failure: { message: string; st
 function recoveryCopy(): { title: string; body: string } {
   if (!isRemoteBrowserRenderer()) {
     return {
-      title: t('Mixdog could not draw this view'),
+      title: t('Could not draw this view'),
       body: t('Your active task is still running in the desktop host. Retry the view or reload the interface.'),
     };
   }
   return {
-    title: t('Mixdog could not show this screen'),
+    title: t('Could not show this screen'),
     body: t('Your work continues on your PC. Retry this screen or reload the interface.'),
   };
 }

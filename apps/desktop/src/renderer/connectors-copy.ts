@@ -9,7 +9,7 @@ const COPY: Record<string, () => string[]> = {
   github: () => [t('Works with pull requests, issues and Actions.'), t('Uses your GitHub account for commits.')],
   gmail: () => [t('Searches, reads and organizes your mail.'), t('Sending and Trash ask first.')],
   'google-calendar': () => [t('Lists and searches events.'), t('Creates, changes and deletes events.')],
-  'google-drive': () => [t('Finds and reads files Mixdog created or was given.'), t('Creates files and Docs.')],
+  'google-drive': () => [t('Finds and reads files created by or shared with the app.'), t('Creates files and Docs.')],
   'hugging-face': () => [t('Searches models, datasets and Spaces.'), t('Reads model cards and papers.')],
   jira: () => [t('Searches and reads issues.'), t('Creates issues and moves them along.')],
   linear: () => [t('Finds issues, projects and cycles.'), t('Creates, triages and updates issues.')],

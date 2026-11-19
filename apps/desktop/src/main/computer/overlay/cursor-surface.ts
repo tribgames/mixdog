@@ -6,6 +6,7 @@
  */
 import { BrowserWindow, screen } from 'electron';
 
+import { tagRendererSurface } from '../../process-memory-diagnostics';
 import { nativeToDip } from '../shared/native-coordinates';
 import { CURSOR_HOTSPOT, CURSOR_SIZE, cursorHtml, cursorScript } from './cursor-art';
 import { recordCursorDiagnostic } from './cursor-diagnostics';
@@ -123,6 +124,7 @@ function hardenOverlayWindow(next: BrowserWindow): void {
 
 async function openCursorWindow(surface: CursorSurface, isCurrent: () => boolean): Promise<BrowserWindow> {
   const next = new BrowserWindow(cursorWindowOptions(surface.position || { x: 0, y: 0 }));
+  tagRendererSurface(next, 'computer-cursor');
   // Own the native window immediately, including while its renderer is still loading.
   surface.window = next;
   const unregisterInternalWindow = registerComputerUseInternalWindow(next);

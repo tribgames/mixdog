@@ -83,6 +83,7 @@ function build(overrides = {}) {
   const wire = pair();
   const calls = { viewFailures: [], installFailures: [], updates: [], publishFailures: [], remote: [], controls: [], stream: [], executed: [], exported: [], lifecycle: [], toasts: [], sounds: 0, activations: 0, captured: [], computerOff: false };
   const clicks = [];
+  const shows = [];
   const host = createDesktopHost({
     connection: wire.connection,
     hostId: 'host-1',
@@ -160,7 +161,11 @@ function build(overrides = {}) {
     },
     notifications: {
       createNotification: (content) => {
-        const toast = { content, show() {}, on: (event, fn) => event === 'click' && clicks.push(fn) };
+        const toast = { content, show() {}, on: (event, fn) => {
+            if (event === 'click') clicks.push(fn);
+            if (event === 'show') shows.push(fn);
+          },
+        };
         calls.toasts.push(toast);
         return toast;
       },
@@ -172,7 +177,7 @@ function build(overrides = {}) {
     updater: updaterFixture(calls),
     ...overrides,
   });
-  return { wire, host, calls, clicks };
+  return { wire, host, calls, clicks, shows };
 }
 
 test('a browser command runs on the thread as session and answers the tool result', async () => {
@@ -393,9 +398,12 @@ test('the server window handlers are served whenever the host has windows, and t
 });
 
 test('a shown notification plays its sound and a click reports the thread', () => {
-  const { wire, calls, clicks } = build();
+  const { wire, calls, clicks, shows } = build();
   wire.push('host/notification/show', { title: 'T', body: 'B', threadId: 'th9', sound: 'default', volume: 50 });
   assert.deepEqual(calls.toasts[0].content, { title: 'T', body: 'B' });
+  // The sound belongs to the toast the OS showed: it plays when the toast's `show` event fires.
+  assert.equal(calls.sounds, 0);
+  shows.forEach((fn) => fn());
   assert.equal(calls.sounds, 1);
   clicks.forEach((fn) => fn());
   assert.equal(calls.activations, 1);

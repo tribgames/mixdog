@@ -58,6 +58,15 @@ export function createBrowserDisplayTracking(sessions: DisplaySessions) {
       shownChanged();
     },
     isShown,
+    /** What currently counts the page as displayed, for diagnostics; null when nothing does. */
+    shownBy(guest: WebContents): 'panel' | 'native' | 'remote' | null {
+      if (panelActiveGuests.has(guest)) return 'panel';
+      if ([...nativeShownGuests.values()].includes(guest)) return 'native';
+      const owner = sessions.sessionIdForGuest(guest);
+      return owner !== undefined && remoteViewingSessions.has(owner) && sessions.currentGuest(owner) === guest
+        ? 'remote'
+        : null;
+    },
     /** Resolves true once a panel or native view shows `guest`, false at
      *  `timeoutMs` (or when `signal` aborts) if none did. */
     waitUntilShown(guest: WebContents, timeoutMs: number, signal?: AbortSignal): Promise<boolean> {

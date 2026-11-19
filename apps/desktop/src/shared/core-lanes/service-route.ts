@@ -352,6 +352,10 @@ export function createServiceLane({
     });
   const send = ({ method, params }: ServiceRequest): Promise<unknown> => answered(protocol.call(method, params), params.threadId);
   const searching = new Map<string, string>();
+  const searchTransitions = new Map<string, Promise<void>>();
+  // The newest request of each consumer's session: an older one that is retried late must not take the session from it.
+  const searchLatest = new Map<string, number>();
+  let searchRequests = 0;
   // The query each search session is answering: a newer query of the same consumer ends the older one's wait, since the
   // core completes only the query it holds.
   const superseded = new Map<string, () => void>();
@@ -652,16 +656,43 @@ export function createServiceLane({
           string, string, number, boolean, boolean, string | undefined,
         ];
         const sessionId = `search:${consumer ?? 'default'}`;
-        if (searching.get(sessionId) !== root) {
-          await send({
-            method: 'search/start',
-            params: given({ sessionId, roots: [root], limit, includeIgnored, includeDirectories, consumer }),
+        // The core refuses a second start of an id in use, so a session of another root is stopped first. The stop and the start
+        // of one consumer's session are one transition at a time: a keystroke that arrives meanwhile waits for it.
+        const transition = (needed: () => boolean): Promise<void> => {
+          const step = (searchTransitions.get(sessionId) ?? Promise.resolve()).then(async () => {
+            if (!needed()) return;
+            if (searching.has(sessionId)) {
+              await send({ method: 'search/stop', params: { sessionId } }).catch(() => undefined);
+              searching.delete(sessionId);
+            }
+            await send({
+              method: 'search/start',
+              params: given({ sessionId, roots: [root], limit, includeIgnored, includeDirectories, consumer }),
+            });
+            searching.set(sessionId, root);
           });
-          searching.set(sessionId, root);
+          const settled = step.catch(() => undefined);
+          searchTransitions.set(sessionId, settled);
+          void settled.then(() => {
+            if (searchTransitions.get(sessionId) === settled) searchTransitions.delete(sessionId);
+          });
+          return step;
+        };
+        const mine = ++searchRequests;
+        searchLatest.set(sessionId, mine);
+        await transition(() => searching.get(sessionId) !== root);
+        try {
+          return (await searchAnswer(sessionId, query)) as T;
+        } catch (error) {
+          // A core that was replaced or reconnected no longer holds the session this lane believes is open.
+          if (searching.get(sessionId) !== root) throw error;
+          // A newer keystroke owns the session now: this one answers nothing instead of restarting it for a stale query.
+          if (searchLatest.get(sessionId) !== mine) return [] as T;
+          await transition(() => searching.get(sessionId) === root && searchLatest.get(sessionId) === mine);
+          if (searchLatest.get(sessionId) !== mine) return [] as T;
+          return (await searchAnswer(sessionId, query)) as T;
         }
-        return (await searchAnswer(sessionId, query)) as T;
-      }
-      if (START_CALLS.has(method)) {
+      }      if (START_CALLS.has(method)) {
         // No thread: Node's blank snapshot, composed from the project methods (shared/blank-snapshot.ts).
         const { cwd, projectPath } = await startFolder(send, method as StartCall, args[0] as string | undefined);
         const held = snapshot() as { remoteSessionId?: unknown } | null;

@@ -201,7 +201,7 @@ export function WorktreeList({ active = true }: { active?: boolean }) {
         if (signal.aborted) return null;
         const forced = await confirmAction(
           t(
-            'Delete anyway?\n{{branch}} has uncommitted or unmerged work. Uncommitted changes are lost. A branch Mixdog created is deleted once git considers it merged, and its commits stay reachable; any other branch is kept.',
+            'Delete anyway?\n{{branch}} has uncommitted or unmerged work. Uncommitted changes are lost. A branch created by the app is deleted once git considers it merged, and its commits stay reachable; any other branch is kept.',
             { branch: name }
           ),
           { danger: true, confirmLabel: t('Delete anyway'), key: `worktree-force-delete:${row.id}`, signal }
@@ -212,12 +212,12 @@ export function WorktreeList({ active = true }: { active?: boolean }) {
       const kept = deleted?.removed?.preservedBranch;
       const message = kept
         ? t(
-            'Deleted worktree {{branch}}. Its branch {{kept}} was kept: Mixdog deletes only a branch it created, once git considers it merged. Delete it from the branch menu.',
+            'Deleted worktree {{branch}}. Its branch {{kept}} was kept: only a branch created by the app is deleted automatically, once git considers it merged. Delete it from the branch menu.',
             { branch: name, kept: kept.name }
           )
         : deleted?.removed?.branchDeleted
           ? t(
-              'Deleted worktree {{branch}} and the branch Mixdog created for it, which git considers merged; its commits stay reachable.',
+              'Deleted worktree {{branch}} and the branch created for it, which git considers merged; its commits stay reachable.',
               { branch: name }
             )
           : t('Deleted worktree {{branch}}.', { branch: name });

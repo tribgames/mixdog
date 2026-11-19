@@ -15,6 +15,7 @@ import {
 import { reportRendererFailure } from './RendererRecovery';
 import { sectionStoreFor } from './section-store';
 import type { DesktopSessionSummary } from '../shared/contract';
+import { isPartialCatalog } from '../shared/session-catalog';
 import { isAgentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 
 /** Session ids a persisted tab may address at startup. The session catalog is
@@ -170,7 +171,8 @@ export function usePaneWorkspaceState(initialSelection: WorkspaceSelection | nul
         .then(listSessions)
         .then(
           (rows) => {
-            if (active && !pushed) takeCatalog(rows);
+            // A first page is not the catalog (a pane of a later page's session would be judged missing): the whole list follows by push.
+            if (active && !pushed && !isPartialCatalog(rows)) takeCatalog(rows);
           },
           (error: unknown) => {
             if (!active) return;

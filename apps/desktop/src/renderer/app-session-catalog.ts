@@ -4,7 +4,7 @@
 import { startTransition, useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 
 import type { DesktopSessionSummary } from '../shared/contract';
-import { mergeSessionCatalogPushRows, mergeSessionCatalogRows } from '../shared/session-catalog';
+import { IncompleteCatalogError, isPartialCatalog, mergeSessionCatalogPushRows, mergeSessionCatalogRows, withPartialCatalogRows } from '../shared/session-catalog';
 import { publishAgentRooms, seedAgentRooms } from './agent-room-store';
 import { publishAgentModeSessions, seedAgentModeSessions } from './agent-chat-mode';
 import { publishCatalogApprovalSessions } from './session-catalog-approvals';
@@ -115,9 +115,12 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
   );
 
   const commitProjectedRows = useCallback(
-    (rows: DesktopSessionSummary[], lowPriority: boolean): DesktopSessionSummary[] => {
+    (rows: DesktopSessionSummary[], lowPriority: boolean, partial = false): DesktopSessionSummary[] => {
       const current = sessionsRef.current;
-      const merged = lowPriority ? mergeSessionCatalogPushRows(current, rows) : mergeSessionCatalogRows(current, rows);
+      // A first page only adds and updates: what it does not list is not known to be gone.
+      const merged = partial
+        ? mergeSessionCatalogRows(current, withPartialCatalogRows(current, rows))
+        : lowPriority ? mergeSessionCatalogPushRows(current, rows) : mergeSessionCatalogRows(current, rows);
       // The shared stores take every accepted host catalog, unchanged rows
       // too: a remounted owner seeded nothing into stores its mounted readers
       // held, so the host's answer is what brings them to it.
@@ -137,7 +140,7 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
       // Only a host catalog reaches here (never the cache seed or an
       // optimistic local edit), and an empty one is not evidence that every
       // session was deleted: it never reports removals.
-      if (rows.length > 0 && removalListeners.current.size > 0) {
+      if (!partial && rows.length > 0 && removalListeners.current.size > 0) {
         const present = new Set(rows.map((session) => session.id));
         const removed = current
           .filter((session) => !present.has(session.id) && !pendingDeletes.current.has(session.id))
@@ -161,7 +164,18 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
       const host = window.mixdogDesktop;
       if (!host?.listSessions) return [];
       const version = ++refreshVersion.current;
-      const next = await host.listSessions();
+      let next = await host.listSessions();
+      if (isPartialCatalog(next)) {
+        // The host's first page paints at once; the list itself is the read that follows. A partial answer is never the list: the
+        // caller's refresh does not finish (and the catalog is not ready) until a whole one arrives, or this throws.
+        if (version === refreshVersion.current) commitProjectedRows(projectSessionRows(next), lowPriority, true);
+        try {
+          next = await host.listSessions();
+        } catch (error) {
+          throw new IncompleteCatalogError({ cause: error });
+        }
+        if (isPartialCatalog(next)) throw new IncompleteCatalogError();
+      }
       const rows = projectSessionRows(next);
       if (version === refreshVersion.current) {
         return commitProjectedRows(rows, lowPriority);

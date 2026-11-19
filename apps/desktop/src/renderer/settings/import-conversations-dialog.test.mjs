@@ -380,7 +380,7 @@ test('dialog: reopening shows an unacknowledged finished job until dismissed', a
   assert.deepEqual(projects, [{ path: 'C:\\Project\\new' }]);
   const host = await mount(t, { rows: [row('a')], calls: [] });
   assert.match(host.textContent, /Imported 1 conversation(?!s)/);
-  assert.match(host.textContent, /Connect a model in Settings > Providers first\./);
+  assert.match(host.textContent, /Connect a model in Settings → Providers first\./);
   await click(host.querySelector('header button'));
   assert.equal(importJobStore.get(), null);
   importJobStore.dispose();

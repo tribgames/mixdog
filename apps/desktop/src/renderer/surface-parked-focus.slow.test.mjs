@@ -53,6 +53,9 @@ async function launch(t) {
     jsx: 'automatic',
     define: { 'process.env.NODE_ENV': '"production"' },
     logLevel: 'error',
+    // The terminal tabs reach Settings, whose Connection panel imports a main-process module that loads `electron`
+    // lazily (only when it opens a window); the fixture bodies never run it.
+    external: ['electron'],
     // The default terminal/browser bodies reach skin media, styles and Vite
     // `?raw`/`?worker` modules that the fixture bodies never run.
     loader: { '.svg': 'empty', '.png': 'empty', '.jpg': 'empty', '.webm': 'empty', '.css': 'empty' },

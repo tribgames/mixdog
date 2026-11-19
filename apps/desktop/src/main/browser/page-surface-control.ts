@@ -104,6 +104,7 @@ export function createPageInputDispatcher(
     // The press or key is the person's gesture: a window it opens is theirs.
     if (browserTypingInput(input) || (input.type === 'pointer' && input.phase === 'mousePressed')) {
       host.state.for(guest).userInput = true;
+      if (browserTypingInput(input)) host.state.for(guest).typedInput = true;
       host.state.for(guest).actor = 'person';
       // This gesture, not an earlier dialog answer, is what a window it opens
       // comes from (Chromium reports it per window).

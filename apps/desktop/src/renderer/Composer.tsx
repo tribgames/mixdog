@@ -1155,7 +1155,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
               aria-controls={palettes.paletteId}
               aria-expanded={slash.open || mention.open || skillMention.open}
               aria-activedescendant={palettes.activeDescendant}
-              aria-label={t('Message Mixdog')}
+              aria-label={t('Write a message')}
             />
           </div>
         </div>
@@ -1200,7 +1200,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
       />
       {offSkills.length > 0 && !agentMode && (
         <p className="composer-skill-status" role="status">
-          {t('{{name}} skill is off, so it is sent as plain text. Turn it on in Settings › Skills.', {
+          {t('{{name}} skill is off, so it is sent as plain text. Turn it on in Settings → Skills.', {
             name: offSkills.join(', '),
           })}
         </p>

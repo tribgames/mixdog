@@ -666,7 +666,7 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
       {empty ? (
         <p className="quota-empty">
           <b>{t('No OAuth usage recorded yet.')}</b>
-          <span>{t('Mixdog records it from now on whenever it checks provider usage.')}</span>
+          <span>{t('Recorded from now on whenever provider usage is checked.')}</span>
         </p>
       ) : (
         <>

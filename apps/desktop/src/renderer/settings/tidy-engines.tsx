@@ -92,7 +92,7 @@ export function TidyEngines({
           onInstallEngine={onInstallEngine}
         />
         <ExtensionNote>
-          {t('Structural rules ship with Mixdog; engines download to {{toolsDir}}.', {
+          {t('Structural rules are built in; engines download to {{toolsDir}}.', {
             toolsDir: status.toolsDir,
           })}
         </ExtensionNote>

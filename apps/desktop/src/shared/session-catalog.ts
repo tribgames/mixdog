@@ -87,3 +87,29 @@ export function mergeSessionCatalogPushRows(
 ): DesktopSessionSummary[] {
   return mergeSessionCatalogRows(current, incoming);
 }
+
+const partialCatalogs = new WeakSet<object>();
+/** A list answer that is only its first page: rows to add and update, never the list. A consumer that treats an answer as exact
+ *  (a session it lacks was deleted, the catalog is complete) must ask `isPartialCatalog` first. */
+export function markPartialCatalog<T extends object>(rows: T): T {
+  partialCatalogs.add(rows);
+  return rows;
+}
+export const isPartialCatalog = (rows: unknown): boolean => typeof rows === 'object' && rows !== null && partialCatalogs.has(rows);
+
+/** `incoming` laid over `current`: its rows added or replaced, every other row of `current` kept after them. */
+export function withPartialCatalogRows(
+  current: readonly DesktopSessionSummary[],
+  incoming: readonly DesktopSessionSummary[]
+): DesktopSessionSummary[] {
+  const ids = new Set(incoming.map((row) => row.id));
+  return [...incoming, ...current.filter((row) => !ids.has(row.id))];
+}
+
+/** A host showed its first page and then could not finish the list: the page holds rows it must not take for the catalog. */
+export class IncompleteCatalogError extends Error {
+  constructor(options?: { cause?: unknown }) {
+    super('The session list is incomplete.', options);
+  }
+}
+export const isIncompleteCatalogError = (error: unknown): boolean => error instanceof IncompleteCatalogError;

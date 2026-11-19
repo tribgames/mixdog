@@ -148,7 +148,6 @@ export function coreClosedDetail(closed: NonNullable<DesktopCoreLink['closed']>)
  *  connection says why and offers Reconnect. */
 function CoreLinkStatus() {
   const { view, down } = useCoreLink();
-  const name = desktopConnection()?.name ?? '';
   const [trying, setTrying] = useState(false);
   useComposerBlocked(down);
   useEffect(() => {
@@ -163,8 +162,8 @@ function CoreLinkStatus() {
           <b>
             {!closed && <span className="conn-spinner" aria-hidden="true" />}
             {closed
-              ? t('Connection to {{name}} lost', { name })
-              : t('Reconnecting to {{name}} (attempt {{attempt}})', { name, attempt: view.link.attempt + 1 })}
+              ? t('Connection lost')
+              : t('Reconnecting (attempt {{attempt}})', { attempt: view.link.attempt + 1 })}
           </b>
           <span className="conn-link-sub">{closed ? coreClosedDetail(closed) : t('Trying now…')}</span>
         </div>

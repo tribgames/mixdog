@@ -246,7 +246,7 @@ export async function readDesktopAssertions(window: BrowserWindow): Promise<Live
     // the tab strip's trailing end.
     const headerTitle = required('.pane-cell.is-focused .workspace-tab.active .workspace-tab-main span');
     const headerStatus = required('.pane-cell.is-focused .workspace-tabs-trailing > .pane-dock-toggles');
-    const textarea = required('textarea[aria-label="Message Mixdog"]');
+    const textarea = required('textarea[aria-label="Write a message"]');
     // The send button's aria-label mutates with busy state (Queue/Stop);
     // select by its stable class so state races cannot break the capture.
     const send = required('button.send-button');

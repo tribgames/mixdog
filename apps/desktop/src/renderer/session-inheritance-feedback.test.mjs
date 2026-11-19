@@ -101,7 +101,7 @@ test('an in-place model switch renders the compaction-style divider naming only 
     const model = modelDisplayName('gpt-6-astra', 'openai-oauth');
     assert.equal(english.text, `Switched to ${model}`);
     await i18n.changeLanguage('ko');
-    assert.equal(render().text, `${model}로 변경`);
+    assert.equal(render().text, `${model}로 전환`);
   } finally {
     await i18n.changeLanguage(previousLang);
   }

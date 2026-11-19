@@ -1,6 +1,7 @@
 // The argument checks of the desktop settings and notification calls, with Node's exact texts (main/ipc-validation.ts at
 // b6f10295a, :2195-2329): the window's IPC handlers and the paired phone's adapter (renderer/remote-protocol-settings.ts) run
 // the same ones before anything is written.
+import { isBotHandoffLimit } from './desktop-settings';
 import {
   type DesktopSettingKey,
   NOTIFICATION_VOLUME_MAX,
@@ -151,6 +152,11 @@ export function requiredConversationNotificationSetting(value: unknown): Convers
     throw new TypeError('notification mute end must be epoch milliseconds or null.');
   }
   return { mode: 'muted', until: until as number | null };
+}
+
+export function requiredBotHandoffLimit(value: unknown): number {
+  if (!isBotHandoffLimit(value)) throw new TypeError('bot handoff limit is invalid.');
+  return value;
 }
 
 export function requiredNotificationVolume(value: unknown): number {

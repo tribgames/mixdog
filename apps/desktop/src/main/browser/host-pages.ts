@@ -107,8 +107,7 @@ export function createBrowserHostPages(options: {
     // A page with a queued or running command, or a download of its session,
     // is still in use: a stand-in is not tidied away under it.
     isPageBusy: (sessionId) =>
-      base.isForegroundBusy(sessionId) ||
-      base.partition.downloadLedger.downloadsForSession(sessionId).some((download) => download.state === 'in_progress'),
+      base.isForegroundBusy(sessionId) || base.partition.downloadLedger.hasActiveDownload(sessionId),
     waitForLoadSettle: base.settle.waitForLoadSettle,
     waitUntilShown: (guest, timeoutMs, signal) => base.display.waitUntilShown(guest, timeoutMs, signal),
     // A popup the person brought up is theirs: no agent turn closes it.
@@ -136,10 +135,11 @@ export function createBrowserHostPages(options: {
         currentGuest: (sessionId) => sessions.currentGuest(sessionId),
         // Native input bypasses browserPageControl, so it takes over from the
         // agent here, exactly as a relayed local gesture would.
-        humanInput: (guest) => {
+        humanInput: (guest, typing) => {
           if (guest.isDestroyed()) return;
           const owner = sessions.sessionIdForGuest(guest) ?? DEFAULT_BROWSER_SESSION_ID;
           state.for(guest).userInput = true;
+          if (typing) state.for(guest).typedInput = true;
           state.for(guest).actor = 'person';
           state.for(guest).personDialogAnswerAt = undefined;
           userTakesPage(guest);

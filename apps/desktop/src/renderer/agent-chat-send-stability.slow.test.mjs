@@ -106,7 +106,8 @@ const HARNESS = `
       settledUsersRef: refs.users, suppressDraftSubmitPaintHandoff: refs.suppress,
     });
     useConversationOptimisticPromptRelease({
-      transcriptSessionKey: SESSION, promotedOwnDraft: promoted, settledItems, setOptimisticPrompts,
+      transcriptSessionKey: SESSION, promotedOwnDraft: promoted, settledItems, optimisticPrompts, queued,
+      setOptimisticPrompts,
     });
     useLayoutEffect(() => {
       window.sendPrompt = (text) => composerSubmit(text, { id: 'sent-1', submittedAt: Date.now() });

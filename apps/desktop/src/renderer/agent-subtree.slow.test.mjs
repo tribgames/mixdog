@@ -51,13 +51,21 @@ const PAGE = `
   ];
   window.matchMedia = window.matchMedia || (() => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
   window.mixdogDesktop = {
-    listAgentPool: async () => pool,
-    subscribeAgentPool: () => () => {},
+    // The core pushes the bot list and the pool as sections; the order and Mixy's status stay capabilities.
+    sections: {
+      core: async () => false,
+      snapshot: async () => ({
+        status: "ready",
+        entries: [
+          { section: "agents", key: null, revision: 1, value: [{ id: "reviewer", kind: "agent", custom: true, label: "Reviewer" }] },
+          { section: "agentPool", key: null, revision: 1, value: pool },
+        ],
+      }),
+      subscribe: () => () => {},
+    },
     invokeCapability: async ({ capability }) => ({
       value:
-        capability === "listAgents"
-          ? [{ id: "reviewer", kind: "agent", custom: true, label: "Reviewer" }]
-          : capability === "getBotOrder"
+          capability === "getBotOrder"
             ? { order: ["shown:agents"] } // Agents are hidden by default
             : null,
     }),

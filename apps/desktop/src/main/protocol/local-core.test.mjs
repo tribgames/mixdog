@@ -100,7 +100,7 @@ test('a quit asks only the core this app started to stop, and does not wait past
   const kind = async (overrides) => (await ask(overrides)).request;
   // A quit's stop is forced: the app has detached, so nothing could confirm an abort, and a stop that waits for idle never ends a busy core.
   assert.equal(await kind(), 'sent');
-  assert.deepEqual(runs.pop(), { bin: 'mixdogd', args: ['ctl', 'stop', '--force', '--reason', 'userStop', '--json'], env: { A: '1' } });
+  assert.deepEqual(runs.pop(), { bin: 'mixdogd', args: ['ctl', 'stop', '--force', '--reason', 'userStop', '--json'], env: { A: '1', MIXDOG_RUNTIME_ROOT: 'rt' } });
   // The discovery file names another core: it is not ours to stop.
   assert.equal(await kind({ readDiscovery: named(8) }), 'not-ours');
   assert.equal((await ask({ readDiscovery: async () => { throw new Error('absent'); } })).request, 'refused');
@@ -136,6 +136,28 @@ test('the app is told the core process it starts', async () => {
   });
   await assert.rejects(resolve(), /stop here/);
   assert.deepEqual(told, [child]);
+});
+
+test('the core is started on the runtime root the app selected', async () => {
+  const child = Object.assign(new EventEmitter(), { pid: 1, unref() {} });
+  let spawnedEnv;
+  const resolve = resolveLocalCore({
+    runtimeRoot: join('tmp', 'mixdog'),
+    bin: 'mixdogd',
+    env: () => ({ PATH: 'p' }),
+    environmentReady: async () => {},
+    spawnImpl: (bin, args, options) => {
+      spawnedEnv = options.env;
+      return child;
+    },
+    ensure: async ({ launch }) => {
+      queueMicrotask(() => child.emit('spawn'));
+      await launch({ log() {} });
+      throw new Error('stop here');
+    },
+  });
+  await assert.rejects(resolve(), /stop here/);
+  assert.deepEqual(spawnedEnv, { PATH: 'p', MIXDOG_RUNTIME_ROOT: join('tmp', 'mixdog') });
 });
 
 test('launching the core spawns it detached with the given environment', async (context) => {

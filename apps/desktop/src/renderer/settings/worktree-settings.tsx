@@ -137,7 +137,7 @@ export function WorktreeSettings({ active = true }: { active?: boolean }) {
           <ToggleRow
             title={t('Delete the branch when cleaning up')}
             description={t(
-              'Deletes a branch Mixdog created once git considers it merged; when off, the branch and its commits stay.'
+              'Deletes a branch created by the app once git considers it merged; when off, the branch and its commits stay.'
             )}
             showDescription
             checked={settings.deleteBranch}

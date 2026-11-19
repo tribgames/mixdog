@@ -996,6 +996,8 @@ export interface DesktopApi {
   updateSetting(key: DesktopSettingKey, enabled: boolean): Promise<DesktopSettings>;
   /** Desktop-only: notification sound volume in percent. */
   setNotificationVolume?(volume: number): Promise<DesktopSettings>;
+  /** Settings → Bots: how many bot-to-bot handoffs in a row are allowed (1-20). */
+  setBotHandoffLimit?(limit: number): Promise<DesktopSettings>;
   /** Settings → General → Sessions: auto-archive / auto-delete days (0 = never). */
   setSessionRetention?(key: SessionRetentionSettingKey, days: number): Promise<DesktopSettings>;
   /** Settings → Browser: the site-permission defaults and exceptions. */

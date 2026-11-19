@@ -56,7 +56,7 @@ test('every schedule rename refusal is translated in every UI language after the
         assert.notEqual(catalog[key], key, `${language}: "${key}" must be translated`);
         const text = scheduleErrorText(overIpc(error));
         assert.equal(text, t(key, name ? { name } : {}), `${language}: ${error.code}`);
-        if (name) assert.ok(text.includes(`"${name}"`), `${language}: ${error.code} names the schedule`);
+        if (name) assert.ok(text.includes(name), `${language}: ${error.code} names the schedule`);
       }
     }
   } finally {

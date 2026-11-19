@@ -215,7 +215,13 @@ export function createBrowserDownloadLedger(host: BrowserDownloadLedgerHost) {
   const { downloadsDirectory, sessionIdForGuest, defaultSessionId } = host;
   const downloadsBySession = new Map<string, TrackedBrowserDownload[]>();
   const downloadedBytesBySession = new Map<string, number>();
+  // Transfers still running, kept apart from the history, which is capped.
+  const activeBySession = new Map<string, Set<TrackedBrowserDownload>>();
   let nextDownloadId = 0;
+
+  function hasActiveDownload(sessionId: string): boolean {
+    return (activeBySession.get(sessionId)?.size ?? 0) > 0;
+  }
 
   function downloadsForSession(sessionId: string): TrackedBrowserDownload[] {
     return downloadsBySession.get(sessionId) ?? [];
@@ -240,6 +246,9 @@ export function createBrowserDownloadLedger(host: BrowserDownloadLedgerHost) {
     downloads.unshift(entry);
     if (downloads.length > 20) downloads.length = 20;
     downloadsBySession.set(ownerSessionId, downloads);
+    const active = activeBySession.get(ownerSessionId) ?? new Set();
+    active.add(entry);
+    activeBySession.set(ownerSessionId, active);
     // Every download contributes to the same live session total. A per-item
     // copy would overwrite bytes reported by concurrent downloads.
     function recordReceived(received: number): number {
@@ -271,6 +280,7 @@ export function createBrowserDownloadLedger(host: BrowserDownloadLedgerHost) {
       sizeLimitExceeded ||= browserDownloadExceedsLimit(received, entry.total, sessionDownloadedBytes);
       entry.state = sizeLimitExceeded ? 'cancelled_size_limit' : state;
       entry.completedAt = Date.now();
+      active.delete(entry);
     });
     if (sizeLimitExceeded) item.cancel();
   }
@@ -278,7 +288,8 @@ export function createBrowserDownloadLedger(host: BrowserDownloadLedgerHost) {
   function release(sessionId: string): void {
     downloadsBySession.delete(sessionId);
     downloadedBytesBySession.delete(sessionId);
+    activeBySession.delete(sessionId);
   }
 
-  return { downloadsForSession, onWillDownload, release };
+  return { downloadsForSession, hasActiveDownload, onWillDownload, release };
 }

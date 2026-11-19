@@ -43,6 +43,36 @@ function held(snapshot: DesktopSectionsSnapshot, section: string, key: string | 
 const configTree = (snapshot: DesktopSectionsSnapshot, subtree: string): Record<string, unknown> =>
   record(held(snapshot, 'config', subtree));
 
+/** A `config` subtree over the inline limit is held as a stub (`value` null): its value is read with `config/read`, so the
+ *  readers below see the stored settings, not an empty subtree. */
+const configStubs = (snapshot: DesktopSectionsSnapshot, subtrees: readonly string[]) =>
+  snapshot.entries.filter((entry) => entry.section === 'config' && entry.key !== null && subtrees.includes(entry.key) && entry.value === null);
+
+export const hasConfigStub = (snapshot: DesktopSectionsSnapshot, subtrees: readonly string[]): boolean =>
+  configStubs(snapshot, subtrees).length > 0;
+
+/** Pages exactly the `subtrees` the caller reads that are held as stubs; every other entry, and every read that names no
+ *  stubbed subtree, is left as it is (no request). */
+export async function withPagedConfig(
+  snapshot: DesktopSectionsSnapshot,
+  call: (method: string, params: unknown) => Promise<unknown>,
+  subtrees: readonly string[]
+): Promise<DesktopSectionsSnapshot> {
+  const stubs = configStubs(snapshot, subtrees);
+  if (stubs.length === 0) return snapshot;
+  const { config } = record(await call('config/read', { keys: stubs.map((entry) => entry.key) }));
+  const paged = record(config);
+  return { ...snapshot, entries: snapshot.entries.map((entry) => (stubs.includes(entry) ? { ...entry, value: paged[entry.key as string] } : entry)) };
+}
+
+/** The `config` subtrees each section read uses. */
+export const SECTION_READ_CONFIG: Readonly<Record<string, readonly string[]>> = {
+  readSettings: ['agent', 'desktop'],
+  readActivityRailPins: ['desktop'],
+  readMarkdownDefaultView: ['desktop'],
+  listConversationNotifications: ['notifications'],
+  notificationPreferencesState: ['notifications'],
+};
 /** `readSettings`: Node's `desktopSettingsFromConfig` over the subtrees it reads. */
 export function readSettings(snapshot: DesktopSectionsSnapshot): DesktopSettings {
   return desktopSettingsFromConfig({ agent: configTree(snapshot, 'agent'), desktop: configTree(snapshot, 'desktop') });

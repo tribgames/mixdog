@@ -8,8 +8,9 @@
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { request } from 'node:http';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { resolveRuntimeRoot } from '../shared/core-src/runtime/shared/runtime-root.mjs';
 
 export interface DaemonDiscovery {
   /** The WebSocket listener; null while the core does not serve (no `rpc`). */
@@ -75,13 +76,6 @@ export function parseDaemonDiscovery(raw: unknown): DaemonDiscovery | null {
   };
 }
 
-/** The runtime root 1.4.5 clients resolve and the core publishes its discovery in. */
-export function localRuntimeRoot(env: NodeJS.ProcessEnv = process.env): string {
-  if (env.MIXDOG_RUNTIME_ROOT) return env.MIXDOG_RUNTIME_ROOT;
-  if (process.platform === 'win32') return join(tmpdir(), 'mixdog');
-  return join(tmpdir(), `mixdog-${process.getuid?.() ?? 0}`);
-}
-
 /** A control request the core refused (`code` is the state machine's refusal code). */
 export class CoreControlError extends Error {
   override readonly name = 'CoreControlError';
@@ -114,7 +108,7 @@ type StopMode = 'whenIdle' | 'abortConfirmed';
 /** The management path of one core. A new discovery is read per call: the
  *  token and the port change with every core. */
 export interface CoreControl {
-  /** Null when no core runs (no discovery file, or nothing accepts on its control port). */
+  /** Null when no core runs (no discovery file, or its process is gone). Throws when a core may run but cannot be asked. */
   status(): Promise<{ status: CoreStatus; discovery: DaemonDiscovery } | null>;
   hold(on: boolean): Promise<void>;
   stop(mode: StopMode, confirmToken?: string): Promise<void>;
@@ -125,6 +119,16 @@ export interface CoreControlDeps {
   discoveryPath?: string;
 }
 
+/** Positive evidence that no process has this pid: the OS says so (ESRCH). A pid the check cannot judge (out of range, a failure) is
+ *  not gone. */
+function pidGone(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ESRCH';
+  }
+}
 const REFUSED_CONNECTION = new Set(['ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ETIMEDOUT']);
 
 function call(discovery: DaemonDiscovery, method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
@@ -185,10 +189,33 @@ function statusOf(value: unknown): CoreStatus {
 }
 
 export function createCoreControl(deps: CoreControlDeps = {}): CoreControl {
-  const discoveryPath = deps.discoveryPath ?? join(localRuntimeRoot(), 'daemon.json');
+  const discoveryPath = deps.discoveryPath ?? join(resolveRuntimeRoot(), 'daemon.json');
   const discover = async (): Promise<DaemonDiscovery | null> => {
     try {
-      return parseDaemonDiscovery(await readFile(discoveryPath, 'utf8'));
+      const raw = await readFile(discoveryPath, 'utf8');
+      const found = parseDaemonDiscovery(raw);
+      if (found) return found;
+      // A record without a control listener is a 1.4.5 daemon's: no core when its process is gone. Anything else that cannot be
+      // read is a core that cannot be asked, not an idle one.
+      let legacy: { pid?: unknown; protocol?: unknown; core?: unknown; endpoints?: { session?: { port?: unknown; token?: unknown } } } | null = null;
+      try {
+        legacy = JSON.parse(raw);
+      } catch {
+        // Malformed: unknown below.
+      }
+      const session = legacy?.endpoints?.session;
+      const validLegacy =
+        legacy !== null &&
+        typeof legacy === 'object' &&
+        legacy.core === undefined &&
+        legacy.protocol === 1 &&
+        typeof legacy.pid === 'number' &&
+        Number.isSafeInteger(legacy.pid) &&
+        legacy.pid > 0 &&
+        port(session?.port) !== null &&
+        typeof session?.token === 'string';
+      if (validLegacy && pidGone(legacy!.pid as number)) return null;
+      throw new Error('core discovery record is unreadable');
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
       throw error;
@@ -201,7 +228,9 @@ export function createCoreControl(deps: CoreControlDeps = {}): CoreControl {
     try {
       return await use(discovery);
     } catch (error) {
-      if (REFUSED_CONNECTION.has((error as NodeJS.ErrnoException).code ?? '')) return null;
+      // A refused connection is no core only when its process is gone too; a live
+      // pid that does not answer is unknown work, which the caller must not treat as idle.
+      if (REFUSED_CONNECTION.has((error as NodeJS.ErrnoException).code ?? '') && pidGone(discovery.pid)) return null;
       throw error;
     }
   };

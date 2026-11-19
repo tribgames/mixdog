@@ -208,6 +208,7 @@ const CASES = [
   ['updateSetting', ['autoCompact', true], 'config/value/write', { path: 'agent.compaction.auto', value: true, announce: 'desktop' }],
   ['updateSetting', ['computerControl', true], 'config/value/write', { path: 'desktop.computerControl', value: true, announce: 'desktop' }],
   ['updateNotificationVolume', [0.5], 'config/value/write', { path: 'desktop.notificationVolume', value: 0.5, announce: 'desktop' }],
+  ['updateBotHandoffLimit', [7], 'config/value/write', { path: 'desktop.botHandoffLimit', value: 7, announce: 'desktop' }],
   ['updateBrowserPermissions', [POLICY], 'config/value/write', { path: 'desktop.browserPermissions', value: POLICY, announce: 'desktop' }],
   [
     'updateSessionRetention',
@@ -448,7 +449,7 @@ test('the routed operations are the spec map targets with params the Rust schema
       row.target.kind === 'method' ? [row.target.target] : row.target.kind === 'methods' ? row.target.target : null,
     ])
   );
-  assert.equal(operations.length, 173);
+  assert.equal(operations.length, 174);
   // Two operations have a core method the desktop never sends: `visualizeRemoteViewing` is read from a section, and
   // `browserRemoteWebrtcSignal` was the relay's own call into the desktop service (Node `main/index.ts`
   // `invokeDesktopOperation('browserRemoteWebrtcSignal', [clientId, signal])`); the phone now sends
@@ -1086,4 +1087,29 @@ test('the section operations are spec map section rows of their section', () => 
     assert.equal(targets.get(name).kind, 'section', name);
     assert.ok(['remote', 'terminalActivity'].includes(targets.get(name).target), name);
   }
+});
+
+test('readSettings pages a config subtree the core published as a stub instead of reading defaults', async () => {
+  const entries = [
+    { section: 'config', key: 'desktop', revision: 1, value: null },
+    { section: 'config', key: 'agent', revision: 1, value: { autoClear: { enabled: true } } },
+  ];
+  const { lane, calls } = laneWith({ 'config/read': { config: { desktop: { keepAwake: false, notificationVolume: 40 } } } }, [], entries);
+  const settings = await lane.invoke('readSettings', []);
+  assert.equal(settings.keepAwake, false);
+  assert.equal(settings.notificationVolume, 40);
+  assert.deepEqual(calls, [{ method: 'config/read', params: { keys: ['desktop'] } }]);
+});
+
+test('a section read pages only the stubbed config subtrees it uses', async () => {
+  const entries = [
+    { section: 'config', key: 'desktop', revision: 1, value: null },
+    { section: 'config', key: 'notifications', revision: 1, value: null },
+    { section: 'terminalActivity', key: null, revision: 1, value: {} },
+  ];
+  const { lane, calls } = laneWith({ 'config/read': { config: { notifications: {} } } }, [], entries);
+  await lane.invoke('termActivity', []);
+  assert.deepEqual(calls, []);
+  await lane.invoke('listConversationNotifications', []);
+  assert.deepEqual(calls, [{ method: 'config/read', params: { keys: ['notifications'] } }]);
 });

@@ -47,3 +47,31 @@ test('release_on_thread_removed', () => {
   t.emit({ type: 'status', status: { state: 'ready' } });
   assert.deepEqual(t.released, ['s1']);
 });
+
+test('a paged config read that a newer change or the unsubscribe superseded is discarded', async () => {
+  let store;
+  let entries = [{ section: 'config', key: 'desktop', revision: 1, value: null }];
+  const pending = [];
+  const connection = {
+    onStoreChange: (l) => ((store = l), () => (store = null)),
+    onEvent: () => () => undefined,
+    snapshot: () => ({ status: 'ready', entries }),
+    call: () => new Promise((resolve) => pending.push(resolve)),
+  };
+  const applied = [];
+  const off = observeCoreForMain({ connection, applyDesktopSettings: (s) => applied.push(s), releaseBrowserSession: () => undefined });
+  store({ type: 'section', section: 'config', key: 'desktop' });
+  entries = [{ section: 'config', key: 'desktop', revision: 2, value: { keepAwake: true } }];
+  store({ type: 'section', section: 'config', key: 'desktop' });
+  assert.equal(applied.length, 1);
+  pending[0]({ config: { desktop: { keepAwake: false } } });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(applied.length, 1);
+  assert.equal(applied[0].keepAwake, true);
+  entries = [{ section: 'config', key: 'desktop', revision: 3, value: null }];
+  store({ type: 'section', section: 'config', key: 'desktop' });
+  off();
+  pending[1]({ config: { desktop: { keepAwake: false } } });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(applied.length, 1);
+});

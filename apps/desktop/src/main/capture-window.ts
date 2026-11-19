@@ -7,6 +7,7 @@ import { DESKTOP_IPC } from '../shared/contract';
 import { DESKTOP_SIDEBAR_DEFAULT_WIDTH } from '../shared/window-layout';
 import { captureFixtures, createCaptureRelay, startCaptureCore, type CaptureCore } from './capture-core';
 import { CORE_PORT_OPEN_CHANNEL, type CorePortRelay } from './core-port/relay';
+import { tagRendererSurface } from './process-memory-diagnostics';
 import { registerPaneLayoutIpc } from './ipc-pane-layout';
 import { registerScreenSessions } from './screen-sessions';
 import {
@@ -167,6 +168,7 @@ function createCaptureRendererWindow(relay: CorePortRelay): {
       preload: join(__dirname, '../preload/index.js'),
     },
   });
+  tagRendererSurface(window, 'capture');
   const rendererConsoleErrors: string[] = [];
   window.webContents.on('console-message', (event) => {
     const details = event as unknown as { level: string; message: string };
@@ -638,7 +640,7 @@ async function runCaptureDictationSmoke(window: BrowserWindow): Promise<{
       if (!mic.className.includes('is-recording')) throw new Error('Dictation did not start recording.');
       await new Promise((resolve) => setTimeout(resolve, 900));
       mic.click();
-      const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
+      const textarea = document.querySelector('textarea[aria-label="Write a message"]');
       const stopped = Date.now();
       while (Date.now() - stopped < 6000) {
         if ((textarea.value || '').includes('dictation smoke transcript')) break;
@@ -683,7 +685,7 @@ async function submitShowcaseTask(window: BrowserWindow): Promise<void> {
       if (!(link instanceof HTMLElement)) throw new Error('Missing capture element: New task');
       link.click();
       await new Promise((resolve) => setTimeout(resolve, 250));
-      const textarea = document.querySelector('textarea[aria-label="Message Mixdog"]');
+      const textarea = document.querySelector('textarea[aria-label="Write a message"]');
       if (!(textarea instanceof HTMLTextAreaElement)) throw new Error('Missing capture element: composer textarea');
       const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
       setValue.call(textarea, ${JSON.stringify(CAPTURE_SHOWCASE_PROMPT)});

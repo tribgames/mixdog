@@ -9,7 +9,7 @@ import { t } from './i18n';
 export function gitActionFailureText(reason: unknown): string {
   if (isOutcomeUnknown(reason))
     return t(
-      'Mixdog lost its connection before this Git action was confirmed, so it may have run. Check the repository status before trying it again.'
+      'Connection was lost before this Git action was confirmed, so it may have run. Check the repository status before trying it again.'
     );
   return reason instanceof Error ? reason.message : String(reason);
 }

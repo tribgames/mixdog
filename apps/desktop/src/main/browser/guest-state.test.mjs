@@ -13,21 +13,25 @@ test('page ids are stable per guest and snapshot ids advance from them', () => {
   assert.equal(store.pageId(first), 'p1');
   assert.equal(store.pageId(second), 'p2');
   assert.equal(store.pageId(first), 'p1');
-  assert.equal(store.nextSnapshotId(first), 'p1-s1');
-  assert.equal(store.nextSnapshotId(first), 'p1-s2');
-  assert.equal(store.nextSnapshotId(second), 'p2-s1');
+  const number = (id) => Number(id.split('-s')[1]);
+  const a = store.nextSnapshotId(first);
+  const b = store.nextSnapshotId(first);
+  const c = store.nextSnapshotId(second);
+  assert.ok(a.startsWith('p1-s') && c.startsWith('p2-s'));
+  assert.ok(number(a) < number(b) && number(b) < number(c), 'greater is newer');
 });
 
 test('document ids name one page generation and retire when the document changes', () => {
   const store = new BrowserGuestStateStore();
   const page = guest();
   const other = guest();
-  assert.equal(browserDocumentId(store, page), `${store.pageId(page)}:0`);
+  assert.match(browserDocumentId(store, page), /^p1:\d+$/);
   assert.notEqual(browserDocumentId(store, other), browserDocumentId(store, page));
   const before = browserDocumentId(store, page);
   store.beginDocument(page);
   assert.notEqual(browserDocumentId(store, page), before);
-  assert.equal(browserDocumentId(store, page), `${store.pageId(page)}:1`);
+  const number = (id) => Number(id.split(':')[1]);
+  assert.ok(number(browserDocumentId(store, page)) > number(before), 'greater is newer');
 });
 
 test('a new document reports only its own network failures and console errors', () => {
@@ -226,4 +230,39 @@ test('remembered secrets are redacted from guest text until forgotten', () => {
   store.forgetSecret(page, 'hunter2-secret');
   assert.match(store.redactText(page, 'password is hunter2-secret ok'), /hunter2-secret/);
   assert.equal(store.for(page).sensitiveValues, undefined, 'forgetting the last secret releases the set');
+});
+
+test('document, load and snapshot numbers come from one counter and are never issued twice', () => {
+  const store = new BrowserGuestStateStore();
+  const used = new Set();
+  const issue = (id) => {
+    assert.equal(used.has(id), false, `${id} reissued`);
+    used.add(id);
+  };
+  const first = guest();
+  issue(browserDocumentId(store, first));
+  store.beginDocument(first);
+  issue(browserDocumentId(store, first));
+  issue(store.nextSnapshotId(first));
+  // Guests for the same tab id, made and destroyed in any order, never repeat a number.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const next = guest();
+    store.adoptPage(next, 'p1');
+    assert.equal(store.pageId(next), 'p1');
+    issue(browserDocumentId(store, next));
+    store.beginDocument(next);
+    issue(browserDocumentId(store, next));
+    issue(store.nextSnapshotId(next));
+    // A stale guest's late allocation cannot roll anything back.
+    issue(store.nextSnapshotId(first));
+  }
+});
+test('typing is recorded apart from other input and ends with the document', () => {
+  const store = new BrowserGuestStateStore();
+  const page = guest();
+  store.for(page).userInput = true;
+  assert.equal(store.for(page).typedInput, false, 'a click or scroll is not typing');
+  store.for(page).typedInput = true;
+  store.commitDocument(page);
+  assert.equal(store.for(page).typedInput, false);
 });

@@ -29,7 +29,8 @@ const PAGE = `
   import { ApprovalPrompt, ApprovalPreviewRow } from './approval-prompt.tsx';
   import { PixelIcon } from './pixel-icon.tsx';
   window.mixdogDesktop = new Proxy({}, {
-    get: (_, name) => (String(name).startsWith('subscribe') ? () => () => {} : async () => []),
+    // No \`sections\`: a window without the section source gets no section store (a function there is read as a source).
+    get: (_, name) => (name === 'sections' ? undefined : String(name).startsWith('subscribe') ? () => () => {} : async () => []),
   });
   const h = React.createElement;
   const LONG_URL = 'https://publisher.unity.com/' + 'very-long-path-segment-'.repeat(12) + '?query=' + 'x'.repeat(80);

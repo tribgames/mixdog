@@ -26,6 +26,13 @@ export type PendingPromptItem = TranscriptItem & {
   queueEntry?: unknown;
   /** Submitted from this pane, not yet in the session runtime's queue. */
   steerLocal?: boolean;
+  /** The running turn took it from the queue and its row has landed, under
+   *  the core's own item id: it shows no bubble and keeps its row's ordinal. */
+  delivered?: boolean;
+  /** The session queue has held it: its release follows its queue entry
+   *  (use-conversation-optimistic-prompts.ts), not the user-row count, which
+   *  another surface's row would satisfy first. */
+  queueHeld?: boolean;
 };
 
 export function settledUserRowCount(items: readonly TranscriptItem[]): number {
@@ -115,14 +122,14 @@ export function pendingPromptTranscriptItems(
     }
     const baseline = Number(item.settledUserBaseline);
     const ordinal = Math.max(Number.isFinite(baseline) ? baseline : 0, claimedThrough) + 1;
-    if (settledIds.has(String(item.id))) {
+    if (item.delivered || settledIds.has(String(item.id))) {
       claimedThrough = ordinal;
       continue;
     }
     // Id-agnostic safety net: a runtime that renames the submission id still
     // releases the twin once its ordinal user row exists, so a lost id can
     // never strand a permanent ghost bubble.
-    if (Number.isFinite(baseline) && settledUsers >= ordinal) {
+    if (!item.queueHeld && Number.isFinite(baseline) && settledUsers >= ordinal) {
       claimedThrough = ordinal;
       continue;
     }

@@ -6,6 +6,7 @@
  * every address but its own origin's.
  */
 import type { Session } from 'electron';
+import { tagRendererSurface } from '../process-memory-diagnostics';
 import { isOffscreenOriginUrl, type OffscreenOrigins, offscreenOrigins } from './offscreen-origins';
 import { localizeProblemText } from './page-problems';
 
@@ -332,6 +333,7 @@ async function withOffscreenPage<T>(
     },
   });
   const contents = window.webContents;
+  tagRendererSurface(window, 'visualize-export');
   const problems: string[] = [];
   const blockedIds = new Set<number>();
   const note = (line: string) => {

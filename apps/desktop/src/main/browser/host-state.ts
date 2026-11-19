@@ -38,6 +38,11 @@ class GuestConsoleLedger extends BrowserConsoleLedger {
 
 export class BrowserGuestStateStore {
   private readonly states = new WeakMap<WebContents, BrowserGuestState>();
+  /** The last document, load or snapshot number issued to any page. Every
+   *  such number comes from this one counter, so none is ever issued twice,
+   *  whatever tab id a page carries or whichever guest held it before. Only
+   *  greater is newer holds between numbers; they are not consecutive. */
+  private lastIssued = 0;
   private readonly listeners = new Set<GuestStateListener>();
   private nextPageId = 0;
 
@@ -80,8 +85,8 @@ export class BrowserGuestStateStore {
       pageId: `p${++this.nextPageId}`,
       seq: 0,
       snapshotGeneration: 0,
-      documentGeneration: 0,
-      loadGeneration: 0,
+      documentGeneration: this.issue(),
+      loadGeneration: this.issue(),
       // Downloads are shared by the session, so a page that opens with this at
       // zero announces every file the session ever saved — including ones saved
       // before it existed. A new page has already heard about all of them.
@@ -90,6 +95,7 @@ export class BrowserGuestStateStore {
       windowOpens: [],
       crashed: false,
       userInput: false,
+      typedInput: false,
       pendingDialog: null,
       dismissedDialog: null,
       pendingFileChooser: null,
@@ -129,9 +135,23 @@ export class BrowserGuestStateStore {
     return this.for(guest).pageId;
   }
 
+  /** A page recreated by a session restore takes the tab id its unloaded
+   *  predecessor had, so every holder of that id (chips, takeover cards, a
+   *  borrowed tab, a paired client) still addresses it. Ids are never reused,
+   *  and the predecessor is gone, so the id is free. */
+  adoptPage(guest: WebContents, pageId: string): void {
+    // The guest's numbers were issued globally when its record was made, so
+    // none was ever used under any tab id: only the id changes.
+    (this.for(guest) as { pageId: string }).pageId = pageId;
+  }
+
+  private issue(): number {
+    return ++this.lastIssued;
+  }
+
   nextSnapshotId(guest: WebContents): string {
     const state = this.for(guest);
-    state.snapshotGeneration += 1;
+    state.snapshotGeneration = this.issue();
     return `${state.pageId}-s${state.snapshotGeneration}`;
   }
 
@@ -244,7 +264,7 @@ export class BrowserGuestStateStore {
   beginDocument(guest: WebContents, sameDocument = false): void {
     const state = this.states.get(guest);
     if (!state) return;
-    state.documentGeneration += 1;
+    state.documentGeneration = this.issue();
     this.invalidateInteraction(guest);
     // Secrets remain sensitive after redirects, including echoed form values.
     state.pendingFileChooser = null;
@@ -252,7 +272,7 @@ export class BrowserGuestStateStore {
     // page's failures forward reports them as faults of the page now loaded;
     // an in-document navigation keeps them, because nothing reloaded.
     if (!sameDocument) {
-      state.loadGeneration += 1;
+      state.loadGeneration = this.issue();
       state.networkFailures.length = 0;
       state.reportedNetworkFailures.clear();
       state.console.clearDocument();
@@ -269,6 +289,7 @@ export class BrowserGuestStateStore {
     state.pendingDialog = null;
     state.dismissedDialog = null;
     state.userInput = false;
+    state.typedInput = false;
     state.actor = undefined;
     state.personDialogAnswerAt = undefined;
     state.dismissedDialogAt = undefined;

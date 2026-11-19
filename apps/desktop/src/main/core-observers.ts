@@ -2,22 +2,34 @@
 // tray, computer and browser switches) and a deleted thread whose browser session it holds.
 import type { DesktopSettings } from '../shared/contract';
 import type { ProtocolConnection } from './protocol/connection';
-import { readSettings } from './protocol/section-reads';
+import { hasConfigStub, readSettings, withPagedConfig } from './protocol/section-reads';
 
 /** The `config` subtrees `desktopSettingsFromConfig` reads. */
 const SETTINGS_SUBTREES: ReadonlySet<string | null> = new Set(['desktop', 'agent']);
 
 export interface CoreObserversOptions {
-  connection: Pick<ProtocolConnection, 'onStoreChange' | 'onEvent' | 'snapshot'>;
+  connection: Pick<ProtocolConnection, 'onStoreChange' | 'onEvent' | 'snapshot' | 'call'>;
   applyDesktopSettings(settings: DesktopSettings): void;
   releaseBrowserSession(sessionId: string): void;
 }
 
 /** Returns the removal of both observers. */
 export function observeCoreForMain({ connection, applyDesktopSettings, releaseBrowserSession }: CoreObserversOptions): () => void {
+  // Each settings change supersedes the paged read still in flight, which would otherwise overwrite newer values.
+  let latest = 0;
+  let closed = false;
   const offStore = connection.onStoreChange((change) => {
     if (change.type !== 'section' || change.section !== 'config' || !SETTINGS_SUBTREES.has(change.key ?? null)) return;
-    applyDesktopSettings(readSettings(connection.snapshot()));
+    const mine = ++latest;
+    const held = connection.snapshot();
+    if (!hasConfigStub(held, [...SETTINGS_SUBTREES] as string[])) return applyDesktopSettings(readSettings(held));
+    // A subtree over the inline limit arrives as a stub: it is read in full before the settings are applied.
+    void withPagedConfig(held, (method, params) => connection.call(method, params), [...SETTINGS_SUBTREES] as string[]).then(
+      (snapshot) => {
+        if (!closed && mine === latest) applyDesktopSettings(readSettings(snapshot));
+      },
+      () => undefined
+    );
   });
   // A thread removed from the app feed arrives as the `thread/deleted` notification (the store keeps no row for it).
   const offEvent = connection.onEvent((event) => {
@@ -28,6 +40,7 @@ export function observeCoreForMain({ connection, applyDesktopSettings, releaseBr
     if (typeof threadId === 'string' && threadId) releaseBrowserSession(threadId);
   });
   return () => {
+    closed = true;
     offStore();
     offEvent();
   };

@@ -72,6 +72,11 @@ export interface DesktopTidyEngineStatus {
 export const NOTIFICATION_VOLUME_DEFAULT = 100;
 export const NOTIFICATION_VOLUME_MAX = 400;
 
+/** Settings → Bots: how many bot-to-bot handoffs in a row a chain may make before it asks the user. */
+export const BOT_HANDOFF_LIMIT_DEFAULT = 3;
+export const BOT_HANDOFF_LIMIT_MIN = 1;
+export const BOT_HANDOFF_LIMIT_MAX = 20;
+
 /** Settings → General → Sessions: days without conversation before a session
  *  is archived, and days archived before it is deleted. 0 is Never. */
 export const SESSION_AUTO_ARCHIVE_DAY_CHOICES = [0, 1, 7, 14, 30, 90] as const;
@@ -123,6 +128,8 @@ export interface DesktopSettings {
   /** Desktop-only (Windows): notification sound volume in percent,
    *  0..NOTIFICATION_VOLUME_MAX. Default NOTIFICATION_VOLUME_DEFAULT. */
   notificationVolume: number;
+  /** BOT_HANDOFF_LIMIT_MIN..BOT_HANDOFF_LIMIT_MAX; default BOT_HANDOFF_LIMIT_DEFAULT. */
+  botHandoffLimit: number;
   /** Archive a session after this many days without conversation (0 = never).
    *  One of SESSION_AUTO_ARCHIVE_DAY_CHOICES; default SESSION_AUTO_ARCHIVE_DAYS_DEFAULT. */
   sessionAutoArchiveDays: number;

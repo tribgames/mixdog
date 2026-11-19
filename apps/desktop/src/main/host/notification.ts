@@ -93,7 +93,17 @@ export function registerNotificationHost(connection: HostConnection, presenter: 
       notification.on('close', forget);
       notification.on('click', forget);
     }
-    notification.on('show', () => report('os-show'));
+    // The sound belongs to the toast the OS showed: played when `show` fires, once, not when `show()` merely returned.
+    let soundStarted = false;
+    notification.on('show', () => {
+      report('os-show');
+      if (soundStarted || sound === undefined || sound === null || sound === 'none') return;
+      soundStarted = true;
+      void presenter
+        .playSound?.(typeof volume === 'number' ? volume : undefined)
+        .then((result) => report('sound', { result }))
+        .catch((error: unknown) => report('sound-failed', { error: error instanceof Error ? error.message : String(error) }));
+    });
     notification.on('close', () => report('closed'));
     notification.on('failed', (_event: unknown, error: unknown) => report('failed', { error }));
     notification.on('click', () => {
@@ -114,12 +124,6 @@ export function registerNotificationHost(connection: HostConnection, presenter: 
     } catch (error) {
       live.delete(notification);
       return report('failed', { error: error instanceof Error ? error.message : String(error) });
-    }
-    if (sound !== undefined && sound !== null && sound !== 'none') {
-      void presenter
-        .playSound?.(typeof volume === 'number' ? volume : undefined)
-        .then((result) => report('sound', { result }))
-        .catch((error: unknown) => report('sound-failed', { error: error instanceof Error ? error.message : String(error) }));
     }
   });
   return () => {

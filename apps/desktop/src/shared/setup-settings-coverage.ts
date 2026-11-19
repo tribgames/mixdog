@@ -3,9 +3,11 @@ import type { DesktopSettingKey, SessionRetentionSettingKey } from './contract-s
 /** Adding a Desktop setting requires a setup route or an explicit handoff.
  * Record<DesktopSettingKey, …> makes forgotten settings a typecheck failure. */
 export const DESKTOP_SETUP_SETTING_ACTIONS: Record<
-  DesktopSettingKey | 'notificationVolume' | 'browserPermissions' | SessionRetentionSettingKey,
+  DesktopSettingKey | 'notificationVolume' | 'botHandoffLimit' | 'browserPermissions' | SessionRetentionSettingKey,
   string
 > = {
+  // How far bots may chain work among themselves is a person's to change (Settings → Bots); setup can only read it.
+  botHandoffLimit: 'status',
   // Site permissions are a person's to change (Settings → Browser); setup can only read them.
   browserPermissions: 'status',
   notificationVolume: 'set_desktop_settings',

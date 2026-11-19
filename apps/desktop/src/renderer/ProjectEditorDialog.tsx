@@ -176,7 +176,7 @@ function memoryAddRow({
         autoFocus
         rows={3}
         disabled={memoryBusy}
-        placeholder={t('What should Mixdog remember?')}
+        placeholder={t('What should be remembered?')}
         onChange={(event) => setAddMemoryDraft(event.currentTarget.value)}
       />
       <div className="projects-memory-row-foot">

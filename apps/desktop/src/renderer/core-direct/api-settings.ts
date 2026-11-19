@@ -25,6 +25,7 @@ import { createOperationLane, watchAnnouncements } from '../../shared/core-lanes
 import { remotePagedMember } from '../../shared/core-lanes/remote-reads';
 import { readActivityRailPins } from '../../shared/core-lanes/section-reads';
 import {
+  requiredBotHandoffLimit,
   requiredBrowserPermissionPolicy,
   requiredDesktopSettingKey,
   requiredNotificationVolume,
@@ -181,6 +182,7 @@ export function createSettingsApi(ctx: DirectContext): SettingsApi {
     },
     subscribeProviderModelsChanged: (listener) => announced(PROVIDER_MODELS_EVENT, listener),
     setNotificationVolume: async (volume) => op('updateNotificationVolume', [requiredNotificationVolume(volume)]),
+    setBotHandoffLimit: async (limit) => op('updateBotHandoffLimit', [requiredBotHandoffLimit(limit)]),
     setSessionRetention: async (key, days) => {
       const setting = requiredSessionRetentionSetting(key, days);
       return op('updateSessionRetention', [setting.key, setting.days]);

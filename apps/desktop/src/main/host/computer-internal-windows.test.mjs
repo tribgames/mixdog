@@ -9,11 +9,14 @@ function handler() {
   return handlers.get('host/computer/internalWindows');
 }
 
-test('the handler answers the registered windows as hwnd ids, and none once they are unregistered', async () => {
+// The id is the platform's own: hwnd on Windows, x11 on Linux, cg (the CGWindowID of the media source) on macOS.
+const expectedId = { win32: 'hwnd:0x1ab', darwin: 'cg:928' }[process.platform] ?? 'x11:0x1ab';
+
+test('the handler answers the registered windows by their platform ids, and none once they are unregistered', async () => {
   const ask = handler();
   const before = (await ask({}, new AbortController().signal)).windowIds.length;
-  const unregister = registerComputerUseInternalWindow({ getNativeWindowHandle: () => Buffer.from([0xab, 0x01, 0, 0, 0, 0, 0, 0]) });
-  assert.deepEqual((await ask({}, new AbortController().signal)).windowIds.slice(before), ['hwnd:0x1ab']);
+  const unregister = registerComputerUseInternalWindow({ getNativeWindowHandle: () => Buffer.from([0xab, 0x01, 0, 0, 0, 0, 0, 0]), getMediaSourceId: () => 'window:928:0' });
+  assert.deepEqual((await ask({}, new AbortController().signal)).windowIds.slice(before), [expectedId]);
   unregister();
   assert.equal((await ask({}, new AbortController().signal)).windowIds.length, before);
 });

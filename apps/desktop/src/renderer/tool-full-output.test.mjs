@@ -312,3 +312,60 @@ test('a withheld row offers Retry and shows nothing more than the copy the phone
   assert.match(view.result(), /omitted/u);
   await view.unmount();
 });
+
+test('two revisions that differ only in the omitted middle do not share a read', async () => {
+  resetFullToolOutputs();
+  const WHOLE_1 = `a${'1'.repeat(5_000)}z`;
+  const WHOLE_2 = `a${'2'.repeat(5_000)}z`;
+  const v1 = { ...CUT, remoteOutputRevision: 'rev-1' };
+  const v2 = { ...CUT, remoteOutputRevision: 'rev-2' };
+  window.mixdogDesktop = { readTranscriptItem: async () => ({ id: 'call-1', result: WHOLE_1, rawResult: WHOLE_1 }) };
+  const view = await mount(v1);
+  await view.click();
+  assert.equal(view.result(), WHOLE_1);
+  await view.render({ item: v2 });
+  assert.equal(view.result(), CUT.result, 'the older middle is not shown for the newer revision');
+  assert.equal(view.button().textContent, 'Show full output');
+  window.mixdogDesktop = { readTranscriptItem: async () => ({ id: 'call-1', result: WHOLE_2, rawResult: WHOLE_2 }) };
+  await view.click();
+  assert.equal(view.result(), WHOLE_2);
+  await view.unmount();
+});
+
+test('a grouped card reads its diff by the member the digest belongs to, and keeps its own output', async () => {
+  resetFullToolOutputs();
+  const digest = { sections: [{ names: ['b.ts', 'b.ts'], counts: { additions: 1, deletions: 0 }, statuses: ['M'], targetPath: 'b.ts', files: [] }] };
+  const card = { id: 'first-call', kind: 'tool', name: '__aggregate__', aggregate: true, result: 'two edits', uiDiffSummary: digest, uiDiffMemberId: 'second-call' };
+  const reads = [];
+  window.mixdogDesktop = {
+    readTranscriptItem: async (_sessionId, itemId) => {
+      reads.push(itemId);
+      return { id: itemId, result: 'ok: b.ts', uiDiff: 'diff --git a/b.ts b/b.ts\n' };
+    },
+  };
+  const view = await mount(card, { wanted: true });
+  assert.deepEqual(reads, ['second-call']);
+  assert.equal(view.result(), 'two edits');
+  await view.unmount();
+});
+
+test('Copy on a cut row asks for the whole output and copies that, never the preview', async () => {
+  resetFullToolOutputs();
+  const { ToolPanel, ToolCopyGateContext } = await import('./transcript-tool-panel.tsx');
+  const written = [];
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text) => void written.push(text) } });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  let loads = 0;
+  const panel = (gate, value) =>
+    React.createElement(ToolCopyGateContext.Provider, { value: gate }, React.createElement(ToolPanel, { copyValue: value }, 'body'));
+  await act(async () => root.render(panel({ load: () => void (loads += 1), failed: false }, 'preview')));
+  await act(async () => host.querySelector('button').dispatchEvent(new window.MouseEvent('click', { bubbles: true })));
+  assert.equal(loads, 1, 'the click asks for the whole output');
+  assert.deepEqual(written, [], 'the preview was not copied');
+  await act(async () => root.render(panel(null, 'the whole output')));
+  assert.deepEqual(written, ['the whole output']);
+  await act(async () => root.unmount());
+  host.remove();
+});

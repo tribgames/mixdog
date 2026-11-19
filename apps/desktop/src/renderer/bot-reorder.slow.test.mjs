@@ -44,8 +44,18 @@ const PAGE = `
   const state = { order: [], calls: [], listeners: new Set() };
   window.__bots = state;
   window.mixdogDesktop = {
-    listAgentPool: async () => [],
-    subscribeAgentPool: () => () => {},
+    // The core pushes the bot list and the pool as sections; the order and Mixy's status stay capabilities.
+    sections: {
+      core: async () => false,
+      snapshot: async () => ({
+        status: "ready",
+        entries: [
+          { section: "agents", key: null, revision: 1, value: AGENTS },
+          { section: "agentPool", key: null, revision: 1, value: [] },
+        ],
+      }),
+      subscribe: () => () => {},
+    },
     invokeCapability: async ({ capability, args }) => {
       state.calls.push([capability, ...args]);
       if (capability === "listAgents") return { value: AGENTS };

@@ -288,7 +288,7 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
       // Reads live beside the visibility filter: the frame a read publishes must pass it even when no pane shows the session yet.
       return reads.run(id, () => withDirectErrors(session.prefetchSession(id, limit, traceId)));
     },
-    readTranscriptHistory: async (sessionId, request) => withDirectErrors((await session.chat()).readTranscriptHistory(trimmed(sessionId), request)),
+    readTranscriptHistory: async (sessionId, request) => withDirectErrors((await session.chat()).readTranscriptHistory(trimmed(sessionId), request, true)),
     async setVisibleSessions(sessionIds) {
       const ids = requiredSessionIds(sessionIds);
       visible.clear();

@@ -22,6 +22,7 @@ import {
 } from '../desktop-pet-publisher';
 import { t } from '../i18n';
 import { useMixyCreated } from '../mixy-first';
+import { BotHandoffLimitRow } from './bot-handoff-limit-setting';
 import { ActionButton, Group, SelectRow, ToggleRow } from './capability-controls';
 
 const INTERVAL_LABELS: Record<number, () => string> = {
@@ -168,6 +169,7 @@ export function BotsPanel({ data, pending, run }: PanelContext) {
           disabled={busy}
           onChange={(enabled) => void run('setReactionsEnabled', [enabled])}
         />
+        <BotHandoffLimitRow disabled={busy} />
       </Group>
       {!isRemoteHostRenderer() && !isSshConnectionWindow() && <DesktopPetToggle />}
     </>

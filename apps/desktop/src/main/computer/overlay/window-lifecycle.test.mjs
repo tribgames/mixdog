@@ -336,6 +336,69 @@ test('a crashed control renderer pauses input and is replaced with live controls
   }
 });
 
+test('a pill hidden for the idle period gives up its window, and the next command makes a new one', async (t) => {
+  fault = '';
+  const { OVERLAY_IDLE_RETIRE_MS } = await import('./index.ts');
+  // The coordinator holds a finished command's target by the clock, so the clock moves with the timers.
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() });
+  const start = windows.length;
+  const overlay = createComputerUseOverlay({ stop: async () => {} });
+  try {
+    coordinator.beginCommand({ sessionId: 'idle-fixture', action: 'capture', mode: 'background' });
+    await settle();
+    const pill = windows[start];
+    assert.equal(pill.isVisible(), true);
+    coordinator.finishCommand('idle-fixture');
+    for (let waited = 0; pill.isVisible() && waited < 60; waited++) {
+      t.mock.timers.tick(1_000);
+      await settle();
+    }
+    assert.equal(pill.isVisible(), false, 'the pill hides once its task is over');
+    assert.equal(pill.isDestroyed(), false, 'a hidden pill is kept for the next command at first');
+    t.mock.timers.tick(OVERLAY_IDLE_RETIRE_MS);
+    await settle();
+    assert.equal(pill.isDestroyed(), true);
+    coordinator.beginCommand({ sessionId: 'idle-fixture', action: 'capture', mode: 'background' });
+    await settle();
+    assert.equal(windows.length, start + 2);
+    assert.equal(windows[start + 1].isVisible(), true);
+  } finally {
+    overlay.dispose();
+    coordinator.reset();
+  }
+});
+
+test('a repeated hidden report does not postpone the retire of the hidden pill', async (t) => {
+  fault = '';
+  const { OVERLAY_IDLE_RETIRE_MS } = await import('./index.ts');
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() });
+  const start = windows.length;
+  const overlay = createComputerUseOverlay({ stop: async () => {} });
+  try {
+    coordinator.beginCommand({ sessionId: 'repeat-fixture', action: 'capture', mode: 'background' });
+    await settle();
+    const pill = windows[start];
+    coordinator.finishCommand('repeat-fixture');
+    for (let waited = 0; pill.isVisible() && waited < 60; waited++) {
+      t.mock.timers.tick(1_000);
+      await settle();
+    }
+    assert.equal(pill.isVisible(), false);
+    // Hidden-state notices keep arriving while it stays hidden.
+    for (let elapsed = 0; elapsed < OVERLAY_IDLE_RETIRE_MS; elapsed += 60_000) {
+      coordinator.reset();
+      t.mock.timers.tick(60_000);
+      await settle();
+    }
+    t.mock.timers.tick(5_000);
+    await settle();
+    assert.equal(pill.isDestroyed(), true, 'retired on the first deadline, not pushed back');
+  } finally {
+    overlay.dispose();
+    coordinator.reset();
+  }
+});
+
 test('a render still awaiting shell readiness after dispose sets no presence and shows nothing', async () => {
   const { computerUsePillShown, setComputerUsePillShown } = await import('./overlay-presence.ts');
   let release;

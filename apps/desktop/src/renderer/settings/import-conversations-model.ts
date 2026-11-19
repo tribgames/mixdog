@@ -102,7 +102,7 @@ export function importCodeMessage(code: string | undefined): string {
     case 'unknownCandidate':
       return t('That conversation is no longer in the list.');
     case 'noModelRoute':
-      return t('Connect a model in Settings > Providers first.');
+      return t('Connect a model in Settings → Providers first.');
     case 'tooLarge':
       return t('The conversation is too large to import.');
     case 'internalRecord':

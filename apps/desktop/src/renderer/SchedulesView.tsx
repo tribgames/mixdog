@@ -322,7 +322,7 @@ function ScheduleEditor({
               defaultValue={draft.instructions}
               required
               disabled={busy}
-              placeholder={t('What should Mixdog do when this schedule fires?')}
+              placeholder={t('What should happen when this schedule fires?')}
               aria-label={t('Schedule instructions')}
             />
             <AutomationAttachmentChips attachments={attachments} disabled={busy} onChange={setAttachments} />

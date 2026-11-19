@@ -388,6 +388,9 @@ export interface BrowserGuestState extends BrowserDiagnostics {
   /** A person clicked or typed into this document. What they entered lives
    *  only in the document, so it must not be unloaded to save memory. */
   userInput: boolean;
+  /** A person typed (keys, text, composition) into this document since it
+   *  loaded; a click or scroll does not set it. */
+  typedInput: boolean;
   /** Who acted on this document last: a person's press, key or dialog
    *  answer, or an agent command. A window it opens is that actor's. */
   actor?: PageActor;

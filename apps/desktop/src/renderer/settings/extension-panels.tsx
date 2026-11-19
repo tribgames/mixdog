@@ -164,7 +164,7 @@ export function McpPanel({ data, pending, run, confirm, refreshExtensions, creat
   const confirmRemove = (name: string) =>
     confirm({
       title: t('Remove MCP server?'),
-      description: t('{{name}} will be removed from Mixdog.', { name }),
+      description: t('{{name}} will be removed.', { name }),
       confirmLabel: t('Remove'),
       danger: true,
       onConfirm: async () => {
@@ -469,7 +469,7 @@ function confirmPluginRemoval(
 ) {
   confirm({
     title: t('Remove plugin?'),
-    description: t('{{name}} will be removed from Mixdog.', { name: label(plugin) }),
+    description: t('{{name}} will be removed.', { name: label(plugin) }),
     confirmLabel: t('Remove'),
     danger: true,
     onConfirm: () => {

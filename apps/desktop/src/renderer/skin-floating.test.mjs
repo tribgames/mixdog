@@ -69,7 +69,7 @@ const PORTALED = `
       <div class="mixdog-settings__panel">
         <header class="mixdog-settings__header"><div class="mixdog-settings__header-title"><h1 id="settings-title">General</h1></div></header>
         <div class="mixdog-settings__body"><div class="mixdog-settings__category-stage"><div class="capability-settings-content">
-          <div class="mixdog-settings__row skin-row"><div class="mixdog-settings__copy"><span class="mixdog-settings__row-title" id="settings-row">Profile</span><span class="skin-row-desc" id="settings-desc">How Mixdog addresses you.</span></div></div>
+          <div class="mixdog-settings__row skin-row"><div class="mixdog-settings__copy"><span class="mixdog-settings__row-title" id="settings-row">Profile</span><span class="skin-row-desc" id="settings-desc">How you are addressed.</span></div></div>
           <p class="appearance-message" data-tone="error" id="settings-error">This file is not a Mixdog theme.</p>
           <div class="markdown"><p><a href="#x" id="settings-link">Theme format</a></p></div>
         </div></div></div>

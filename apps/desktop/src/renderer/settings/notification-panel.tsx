@@ -167,7 +167,7 @@ function DevicePicker({
             <div className="notif-device-foot">
               {t('To add, rename, or disconnect devices, go to')}{' '}
               <button type="button" className="conn-link" onClick={onOpenConnection}>
-                {t('Settings › Connection')}
+                {t('Settings → Connection')}
               </button>
             </div>
           </div>
@@ -448,7 +448,7 @@ export function NotificationsPanel({
   api: NotificationsApi;
   openCategory?: (category: SettingsCategory) => void;
 }) {
-  const { state, save, readError, writeError, retry } = useNotificationPreferences(api);
+  const { state, save, readError, writeError, retry } = useNotificationPreferences(isSshConnectionWindow() ? undefined : api);
   const [picked, setPicked] = useState<string | null>(null);
   const notices = (
     <>

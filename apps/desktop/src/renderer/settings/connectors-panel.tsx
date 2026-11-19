@@ -1082,7 +1082,7 @@ function CustomConnectorDialog({
       : kind === 'mcp-command'
         ? t('An MCP server that runs on this computer.')
         : kind === 'plugin'
-          ? t('A plugin. Mixdog installs it and lists its connections.')
+          ? t('A plugin. The app installs it and lists its connections.')
           : '';
   const submit = async () => {
     if (!detected || !kind) return;
@@ -1237,7 +1237,7 @@ function PluginRemovalDialog({
             title={t('Files')}
             description={
               managed
-                ? t('The folder Mixdog installed is deleted: {{path}}', { path: root })
+                ? t('The folder the app installed is deleted: {{path}}', { path: root })
                 : t('Your local folder stays as it is: {{path}}', { path: root })
             }
             tone={managed ? 'warn' : 'muted'}
@@ -1697,7 +1697,7 @@ export function ConnectorsPanel(context: PanelContext) {
           onRemove={() =>
             confirm({
               title: t('Remove MCP server?'),
-              description: t('{{name}} will be removed from Mixdog.', { name: editorName }),
+              description: t('{{name}} will be removed.', { name: editorName }),
               confirmLabel: t('Remove'),
               danger: true,
               onConfirm: async () => {

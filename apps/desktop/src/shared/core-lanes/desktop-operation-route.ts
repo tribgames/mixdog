@@ -26,6 +26,8 @@ import {
   readMarkdownDefaultView,
   readSettings,
   readZoom,
+  SECTION_READ_CONFIG,
+  withPagedConfig,
   termActivity,
 } from './section-reads';
 
@@ -142,6 +144,7 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   // `autoClear` and `autoCompact` live in the agent config, every other key under `desktop` (settings-store.ts `update`).
   updateSetting: ([key, enabled]) => desktopWrite(desktopSettingPath(key as DesktopSettingKey), enabled === true),
   updateNotificationVolume: ([volume]) => desktopWrite('desktop.notificationVolume', Number(volume)),
+  updateBotHandoffLimit: ([limit]) => desktopWrite('desktop.botHandoffLimit', Number(limit)),
   updateBrowserPermissions: ([policy]) =>
     desktopWrite('desktop.browserPermissions', normalizeBrowserPermissionPolicy(policy)),
   updateSessionRetention: ([key, days]) => {
@@ -395,6 +398,7 @@ const CUSTOM_REPLY: Readonly<Record<string, Reply>> = {
   setConversationNotification: (reply) => written(reply),
   updateSetting: savedSettings,
   updateNotificationVolume: savedSettings,
+  updateBotHandoffLimit: savedSettings,
   updateBrowserPermissions: savedSettings,
   updateSessionRetention: savedSettings,
   updateZoom: (reply) => Number(written(reply)),
@@ -585,7 +589,7 @@ export function createOperationLane({
       };
       if (Object.hasOwn(SECTION_READS, name)) {
         const snapshot = await heldSections();
-        return SECTION_READS[name](snapshot(), args, host, call);
+        return SECTION_READS[name](await withPagedConfig(snapshot(), call, SECTION_READ_CONFIG[name] ?? []), args, host, call);
       }
       if (name === 'notifySettingsChanged') {
         const change = readSettingsChange({ scope: args[0] });
@@ -614,7 +618,9 @@ export function createOperationLane({
       }
       const prepare = Object.hasOwn(PREPARERS, name) ? PREPARERS[name] : undefined;
       const held = prepare ? await heldSections() : null;
-      const routed = prepare ? await prepare(args, { entries: () => held!().entries }) : args;
+      // The preparer reads the notifications subtree: only that one is paged when held as a stub.
+      const paged = held ? await withPagedConfig(held(), call, name === 'setNotificationPreferences' ? ['notifications'] : []) : null;
+      const routed = prepare ? await prepare(args, { entries: () => paged!.entries }) : args;
       const { method, params } = routeDesktopOperation(name, routed);
       return REPLIES[name](await call(method, params), { args, params, call, invoke: lane.invoke });
     },

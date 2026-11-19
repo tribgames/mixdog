@@ -2,6 +2,9 @@
 // shared by the desktop's settings store and the paired phone's adapter (renderer/remote-protocol-settings.ts), which reads the
 // same `agent` and `desktop` subtrees from the core's `config` section.
 import {
+  BOT_HANDOFF_LIMIT_DEFAULT,
+  BOT_HANDOFF_LIMIT_MAX,
+  BOT_HANDOFF_LIMIT_MIN,
   NOTIFICATION_VOLUME_DEFAULT,
   NOTIFICATION_VOLUME_MAX,
   SESSION_AUTO_ARCHIVE_DAYS_DEFAULT,
@@ -19,6 +22,10 @@ function record(value: unknown): Record<string, unknown> {
 
 export function isNotificationVolume(value: unknown): value is number {
   return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= NOTIFICATION_VOLUME_MAX;
+}
+
+export function isBotHandoffLimit(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= BOT_HANDOFF_LIMIT_MIN && (value as number) <= BOT_HANDOFF_LIMIT_MAX;
 }
 
 export const SESSION_RETENTION_DEFAULTS: Readonly<Record<SessionRetentionSettingKey, number>> = {
@@ -44,6 +51,7 @@ export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
     notificationVolume: isNotificationVolume(desktop.notificationVolume)
       ? desktop.notificationVolume
       : NOTIFICATION_VOLUME_DEFAULT,
+    botHandoffLimit: isBotHandoffLimit(desktop.botHandoffLimit) ? desktop.botHandoffLimit : BOT_HANDOFF_LIMIT_DEFAULT,
     sessionAutoArchiveDays: retentionDays('sessionAutoArchiveDays'),
     sessionAutoDeleteDays: retentionDays('sessionAutoDeleteDays'),
     // A fresh install starts pinned; an explicit unpin is kept.

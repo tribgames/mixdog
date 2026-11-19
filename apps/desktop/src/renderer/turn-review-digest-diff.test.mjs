@@ -233,3 +233,22 @@ test('a withheld row is not drawn and not retried into a loop', async () => {
   assert.match(view.host.textContent, /Diff detail unavailable/u);
   await view.unmount();
 });
+
+test('a group of two edits to different files reads back the diff its digest is of, by the member that owns it', async () => {
+  const { rowsOf, mergeToolRows } = await import('../../../../packages/protocol-client/src/rows.ts');
+  const bigDiff = (file) => `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -1,1 +1,1 @@\n${`-old\n+new\n`.repeat(2_500)}`;
+  const call = (id, file, at) => ({
+    id, type: 'toolCall', name: 'edit', input: { file_path: file }, callId: `call-${id}`,
+    meta: { status: 'completed', at },
+    run: { result: `edited ${file}`, uiDiff: bigDiff(file), count: 1 },
+  });
+  const rows = mergeToolRows([call('e1', 'a.ts', 1), call('e2', 'b.ts', 2)].flatMap((item) => rowsOf(item)));
+  const card = rows.find((row) => row.aggregate === true);
+  assert.ok(card, 'the two edits are one grouped card');
+  const phone = remoteTranscriptSnapshot({ items: rows });
+  const review = summarizeSessionTranscriptReview(phone.items);
+  const [slot] = [...review.files.values()].flatMap((entry) => entry.slots).filter((slot) => typeof slot === 'object');
+  const output = remoteToolOutput({ items: rows }, slot.id);
+  assert.ok(output, 'the digest row is found by the id the review asks with');
+  assert.equal(output.uiDiff, card.uiDiff, 'it is the diff the digest summarizes');
+});
