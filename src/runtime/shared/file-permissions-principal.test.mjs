@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -25,17 +25,37 @@ const cases = [
 ];
 
 for (const [index, fixture] of cases.entries()) {
-  test(`Windows ACL principal selection handles ${fixture.name}`, {
-    skip: process.platform !== 'win32' && 'Windows only',
-  }, async (t) => {
+  test(`Windows ACL principal selection handles ${fixture.name}`, async (t) => {
     const root = await mkdtemp(join(tmpdir(), 'mixdog-acl-principal-'));
-    const path = join(root, 'secret');
-    await writeFile(path, 'fixture');
+    const restores = [];
     t.after(async () => {
+      for (const restore of restores.reverse()) restore();
       t.mock.restoreAll();
       syncBuiltinESMExports();
       await rm(root, { recursive: true, force: true });
     });
+    const path = join(root, 'secret');
+    await writeFile(path, 'fixture');
+    if (process.platform !== 'win32') {
+      // The parser is pure; give it the Windows view it checks (platform and
+      // the System32 tools it requires to exist) and mock every command.
+      const platform = Object.getOwnPropertyDescriptor(process, 'platform');
+      const { SystemRoot, windir } = process.env;
+      // Restoration is registered before the first mutation.
+      restores.push(() => {
+        Object.defineProperty(process, 'platform', platform);
+        for (const [key, value] of Object.entries({ SystemRoot, windir })) {
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+      });
+      const system32 = join(root, 'windows', 'System32');
+      await mkdir(system32, { recursive: true });
+      await Promise.all(['whoami.exe', 'icacls.exe'].map((name) => writeFile(join(system32, name), '')));
+      Object.defineProperty(process, 'platform', { ...platform, value: 'win32' });
+      process.env.SystemRoot = join(root, 'windows');
+      delete process.env.windir;
+    }
     const grants = [];
     t.mock.method(childProcess, 'execFileSync', (file, args) => {
       if (String(file).endsWith('whoami.exe')) return fixture.output;

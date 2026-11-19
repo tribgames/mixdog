@@ -223,6 +223,10 @@ rustc-ice-*.txt
 !/native/core/fixtures/session-search-backfill/
 /native/core/fixtures/session-search-backfill/*
 !/native/core/fixtures/session-search-backfill/golden.json
+!/native/core/fixtures/linux-session-cases/
+/native/core/fixtures/linux-session-cases/*
+!/native/core/fixtures/linux-session-cases/golden.json
+!/native/core/fixtures/linux-session-cases/MANIFEST.json
 /benchmarks/rust-core/
 **/node-twin/
 /native/core/crates/mixdog-ai/fixtures/
@@ -657,7 +661,11 @@ rustc-ice-*.txt
 /scripts/rust-core/k1-lanes.slow.test.mjs
 /scripts/rust-core/record-lanes-fixtures.mjs
 /scripts/rust-core/record-node-tool-failure-row.mjs
-/scripts/rust-core/recorded/
+/scripts/rust-core/recorded/*
+!/scripts/rust-core/recorded/manifest.json
+!/scripts/rust-core/recorded/node_tool_failure_row.json
+!/scripts/rust-core/recorded/lanes_build_messages.jsonl
+!/scripts/rust-core/recorded/lanes_list_fs_tests.json
 /native/core/crates/mixdog-app-server-daemon/tests/legacy/
 /native/core/crates/mixdog-ai/src/catalog/lookup/fixtures.rs
 /native/core/crates/mixdog-ai/src/catalog/relay_node_cases.rs

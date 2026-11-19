@@ -60,7 +60,7 @@ export function lockSubset({ lock, manifest, names }) {
     walk(key);
   }
   return {
-    manifest: { name: 'ci-subset', version: '0.0.0', private: true, dependencies: rootDependencies },
+    manifest: { name: 'ci-subset', version: '0.0.0', private: true, dependencies: rootDependencies, ...(manifest.overrides && { overrides: manifest.overrides }) },
     lock: { name: 'ci-subset', version: '0.0.0', lockfileVersion: 3, requires: true, packages },
   };
 }

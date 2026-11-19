@@ -25,7 +25,8 @@ test('a direct node --test run reports its skips, keeps node\'s exit status, and
     writeFileSync(join(dir, 'a.test.mjs'), "import test from 'node:test';\ntest('fine', () => {});\ntest('skipped', { skip: 'a reason' }, () => {});\n");
     writeFileSync(join(dir, 'b.test.mjs'), "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('fails', () => assert.fail('boom'));\n");
     // a receipt names the commit of the checkout the runner starts in, so the runs start in a repository of their own
-    const { NODE_TEST_CONTEXT: _context, GIT_DIR: _gitDir, GIT_WORK_TREE: _gitTree, ...inherited } = process.env;
+    // and a gate's own children folder is not these fixture runs' to receive
+    const { NODE_TEST_CONTEXT: _context, GIT_DIR: _gitDir, GIT_WORK_TREE: _gitTree, MIXDOG_CHILD_RECEIPTS: _kids, ...inherited } = process.env;
     const git = (...args) => spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir, encoding: 'utf8', env: inherited });
     git('init', '-q');
     git('commit', '-q', '--allow-empty', '-m', 'x');

@@ -1,0 +1,1 @@
+{"reason":"compiler-artifact","package":"1.4.5","manifest_path":"native/core/crates/mixdog-tools/Cargo.toml","target":{"kind":["lib"],"name":"mixdog_tools","src_path":"native/core/crates/mixdog-tools/src/lib.rs"},"profile":{"test":true},"executable":"<test binary>"}

@@ -137,16 +137,37 @@ test('release-gate.yml: the Rust core is built once per system and its tests run
   }
   // Nothing else builds the mixdogd the desktop replays drive.
   assert.doesNotMatch(JSON.stringify(gate.jobs['desktop-slow']), /cargo/);
-  const desktop = gate.jobs['desktop-tests'];
+  // The Linux fast shards depend on no producer: the Windows boot's inputs gate only the Windows job.
+  assert.deepEqual(gate.jobs['desktop-tests'].needs, 'changes');
+  assert.doesNotMatch(JSON.stringify(gate.jobs['desktop-tests']), /cargo|MIXDOGD_BIN|computer|windows/);
+  const desktop = gate.jobs['desktop-computer'];
   const helper = desktop.steps.find((step) => step.name === 'Build the native Computer Use helper');
   const suite = desktop.steps.find((step) => step.name === 'Run the Computer Use suites on Windows');
-  assert.equal(helper?.if, "matrix.lane == 'computer'");
+  assert.equal(desktop['runs-on'], 'windows-latest');
   assert.equal(helper.run, 'cargo build --locked --manifest-path native/mixdog-computer/Cargo.toml --bin mixdog-computer --target-dir native/mixdog-computer/target');
-  assert.equal(suite?.if, helper.if);
   assert.ok(desktop.steps.indexOf(helper) < desktop.steps.indexOf(suite));
   assert.equal(suite.env.MIXDOG_COMPUTER_BIN, '${{ github.workspace }}/native/mixdog-computer/target/debug/mixdog-computer.exe');
-  assert.doesNotMatch(JSON.stringify({ ...desktop, steps: desktop.steps.filter((step) => step !== helper) }), /cargo|MIXDOGD_BIN/);
+  assert.doesNotMatch(JSON.stringify({ ...desktop, steps: desktop.steps.filter((step) => step !== helper) }), /cargo/);
   assert.doesNotMatch(JSON.stringify(helper), /MIXDOGD_BIN/);
+  // The real offscreen boot (app-start.electron.test.mjs, run by the electron lane of this step) takes this run's Windows
+  // daemon and the bundle of the desktop job; neither is built here.
+  assert.equal(suite.env.MIXDOGD_BIN, '${{ github.workspace }}/mixdogd-dev/mixdogd.exe');
+  assert.deepEqual(desktop.needs, ['changes', 'desktop', 'core-build']);
+  const fetched = desktop.steps.filter((step) => step.uses?.startsWith('actions/download-artifact@'));
+  assert.deepEqual(fetched.map((step) => [step.with.name, step.with.path]), [
+    ['mixdogd-dev-${{ env.GATE_KEY }}-windows', 'mixdogd-dev'],
+    ['desktop-out-${{ env.GATE_KEY }}', 'apps/desktop/out'],
+  ]);
+  assert.ok(fetched.every((step) => desktop.steps.indexOf(step) < desktop.steps.indexOf(suite)));
+  // dev-core-install needs the root onnxruntime-node and the four data/pptxgenjs files, staged by the project's own paths.
+  const install = desktop.steps.find((step) => step.name === 'Install dependencies');
+  const stage = desktop.steps.find((step) => step.name?.startsWith('Stage the root packages'));
+  assert.match(install.run, /lock-subset\.mjs ci-boot-subset onnxruntime-node pptxgenjs jszip/);
+  assert.match(stage.run, /copyPptxgenjsData/);
+  assert.ok(desktop.steps.indexOf(install) < desktop.steps.indexOf(stage) && desktop.steps.indexOf(stage) < desktop.steps.indexOf(suite));
+  assert.equal(gate.jobs.desktop.if, "needs.changes.outputs.desktop == 'true' || needs.changes.outputs.desktop_computer == 'true'");
+  assert.ok(stepsOf(gate.jobs.desktop).some((step) => step.with?.name === 'desktop-out-${{ env.GATE_KEY }}'));
+  assert.match(gate.jobs['core-build'].steps.find((step) => step.name === 'Upload mixdogd').with.name, /-windows/);
 });
 
 test('release-gate.yml: the Node lanes install and build nothing a root test does not read', () => {
@@ -472,17 +493,10 @@ test('release-gate.yml: nextest inputs and the computer helper select their PR c
     assert.deepEqual(selected(paths), standalone, paths.join(', '));
   }
   assert.deepEqual(selected(['native/mixdog-computer/Cargo.toml']), ['computer', 'desktop_computer', 'runtime']);
-  const desktop = gate.jobs['desktop-tests'];
-  assert.equal(desktop.if, "needs.changes.outputs.desktop_tests == 'true' || needs.changes.outputs.desktop_computer == 'true'");
-  const matrix = /fromJSON\(needs\.changes\.outputs\.desktop_tests == 'true'\s+&& '([^']+)'\s+\|\| '([^']+)'\)/.exec(desktop.strategy.matrix);
-  assert.ok(matrix, 'the full and helper-only desktop matrices must be separate');
-  const [, full, helperOnly] = matrix;
-  const windows = { runner: 'windows-latest', lane: 'computer' };
-  assert.deepEqual(JSON.parse(helperOnly).include, [windows]);
-  assert.deepEqual(JSON.parse(full).include, [
-    ...[1, 2, 3].map((shard) => ({ runner: 'ubuntu-22.04', lane: 'fast', shard })),
-    windows,
-  ]);
+  // A helper-only PR runs the Windows job alone; any desktop test change runs the three Linux shards and the Windows job.
+  assert.equal(gate.jobs['desktop-computer'].if, "needs.changes.outputs.desktop_tests == 'true' || needs.changes.outputs.desktop_computer == 'true'");
+  assert.equal(gate.jobs['desktop-tests'].if, "needs.changes.outputs.desktop_tests == 'true'");
+  assert.deepEqual(gate.jobs['desktop-tests'].strategy.matrix, { shard: [1, 2, 3] });
 });
 
 // A test invocation of a workflow: a line of a step's `run` that starts a test runner (not a comment line).

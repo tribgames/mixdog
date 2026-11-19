@@ -376,8 +376,37 @@ mod sys {
 
     /// The helper has no console (it is spawned detached); without CREATE_NO_WINDOW each console program it starts would
     /// create a console window host of its own, which costs ~150 ms per spawn.
+    ///
+    /// `Command` spawns with bInheritHandles=TRUE, so every inheritable handle of the helper would reach the program: the
+    /// caller can have left some in the helper's table (its own inheritable handles, handed down through its spawn). The
+    /// helper's copies are cleared of the flag here, so the program inherits only the standard streams, which `Command`
+    /// duplicates for the child itself. The caller's own handles are untouched: inheritance is a flag of each process's copy.
     pub fn prepare(command: &mut Command) {
         use std::os::windows::process::CommandExt;
+        use windows::Win32::Foundation::{GetHandleInformation, SetHandleInformation, HANDLE_FLAGS, HANDLE_FLAG_INHERIT};
+        use windows::Win32::System::Console::{GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE};
+        use windows::Win32::System::Threading::GetProcessHandleCount;
+        // SAFETY: probing a handle value is defined for any value; every out-pointer is a valid local. Only the inherit
+        // flag of handles this process holds is changed, and the standard streams keep theirs.
+        unsafe {
+            let std_handles = [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE].map(|id| GetStdHandle(id).map(|h| h.0 as usize).unwrap_or(0));
+            let mut open = 0u32;
+            if GetProcessHandleCount(GetCurrentProcess(), &mut open).is_ok() {
+                let (mut seen, mut value) = (0u32, 4usize);
+                // Handle values are multiples of 4 in a table whose size follows the number open; stop once all are seen.
+                while seen < open && value < (1 << 26) {
+                    let handle = HANDLE(value as *mut std::ffi::c_void);
+                    let mut flags = 0u32;
+                    if GetHandleInformation(handle, &mut flags).is_ok() {
+                        seen += 1;
+                        if flags & HANDLE_FLAG_INHERIT.0 != 0 && !std_handles.contains(&value) {
+                            let _ = SetHandleInformation(handle, HANDLE_FLAG_INHERIT.0, HANDLE_FLAGS(0));
+                        }
+                    }
+                    value += 4;
+                }
+            }
+        }
         command.creation_flags(0x0800_0000);
     }
 
@@ -694,7 +723,10 @@ mod sys {
         let deadline = Instant::now() + TREE_END_DEADLINE;
         match kill_process_group(Pid::from_raw(program as i32).expect("a child's pid is positive"), Signal::KILL) {
             Ok(()) => {}
+            // macOS answers EPERM, not ESRCH, to a signal for a group whose only members are zombies; `wait_empty` below
+            // still shows the group empty before the tree counts as ended.
             Err(Errno::SRCH) if exited && !cfg!(target_os = "linux") => {}
+            Err(Errno::PERM) if exited && cfg!(target_os = "macos") => {}
             Err(error) => tree.failure.push(format!("signalling the group of pid {program} failed: {error}")),
         }
         // Once the program has been reaped (it is waited for first, so the kernel has re-parented its children to the
