@@ -10,6 +10,7 @@ import { AttachmentCard, composerCardMeta } from './attachment-card';
 import {
   extractFileMarkers,
   fileChipKind,
+  sentAttachmentIdentity,
   sentFileSource,
   sentPastedTextSource,
   type StoredAttachment,
@@ -521,6 +522,7 @@ export function SentAttachments({
             kind={kind === 'text-file' ? 'text' : kind}
             name={chip.name}
             content={content}
+            contentId={content ? sentAttachmentIdentity(item.id, chip.token) || undefined : undefined}
             meta={meta}
             menu={menuProps(() => ({ ...sentFileSource(chip, item.id), stored: hostFile }))}
           />

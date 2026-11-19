@@ -39,6 +39,7 @@ import { useRemoteHostImageUrl } from './local-image-preview';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { useSidebarReferences } from './sidebar-reference-cache';
 import { useSurfaceActive } from './surface-activity';
+import { useConversationReleaseHold } from './conversation-release';
 import { useSessionTitle } from './session-glance-store';
 import {
   approvalAllowIsPointerOnly,
@@ -1347,6 +1348,11 @@ function ToolApprovalCard({
   const [error, setError] = useState('');
   const resolvingRef = useRef(false);
   const edited = model.editable.length > 0 && text !== model.payload;
+  // Changed text or a partly filled sign-in form not sent yet keeps the
+  // conversation; a field's value is only tested for emptiness, never kept.
+  useConversationReleaseHold(
+    () => !settled && (edited || codeFilled > 0 || Boolean(secretRef.current?.value || usernameRef.current?.value))
+  );
   // The desktop API supplies this method locally and over SSH; the paired API omits it.
   const secretEntry = typeof window !== 'undefined' && typeof window.mixdogDesktop?.provideSecretInput === 'function';
   const owner = useOwnerChip(approval, hostSessionId, approvalChainLabel(approval.chain));

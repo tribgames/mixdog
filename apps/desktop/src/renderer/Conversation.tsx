@@ -14,6 +14,7 @@ import { useConversationTimeline } from './use-conversation-timeline';
 import { useConversationLinkSurfaces } from './use-conversation-link-surfaces';
 import { runningTurnKeyOf } from './turn-preview-model';
 import { useConversationApprovals } from './use-conversation-approvals';
+import { useConversationReleaseHold } from './conversation-release';
 import { ConversationComposerDock } from './conversation-pane-composer-dock';
 import { useConversationIsland } from './use-conversation-island';
 import { useConversationRowRenderer } from './use-conversation-row-renderer';
@@ -83,6 +84,15 @@ export function Conversation(props: ConversationProps) {
     suppressDraftSubmitPaintHandoff,
   });
   const { actions, optimisticActivityStartedAt, transcriptPendingPromptItems: pendingItems } = submission;
+  // A running turn, or prompts still waiting to run, keep the conversation; so
+  // does a prompt sent behind a turn that failed to send, whose "Send again"
+  // row is the only place it lives.
+  const working =
+    Boolean(snapshot.busy || snapshot.commandBusy) ||
+    (Array.isArray(snapshot.queued) && snapshot.queued.length > 0) ||
+    pendingItems.length > 0 ||
+    submission.steerItems.length > 0;
+  useConversationReleaseHold(() => working);
   // A waiting question is read at action time (the island resolves it below).
   const answerQuestionRef = useRef<((reply: string) => Promise<unknown>) | null>(null);
   const steer = useSteerActions({

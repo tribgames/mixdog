@@ -1,4 +1,6 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createConversationReleaseGate, type ConversationReleaseGate } from './conversation-release';
+import { registerIdleReclaim } from './idle-reclaim';
 import type { NavigationSelection, WorkspaceSelection } from './nav-types';
 import { paneActiveSelection, type PaneLeaf } from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
@@ -139,6 +141,54 @@ export function usePaneConversationOwners(
   const conversationOwnerSequence = useRef(0);
   const conversationOwners = useRef<ConversationOwner[]>([]);
   const recentSelections = useRef<RecentSelection[]>([]);
+  // A retained conversation pins its whole transcript and DOM while nobody
+  // looks at it; once the window has idled, it reopens cold like any session
+  // past the retain budget. One holding unfinished work (its gate says no)
+  // stays until it says yes, unless it is shown again first.
+  const [, setReleases] = useState(0);
+  const releaseGates = useRef(new Map<string, { gate: ConversationReleaseGate; stop: () => void }>());
+  const pendingReleases = useRef(new Set<string>());
+  const releaseFinished = useRef(() => {});
+  releaseFinished.current = () => {
+    if (pendingReleases.current.size === 0) return;
+    const released = new Set<string>();
+    for (const owner of conversationOwners.current) {
+      if (!owner.retained || !pendingReleases.current.has(owner.selectionKey)) continue;
+      if (releaseGates.current.get(owner.key)?.gate.mayRelease() === false) continue;
+      released.add(owner.selectionKey);
+      pendingReleases.current.delete(owner.selectionKey);
+    }
+    if (released.size === 0) return;
+    recentSelections.current = recentSelections.current.filter((entry) => !released.has(entry.selectionKey));
+    setReleases((count) => count + 1);
+  };
+  useEffect(
+    () =>
+      registerIdleReclaim(() => {
+        for (const owner of conversationOwners.current) {
+          if (owner.retained) pendingReleases.current.add(owner.selectionKey);
+        }
+        releaseFinished.current();
+      }),
+    []
+  );
+  useEffect(
+    () => () => {
+      for (const { stop } of releaseGates.current.values()) stop();
+      releaseGates.current.clear();
+    },
+    []
+  );
+  /** The gate the conversation under `owner` answers through. */
+  const releaseGateFor = (owner: string): ConversationReleaseGate => {
+    let entry = releaseGates.current.get(owner);
+    if (!entry) {
+      const gate = createConversationReleaseGate();
+      entry = { gate, stop: gate.subscribe(() => releaseFinished.current()) };
+      releaseGates.current.set(owner, entry);
+    }
+    return entry.gate;
+  };
   const conversationSurfaceFor = (leaf: PaneLeaf, handoff: boolean): ConversationSurface[] => {
     const active = paneActiveSelection(leaf);
     return isConversationSelection(active)
@@ -243,5 +293,15 @@ export function usePaneConversationOwners(
     warm: entry.warm,
     retained: entry.retained,
   }));
-  return { conversationLeaves };
+  const retainedNow = new Set(conversationLeaves.filter((entry) => entry.retained).map((entry) => entry.selectionKey));
+  for (const selectionKey of pendingReleases.current) {
+    if (!retainedNow.has(selectionKey)) pendingReleases.current.delete(selectionKey);
+  }
+  const ownerKeys = new Set(conversationLeaves.map((entry) => entry.owner));
+  for (const [owner, { stop }] of releaseGates.current) {
+    if (ownerKeys.has(owner)) continue;
+    stop();
+    releaseGates.current.delete(owner);
+  }
+  return { conversationLeaves, releaseGateFor };
 }

@@ -260,6 +260,12 @@ export function registerSentAttachments(
   }
 }
 
+/** The identity a sent chip's stored data goes by (its message and token), or
+ *  '' when the chip has no message identity. */
+export function sentAttachmentIdentity(submissionId: string | number | undefined, token: string): string {
+  return sentKey(submissionId, token) ?? '';
+}
+
 function sentAttachmentFor(submissionId: string | number | undefined, token: string): SentAttachmentData | undefined {
   const key = sentKey(submissionId, token);
   return key ? sentAttachments.get(key) : undefined;

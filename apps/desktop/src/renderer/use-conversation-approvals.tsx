@@ -16,7 +16,12 @@ import { BrowserApprovalCard, useBrowserApprovals } from './BrowserApprovalHost'
 import { QuestionCard } from './QuestionCard';
 import { useAgentChatSession } from './agent-chat-mode';
 import { useHandoffTarget } from './agent-task-line';
-import { approvalQuestions, buildAnswers, questionAwareSubmit, type QuestionDraft } from './question-card-logic';
+import {
+  approvalQuestions,
+  buildAnswers,
+  questionAwareSubmit,
+  type QuestionDraft,
+} from './question-card-logic';
 import type { ComposerIslandFlash } from './ComposerIsland';
 import type { Snapshot } from './desktop-types';
 import { t } from './i18n';
