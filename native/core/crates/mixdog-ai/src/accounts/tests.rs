@@ -265,3 +265,34 @@ async fn the_data_dir_stays_put_when_a_credential_file_is_elsewhere() {
     assert_eq!(file.path().parent(), Some(elsewhere.path()));
     assert_eq!(s.data_dir(), dir.path());
 }
+
+/// A reset-only Gemini bucket persists with its `except`, so the persisted decision exhausts Gemini models and leaves
+/// the separately metered Argon alone.
+#[tokio::test]
+async fn a_persisted_gemini_window_keeps_its_except_and_spares_argon() {
+    let provider = "antigravity-oauth";
+    let dir = tempfile::tempdir().unwrap();
+    let s = store(&dir);
+    s.register(provider, ID_A, "", true).await.unwrap();
+    let summary = serde_json::json!({ "groups": [{ "buckets": [
+        { "bucketId": "gemini-5h", "window": "5h", "resetTime": "2099-01-01T00:00:00Z" },
+        { "bucketId": "gemini-argon-wtu-weekly", "window": "weekly", "remainingFraction": 0.5 },
+    ] }] });
+    let strings = |row: &Value, key: &str| row.get(key).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect::<Vec<_>>());
+    let windows: Vec<QuotaWindowInput> = crate::service::usage_antigravity::quota_windows(&summary)
+        .iter()
+        .map(|row| QuotaWindowInput {
+            label: row["label"].as_str().unwrap().to_owned(),
+            used_pct: row["usedPct"].as_f64(),
+            reset_at: row["resetAt"].as_f64().map(|at| at as i64),
+            models: strings(row, "models"),
+            except: strings(row, "except"),
+            ..QuotaWindowInput::default()
+        })
+        .collect();
+    s.record_usage(provider, ID_A, windows).await.unwrap();
+    let row = s.accounts(provider).await.unwrap().into_iter().find(|r| r.id == ID_A).unwrap();
+    let now = row.usage.as_ref().unwrap().checked_at;
+    assert!(policy::account_exhausted(&row, now, "gemini-3.8-flash", false));
+    assert!(!policy::account_exhausted(&row, now, "gemini-4-argon", false));
+}

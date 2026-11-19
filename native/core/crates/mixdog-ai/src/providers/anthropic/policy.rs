@@ -24,6 +24,24 @@ const MAX_CONSECUTIVE_OVERLOADS: u32 = 3;
 /// Retries of a stream lost mid-body.
 const MIDSTREAM_RETRIES: u32 = 3;
 
+/// `parseInt(raw, 10)` of a setting: the leading integer, `None` when there is none.
+fn leading_integer(raw: &str) -> Option<i64> {
+    let text = raw.trim_start();
+    let sign = usize::from(text.starts_with(['+', '-']));
+    let digits = text[sign..].bytes().take_while(u8::is_ascii_digit).count();
+    text[..sign + digits].parse().ok()
+}
+
+/// `anthropicMaxAttempts`: `CLAUDE_CODE_MAX_RETRIES` retries of the Messages POST (10 unset or unreadable), held to 0..=100.
+pub(crate) fn request_retries(get: impl Fn(&str) -> Option<String>) -> u32 {
+    get("CLAUDE_CODE_MAX_RETRIES").as_deref().and_then(leading_integer).map_or(REQUEST_RETRIES, |n| n.clamp(0, 100) as u32)
+}
+
+/// `anthropicRequestTimeoutMs`: `API_TIMEOUT_MS` when it is a positive integer, else the SDK's ten minutes.
+pub(crate) fn request_timeout_ms(get: impl Fn(&str) -> Option<String>) -> u64 {
+    get("API_TIMEOUT_MS").as_deref().and_then(leading_integer).filter(|ms| *ms > 0).map_or(600_000, |ms| ms as u64)
+}
+
 fn millis(steps: &[u64]) -> Vec<Duration> {
     steps.iter().map(|ms| Duration::from_millis(*ms)).collect()
 }
@@ -73,6 +91,20 @@ pub(crate) fn retry_policy_with(retry_429: bool, default_jitter: Jitter) -> Retr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `CLAUDE_CODE_MAX_RETRIES` and `API_TIMEOUT_MS` are read as Node's `anthropicMaxAttempts` / `anthropicRequestTimeoutMs` do.
+    #[test]
+    fn the_retry_budget_and_request_timeout_follow_their_settings() {
+        let set = |name: &'static str, value: &'static str| move |asked: &str| (asked == name).then(|| value.to_owned());
+        assert_eq!(request_retries(|_| None), 10);
+        assert_eq!(request_retries(set("CLAUDE_CODE_MAX_RETRIES", "3")), 3);
+        assert_eq!(request_retries(set("CLAUDE_CODE_MAX_RETRIES", "500")), 100);
+        assert_eq!(request_retries(set("CLAUDE_CODE_MAX_RETRIES", "-2")), 0);
+        assert_eq!(request_retries(set("CLAUDE_CODE_MAX_RETRIES", "lots")), 10);
+        assert_eq!(request_timeout_ms(|_| None), 600_000);
+        assert_eq!(request_timeout_ms(set("API_TIMEOUT_MS", "45000")), 45_000);
+        assert_eq!(request_timeout_ms(set("API_TIMEOUT_MS", "0")), 600_000);
+    }
 
     #[test]
     fn the_midstream_row_takes_the_tuned_ratio_and_the_request_row_keeps_its_own() {

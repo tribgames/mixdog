@@ -1770,7 +1770,19 @@ mod progress_tests {
                     let replay: Option<Vec<&str>> = error.partial_replay.as_ref().and_then(|r| r.items.as_array()).map(|items| {
                         items.iter().filter_map(|i| ["id", "call_id", "type"].iter().find_map(|k| i.get(*k).and_then(Value::as_str))).collect()
                     });
-                    let node_replay: Option<Vec<&str>> = node["partial"]["replay"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect());
+                    let mut node_replay: Option<Vec<&str>> = node["partial"]["replay"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect());
+                    // Departure: the HTTP SSE collector's failure carries the replay of the items it finished
+                    // (`ResponsesDecoder::fail`), as the WebSocket collector's `partialState` does; Node's SSE collector keeps none.
+                    if scenario["framing"] == "sse" && node_replay.is_none() {
+                        let finished: Vec<&str> = scenario["steps"]
+                            .as_array()
+                            .expect("steps")
+                            .iter()
+                            .filter(|step| step["wire"]["type"] == "response.output_item.done")
+                            .filter_map(|step| ["id", "call_id", "type"].iter().find_map(|k| step["wire"]["item"].get(*k).and_then(Value::as_str)))
+                            .collect();
+                        node_replay = (!finished.is_empty()).then_some(finished);
+                    }
                     assert_eq!(replay, node_replay, "{label}: replay");
                     if let Some(reason) = node["incompleteReason"].as_str() {
                         assert_eq!(error.code.as_deref().map(str::to_lowercase), Some(reason.to_lowercase()), "{label}");

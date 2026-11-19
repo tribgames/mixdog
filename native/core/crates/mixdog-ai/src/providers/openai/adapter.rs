@@ -1183,10 +1183,10 @@ impl ModelStream for ResponsesSend {
                     self.stream = None;
                     error.unsafe_to_retry |= self.output_exposed;
                     if self.reasoning_exposed {
+                        // Shown reasoning rules out this send's own reconnect and refresh; whether the cut is replayed
+                        // is the loop's decision, which can withdraw what was shown (`latchExposure` marks it unsafe
+                        // and nothing more).
                         error.unsafe_to_retry = true;
-                        error.recovery_terminal = true;
-                        error.recovery_exhausted = true;
-                        error.should_retry = Some(false);
                         error.reauth_required |= error.status == Some(401) && self.auth.spent && error.kind == ErrorKind::Auth;
                         return Some(Err(error));
                     }

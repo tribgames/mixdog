@@ -299,14 +299,15 @@ pub fn normalize_grok_model_id(id: &str) -> &str {
 /// `ANTIGRAVITY_MODELS`: (id, wire ids) of the fallback rows, offered when the live roster cannot be read; `wire` is the
 /// tier map's values or the single wire id. Every row is one the service lists now: the ids and wire ids are those of the
 /// live roster this machine cached (`studio-models-antigravity-oauth-*.json`), whose display names the catalog folds into
-/// these ids (`family_id`: "Claude Opus 5.5" is `claude-opus-5.5`). The first row is the default model.
-pub const ANTIGRAVITY_FALLBACK: [(&str, &[&str]); 6] = [
-    ("gemini-3.8-flash", &["gemini-3.8-flash-low", "gemini-3.8-flash-medium", "gemini-3.8-flash-high"]),
-    ("gemini-4-argon", &["gemini-4-argon-low", "gemini-4-argon-medium", "gemini-4-argon-high"]),
-    ("gemini-4-hydrogen", &["gemini-4-hydrogen-low", "gemini-4-hydrogen-medium", "gemini-4-hydrogen-high"]),
-    ("claude-opus-5.5", &["claude-opus-5-5-low", "claude-opus-5-5-medium", "claude-opus-5-5-high"]),
-    ("claude-sonnet-5.5", &["claude-sonnet-5-5-low", "claude-sonnet-5-5-medium", "claude-sonnet-5-5-high"]),
-    ("gpt-oss-120b-medium", &["gpt-oss-120b-medium"]),
+/// these ids (`family_id`: "Claude Opus 5.5" is `claude-opus-5.5`). The first row is the default model. The second column is the catalog `family` the row carries (the Claude and gpt-oss rows have none).
+pub const ANTIGRAVITY_FALLBACK: [(&str, Option<&str>, &[&str]); 7] = [
+    ("gemini-3.8-flash", Some("gemini-flash"), &["gemini-3.8-flash-low", "gemini-3.8-flash-medium", "gemini-3.8-flash-high"]),
+    ("gemini-4-neon", Some("gemini-pro"), &["gemini-4-neon-low", "gemini-4-neon-medium", "gemini-4-neon-high", "gemini-4-neon-xhigh"]),
+    ("gemini-4-argon", Some("gemini-pro"), &["gemini-4-argon-low", "gemini-4-argon-medium", "gemini-4-argon-high"]),
+    ("gemini-4-hydrogen", Some("gemini-pro"), &["gemini-4-hydrogen-low", "gemini-4-hydrogen-medium", "gemini-4-hydrogen-high"]),
+    ("claude-opus-5.5", None, &["claude-opus-5-5-low", "claude-opus-5-5-medium", "claude-opus-5-5-high"]),
+    ("claude-sonnet-5.5", None, &["claude-sonnet-5-5-low", "claude-sonnet-5-5-medium", "claude-sonnet-5-5-high"]),
+    ("gpt-oss-120b-medium", None, &["gpt-oss-120b-medium"]),
 ];
 
 /// `ANTIGRAVITY_PRICING_ALIASES`.

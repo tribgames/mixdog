@@ -370,9 +370,16 @@ pub fn antigravity_request(origin: &str, project: &str, client_version: &str) ->
 }
 
 /// Tier labels the gateway puts in parentheses.
-const TIER_EFFORTS: [(&str, &str); 5] =
-    [("extra low", "minimal"), ("minimal", "minimal"), ("low", "low"), ("medium", "medium"), ("high", "high")];
-const EFFORT_ORDER: [&str; 4] = ["minimal", "low", "medium", "high"];
+const TIER_EFFORTS: [(&str, &str); 7] = [
+    ("extra low", "minimal"),
+    ("minimal", "minimal"),
+    ("low", "low"),
+    ("medium", "medium"),
+    ("high", "high"),
+    ("xhigh", "xhigh"),
+    ("extra high", "xhigh"),
+];
+const EFFORT_ORDER: [&str; 5] = ["minimal", "low", "medium", "high", "xhigh"];
 /// The thinkingLevel values the gateway accepts on a single wire id.
 const GATEWAY_LEVELS: [&str; 3] = ["low", "medium", "high"];
 
@@ -471,9 +478,15 @@ struct Family {
 /// the effort that still travels as `thinkingLevel`, read from the records'
 /// `wire`. An id with no wire is sent as it is, effort unchanged. With one
 /// wire id, the effort rides along only if the record lists levels.
+/// A session pinned to the old standalone XHigh row names a wire id that already carries its effort, whether the roster
+/// holds that row (a restored cache), the model's tier map, or nothing at all.
+pub fn xhigh_pin(model: &str) -> bool {
+    model.ends_with("-xhigh")
+}
+
 pub fn resolve_wire(roster: &[ModelRecord], model: &str, effort: Option<&str>) -> (String, Option<String>) {
     let Some((record, wire)) = roster.iter().find_map(|r| r.wire.as_ref().filter(|_| r.id == model).map(|w| (r, w))) else {
-        return (model.to_owned(), effort.map(str::to_owned));
+        return (model.to_owned(), if xhigh_pin(model) { None } else { effort.map(str::to_owned) });
     };
     match wire {
         WireIds::Tiers(tiers) => {
@@ -485,16 +498,12 @@ pub fn resolve_wire(roster: &[ModelRecord], model: &str, effort: Option<&str>) -
                 .or(tiers.last());
             (chosen.map(|(_, wire)| wire.clone()).unwrap_or_else(|| model.to_owned()), None)
         }
-        WireIds::One(wire) => (wire.clone(), if record.reasoning_levels.is_empty() { None } else { effort.map(str::to_owned) }),
+        WireIds::One(wire) => (wire.clone(), if record.reasoning_levels.is_empty() || xhigh_pin(model) { None } else { effort.map(str::to_owned) }),
     }
 }
 
 /// `DEFAULT_ANTIGRAVITY_MODEL`: the first curated model, the one a send without a model goes to.
 pub const DEFAULT_ANTIGRAVITY_MODEL: &str = crate::catalog::ANTIGRAVITY_FALLBACK[0].0;
-
-/// The `family` the curated fallback rows carry (`ANTIGRAVITY_MODELS`, `provider-model-identities.mjs`); the
-/// Claude and gpt-oss rows have none.
-const FALLBACK_FAMILIES: [(&str, &str); 3] = [("gemini-3.8-flash", "gemini-flash"), ("gemini-4-argon", "gemini-pro"), ("gemini-4-hydrogen", "gemini-pro")];
 
 /// `antigravityModelFamily(model)`: the catalog `family` of a picker id or one of its wire ids, from the listing the
 /// roster holds, else from the curated rows (`antigravityCatalogModels`: the last live list, else the fallback).
@@ -505,8 +514,8 @@ pub fn antigravity_family(roster: &[ModelRecord], model: &str) -> Option<String>
         None => Vec::new(),
     };
     if roster.is_empty() {
-        let (id, _) = crate::catalog::ANTIGRAVITY_FALLBACK.iter().find(|(id, wires)| *id == model || wires.contains(&model))?;
-        return FALLBACK_FAMILIES.iter().find(|(known, _)| known == id).map(|(_, family)| (*family).to_owned());
+        let (_, family, _) = crate::catalog::ANTIGRAVITY_FALLBACK.iter().find(|(id, _, wires)| *id == model || wires.contains(&model))?;
+        return family.map(str::to_owned);
     }
     let record = roster.iter().find(|r| r.id == model).or_else(|| roster.iter().find(|r| wires_of(r).iter().any(|wire| wire == model)))?;
     record.raw.as_ref()?.get("family")?.as_str().filter(|family| !family.is_empty()).map(str::to_owned)

@@ -18,6 +18,8 @@ use serde_json::Value;
 
 static REPLAY_MODIFIED: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)blocks in the latest assistant message cannot be modified").expect("a valid pattern"));
+static REPLAY_BOUND: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)bound to a different conversation").expect("a valid pattern"));
 static REPLAY_EMPTY_TEXT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)text content blocks must be non-empty").expect("a valid pattern"));
 
 static ANTHROPIC_SCHEMA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\btools\.(\d+)\.(?:custom\.)?input_schema").expect("a valid pattern"));
@@ -37,7 +39,7 @@ pub(crate) fn names_unknown_model(status: Option<u16>, text: &str) -> bool {
 /// `isThinkingReplayRejection`: the 400s a replay repair clears. "must start with a thinking block" is not one of them
 /// (it asks for more reasoning replay, not less).
 pub(crate) fn is_thinking_replay_rejection(status: Option<u16>, text: &str) -> bool {
-    status == Some(400) && (REPLAY_MODIFIED.is_match(text) || REPLAY_EMPTY_TEXT.is_match(text))
+    status == Some(400) && (REPLAY_MODIFIED.is_match(text) || REPLAY_BOUND.is_match(text) || REPLAY_EMPTY_TEXT.is_match(text))
 }
 
 /// Types `err` as [`ErrorKind::ReplayRejected`] when its status and message are a thinking-replay refusal.
@@ -161,6 +163,7 @@ mod tests {
         for text in [
             "messages.3.content.0: `thinking` or `redacted_thinking` blocks in the latest assistant message cannot be modified.",
             "messages: Text Content Blocks Must Be Non-Empty",
+            "messages.13.content.0: Invalid `signature` in `thinking` block. Bound to a different conversation.",
         ] {
             let mut err = refused(400, text);
             mark_replay_rejection(&mut err);

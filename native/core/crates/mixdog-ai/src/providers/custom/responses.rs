@@ -25,6 +25,12 @@ impl Default for RejectedHistory {
     }
 }
 
+/// A new process has no route whose effort history a provider refused.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn reset_rejected() {
+    REJECTED.lock().unwrap_or_else(PoisonError::into_inner).clear();
+}
+
 /// `model` is already normalized by the effort-configuration gate.
 pub(crate) fn history_rejected(provider: &str, model: &str) -> bool {
     REJECTED.lock().unwrap_or_else(PoisonError::into_inner)

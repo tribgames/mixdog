@@ -5,6 +5,7 @@
 //! goes to Google and reads what comes back.
 
 use crate::transport::deadlines::ANTIGRAVITY_PROJECT;
+use crate::transport::deadlines::antigravity_project_within;
 use crate::transport::deadlines::TOKEN_EXCHANGE;
 use std::sync::Arc;
 use std::time::Duration;
@@ -105,6 +106,7 @@ pub const VERSION_MANIFEST_URL: &str =
 const REFRESH_SKEW_MS: u64 = 5 * 60_000;
 /// `onboardUser` operations are polled at most this many times.
 const ONBOARD_POLLS: u32 = 30;
+const ONBOARD_BUDGET: Duration = Duration::from_secs(30);
 
 /// `version: X.Y.Z` from an electron-builder update manifest (`parseAntigravityManifestVersion`).
 pub fn parse_manifest_version(text: &str) -> Option<String> {
@@ -410,6 +412,37 @@ mod tests {
         assert_transport("antigravityRefresh", &transport);
         assert_thrown("antigravityRefresh", &error.message);
     }
+    /// `provisionProject` (`antigravity-oauth-login.mjs:186-207`): the whole onboarding shares one 30 s budget. Polls
+    /// that each answer promptly but together outlast it end as the timeout, not as a fresh 30 s per call.
+    #[tokio::test(start_paused = true)]
+    async fn onboarding_shares_one_thirty_second_budget() {
+        struct Pending;
+        struct Once(Option<bytes::Bytes>);
+        #[async_trait]
+        impl crate::transport::BodyStream for Once {
+            async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
+                self.0.take().map(Ok)
+            }
+        }
+        #[async_trait]
+        impl HttpSend for Pending {
+            async fn send(&self, wire: WireRequest, _: crate::transport::Exchange) -> Result<crate::transport::HttpResponse, ProviderError> {
+                let body = if wire.url.ends_with(":loadCodeAssist") { "{}" } else { r#"{"done":false,"name":"op"}"# };
+                Ok(crate::transport::HttpResponse { status: 200, headers: vec![], body: Box::new(Once(Some(body.into()))) })
+            }
+        }
+        struct Slow;
+        #[async_trait]
+        impl Pause for Slow {
+            async fn pause(&self, _: Duration) {
+                tokio::time::advance(Duration::from_secs(12)).await;
+            }
+        }
+        let assist = CodeAssist { http: &Pending, access_token: "t", client_version: "1.0.0", email: "" };
+        let error = assist.discover_account(&Slow).await.err().expect("the budget runs out");
+        assert_eq!(error.message, "onboardUser timed out after 30000ms");
+    }
+
     /// The sign-in's code exchange and its project lookup that outlive their timers read as the real Node functions did
     /// (`sites.antigravityCodeExchange`, `sites.antigravityProject`): `AbortSignal.timeout`'s own error.
     #[tokio::test(start_paused = true)]
@@ -643,6 +676,11 @@ impl AntigravityAuth {
 impl CodeAssist<'_> {
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn call(&self, action: &str, body: Option<Value>) -> Result<Value, ProviderError> {
+        self.call_within(action, body, ANTIGRAVITY_PROJECT).await
+    }
+
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn call_within(&self, action: &str, body: Option<Value>, exchange: crate::transport::Exchange) -> Result<Value, ProviderError> {
         let post = body.is_some();
         let response = self
             .http
@@ -656,7 +694,7 @@ impl CodeAssist<'_> {
                     ("user-agent".into(), user_agent(&self.client_version)),
                 ],
                 body: body.map(|b| b.to_string().into_bytes()).unwrap_or_default(),
-            }, ANTIGRAVITY_PROJECT)
+            }, exchange)
             .await?;
         let status = response.status;
         let reply = response.read_all().await?;
@@ -696,8 +734,16 @@ impl CodeAssist<'_> {
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     async fn provision(&self, tier_id: &str, pause: &dyn Pause) -> Result<(), ProviderError> {
+        // One 30 s budget for the whole onboarding, not a fresh one per call (`provisionProject`).
+        let began = tokio::time::Instant::now();
+        let remaining = || {
+            ONBOARD_BUDGET
+                .checked_sub(began.elapsed())
+                .filter(|left| !left.is_zero())
+                .ok_or_else(|| failure(format!("onboardUser timed out after {}ms", ONBOARD_BUDGET.as_millis())))
+        };
         let mut operation = self
-            .call("onboardUser", Some(json!({ "tierId": tier_id, "metadata": { "ideType": "ANTIGRAVITY" } })))
+            .call_within("onboardUser", Some(json!({ "tierId": tier_id, "metadata": { "ideType": "ANTIGRAVITY" } })), antigravity_project_within(remaining()?))
             .await?;
         let mut polls = 0;
         while operation["done"] != json!(true) {
@@ -705,13 +751,13 @@ impl CodeAssist<'_> {
             if polls > ONBOARD_POLLS {
                 return Err(failure("onboardUser did not finish"));
             }
-            pause.pause(Duration::from_secs(1)).await;
+            pause.pause(Duration::from_secs(1).min(remaining()?)).await;
             let name = operation["name"]
                 .as_str()
                 .filter(|n| !n.is_empty())
                 .ok_or_else(|| failure("onboardUser returned an operation without a name"))?
                 .to_owned();
-            operation = self.call(&name, None).await?;
+            operation = self.call_within(&name, None, antigravity_project_within(remaining()?)).await?;
         }
         if !operation["error"].is_null() {
             let code = operation["error"]["code"].as_i64().map(|c| format!("{c}: ")).unwrap_or_default();

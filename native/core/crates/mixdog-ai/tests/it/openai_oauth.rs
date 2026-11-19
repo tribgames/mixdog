@@ -369,11 +369,12 @@ async fn hooked(stored_doc: Value, replies: Vec<(u16, Value)>) -> (tempfile::Tem
     (dir, file, endpoint, oauth)
 }
 
-/// The refresh task panics holding the lease: its waiters get a failure, the lease is gone (the guard's drop released it
-/// while unwinding) and the flight is cleared, so the same credential object runs a later refresh that succeeds.
+/// The refresh task panics holding the lease: its waiters, holding no token still in date, get a failure, the lease is
+/// gone (the guard's drop released it while unwinding) and the flight is cleared, so the same credential object runs a
+/// later refresh that succeeds.
 #[tokio::test]
 async fn a_refresh_task_that_panics_frees_its_lease_and_its_flight() {
-    let (_dir, file, endpoint, oauth) = hooked(stored("a1", now_ms() + 1_000), vec![tokens_reply("a2", "r2")]).await;
+    let (_dir, file, endpoint, oauth) = hooked(stored("a1", now_ms().saturating_sub(1_000)), vec![tokens_reply("a2", "r2")]).await;
     let oauth = Arc::new(oauth);
     let (entered, gate) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
     endpoint.on_next_send({
@@ -535,12 +536,17 @@ async fn a_late_refusal_of_the_old_token_does_not_poison_the_new_one() {
     assert_eq!(endpoint.sent(), 2);
 }
 
-/// A transient failure is not remembered: the next send attempts the refresh again.
+/// A transient failure holds the next preemptive refresh off while the token is still in date (`_refreshFallbackUntil`); a
+/// token past its real expiry exchanges despite the holdoff.
 #[tokio::test]
-async fn a_transient_failure_is_attempted_again_on_the_next_send() {
-    let (_dir, _file, endpoint, oauth) = hooked(stored("a1", now_ms() + 60_000), vec![(503, json!({})), tokens_reply("a2", "r2")]).await;
+async fn a_transient_failure_holds_the_next_send_off_until_the_token_expires() {
+    let (_dir, file, endpoint, oauth) = hooked(stored("a1", now_ms() + 60_000), vec![(503, json!({})), tokens_reply("a2", "r2")]).await;
     assert_eq!(oauth.current().await.unwrap().bearer, "a1", "coasts on the usable token");
-    assert_eq!(oauth.current().await.unwrap().bearer, "a2", "the next send refreshes");
+    // Node holds the next preemptive attempt off until the expiry skew (`_refreshFallbackUntil`).
+    assert_eq!(oauth.current().await.unwrap().bearer, "a1", "the outage is not retried on every turn");
+    assert_eq!(endpoint.sent(), 1);
+    file.save(&stored("a1", now_ms().saturating_sub(1_000))).await.unwrap();
+    assert_eq!(oauth.current().await.unwrap().bearer, "a2", "an expired token exchanges despite the holdoff");
     assert_eq!(endpoint.sent(), 2);
 }
 
@@ -600,4 +606,85 @@ async fn a_refresh_answer_that_is_no_token_reads_as_nodes_whole() {
         let error = oauth.after_rejection(&rejected).await.expect_err(name);
         assert_eq!(error.message, answer["thrown"]["message"].as_str().unwrap(), "{name}");
     }
+}
+
+/// A token endpoint whose answer head arrives and whose body then fails to read.
+struct BrokenBody(u16);
+
+struct Failing;
+
+#[async_trait]
+impl BodyStream for Failing {
+    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
+        Some(Err(TransportFault::Connect { os_code: None }))
+    }
+}
+
+#[async_trait]
+impl HttpSend for BrokenBody {
+    async fn send(&self, _: WireRequest, _: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+        Ok(HttpResponse { status: self.0, headers: vec![], body: Box::new(Failing) })
+    }
+}
+
+/// `refreshUnderLock` catches a body that cannot be read like any failed exchange (`openai-oauth-tokens.mjs:242`, `:329-332`):
+/// the token still in date keeps serving, the turn does not fail.
+#[tokio::test]
+async fn a_refresh_whose_body_cannot_be_read_keeps_the_valid_token() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let file = CredentialFile::new(dir.path().join("openai-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+    file.save(&stored("a1", now_ms() + 1_000)).await.unwrap();
+    let oauth = OpenAiOAuth::new(file, Arc::new(BrokenBody(200)));
+    assert_eq!(oauth.current().await.unwrap().bearer, "a1");
+}
+
+/// The head's status survives a body that cannot be read: a 401 is still the refresh token's refusal.
+#[tokio::test]
+async fn a_broken_401_body_is_still_a_refresh_token_refusal() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let file = CredentialFile::new(dir.path().join("openai-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+    file.save(&stored("a1", now_ms() + 3_600_000)).await.unwrap();
+    let oauth = OpenAiOAuth::new(file, Arc::new(BrokenBody(401)));
+    let rejected = oauth.current().await.unwrap();
+    assert!(oauth.after_rejection(&rejected).await.unwrap_err().reauth_required);
+}
+
+/// A forced refresh that ran its own exchange is final even when the server hands back the same bearer: it does not
+/// spend the just-rotated refresh token again, and a successful renewal arms no failure holdoff.
+#[tokio::test]
+async fn the_owner_of_a_successful_exchange_does_not_exchange_again_for_the_same_bearer() {
+    let (_dir, _file, endpoint, oauth) = hooked(stored("a1", now_ms() + 3_600_000), vec![tokens_reply("a1", "r2")]).await;
+    let rejected = oauth.current().await.unwrap();
+    assert_eq!(oauth.after_rejection(&rejected).await.unwrap().map(|next| next.bearer), Some("a1".to_owned()));
+    assert_eq!(endpoint.sent(), 1, "the forced caller's own exchange is final: no second exchange spends the rotated token");
+    let (_dir, _file, endpoint, oauth) = hooked(stored("a1", now_ms() + 1_000), vec![(200, json!({"access_token": "a1", "refresh_token": "r2", "expires_in": 1})), (200, json!({"access_token": "a1", "refresh_token": "r3", "expires_in": 1}))]).await;
+    assert_eq!(oauth.current().await.unwrap().bearer, "a1");
+    assert_eq!(oauth.current().await.unwrap().bearer, "a1");
+    assert_eq!(endpoint.sent(), 2, "a successful renewal that returned the same bearer is not a failure to coast on");
+}
+
+/// A 401's forced refresh that joins a preemptive refresh which only coasted on the rejected token runs its own
+/// exchange instead of being handed the rejected bearer again (`openai-oauth-tokens.mjs:369-386`).
+#[tokio::test]
+async fn a_forced_refresh_that_joins_a_coasting_one_runs_its_own_exchange() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let file = CredentialFile::new(dir.path().join("openai-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+    file.save(&stored("a1", now_ms() + 1_000)).await.unwrap();
+    let endpoint = Arc::new(TokenEndpoint {
+        replies: Mutex::new(vec![(500, json!({})), (200, json!({"access_token": "a2", "refresh_token": "r2", "expires_in": 3600}))].into()),
+        delay: std::time::Duration::from_millis(200),
+        ..Default::default()
+    });
+    let oauth = OpenAiOAuth::new(file, endpoint.clone());
+    let rejected = mixdog_ai::providers::openai::adapter::Credential { bearer: "a1".into(), account_id: Some("acct-1".into()) };
+    let (preemptive, forced) = tokio::join!(oauth.current(), async {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        oauth.after_rejection(&rejected).await
+    });
+    assert_eq!(preemptive.unwrap().bearer, "a1");
+    assert_eq!(forced.unwrap().expect("a new credential").bearer, "a2");
+    assert_eq!(endpoint.seen.lock().unwrap().len(), 2);
 }

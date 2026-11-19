@@ -48,6 +48,11 @@ pub trait PkceProvider: Send + Sync {
     fn manual_authorize_url(&self, _request: &AuthorizeRequest<'_>) -> Option<String> {
         None
     }
+    /// What a pasted text names: the code and the redirect URI it was issued for. A provider whose hosted page shows a
+    /// code to paste overrides this; the default is a callback URL of the loopback redirect.
+    fn parse_pasted(&self, text: &str, redirect_uri: &str, state: &str) -> Result<(String, String), CallbackError> {
+        parse_pasted_callback(text, redirect_uri, state).map(|code| (code, redirect_uri.to_owned()))
+    }
     /// The pages this provider's callback server leaves the browser with.
     fn callback_pages(&self) -> CallbackPages;
     /// Exchanges the code and stores the credential; returns the account
@@ -96,6 +101,21 @@ fn failure_of(error: CallbackError) -> LoginFailure {
     }
 }
 
+impl PkceLoginFlow {
+    /// A sign-in with no loopback listener: the user opens the hosted page and pastes what it shows.
+    fn paste_only(&self, guard: FlowGuard, first: LoginState, verifier: String, redirect_uri: String, state: String) -> Box<dyn LoginSession> {
+        let provider = self.provider.clone();
+        start_session(guard, first, true, move |mut ctx, _cancel| async move {
+            ctx.set(LoginState::Waiting);
+            let Some(text) = ctx.pasted.recv().await else {
+                return Err(LoginFailure::Failed { code: "invalid_callback".into(), message: "no authorization code was provided".into() });
+            };
+            let (code, issued_for) = provider.parse_pasted(&text, &redirect_uri, &state).map_err(failure_of)?;
+            provider.exchange(&code, &verifier, &issued_for).await
+        })
+    }
+}
+
 #[async_trait]
 impl LoginFlow for PkceLoginFlow {
     fn target(&self) -> &LoginTarget {
@@ -106,15 +126,26 @@ impl LoginFlow for PkceLoginFlow {
         let guard = FlowGuard::claim(&self.running).ok_or(LoginError::Busy)?;
         let state = random_state();
         let pkce = Pkce::generate(self.provider.verifier_bytes());
-        let server = CallbackServer::bind(self.provider.redirect(), state.clone(), self.provider.callback_pages())
-            .await
-            .map_err(|err| {
-                LoginError::Failed(LoginFailure::Failed {
-                    code: "listen_failed".into(),
-                    message: err.kind().to_string(),
-                })
-            })?;
-        let redirect_uri = server.redirect_uri();
+        let (server, redirect_uri) = match CallbackServer::bind(self.provider.redirect(), state.clone(), self.provider.callback_pages()).await {
+            Ok(server) => {
+                let uri = server.redirect_uri();
+                (Some(server), uri)
+            }
+            Err(err) => {
+                // The loopback port is taken: a provider with a hosted paste page signs in through it, as Node did.
+                let redirect = self.provider.redirect();
+                let uri = redirect.uri(redirect.port);
+                let request = AuthorizeRequest { redirect_uri: &uri, code_challenge: &pkce.challenge, state: &state };
+                let Some(manual) = self.provider.manual_authorize_url(&request) else {
+                    return Err(LoginError::Failed(LoginFailure::Failed {
+                        code: "listen_failed".into(),
+                        message: err.kind().to_string(),
+                    }));
+                };
+                let first = LoginState::Authorize { url: manual.clone(), manual_url: Some(manual) };
+                return Ok(self.paste_only(guard, first, pkce.verifier.clone(), uri, state));
+            }
+        };
         let request = AuthorizeRequest {
             redirect_uri: &redirect_uri,
             code_challenge: &pkce.challenge,
@@ -134,6 +165,7 @@ impl LoginFlow for PkceLoginFlow {
                     Box::pin(async move { provider.exchange_checked(&code, &verifier, &redirect_uri).await })
                 })
             };
+            let Some(server) = server else { unreachable!("a listening flow has its server") };
             let callback = server.wait(exchange);
             tokio::pin!(callback);
             let code = tokio::select! {
@@ -142,11 +174,11 @@ impl LoginFlow for PkceLoginFlow {
                     Settled::Rejected(error) => Err(error),
                 },
                 Some(text) = ctx.pasted.recv() => {
-                    parse_pasted_callback(&text, &redirect_uri, &state)
+                    provider.parse_pasted(&text, &redirect_uri, &state)
                 }
             };
-            let code = code.map_err(failure_of)?;
-            provider.exchange(&code, &pkce.verifier, &redirect_uri).await
+            let (code, issued_for) = code.map_err(failure_of)?;
+            provider.exchange(&code, &pkce.verifier, &issued_for).await
         }))
     }
 }
@@ -212,6 +244,54 @@ mod tests {
         assert_eq!(last, Some(LoginState::Done { account: Some("me".into()) }));
         // The flow is free again.
         flow.start().await.unwrap().cancel();
+    }
+
+    /// Anthropic's sign-in with its loopback port taken (`anthropic-oauth-credentials.mjs:755`): the hosted paste page opens
+    /// instead of the sign-in failing with `listen_failed`, and the pasted `code#state` is exchanged against its redirect.
+    struct Hosted(std::sync::Mutex<Vec<String>>, u16);
+
+    #[async_trait]
+    impl PkceProvider for Hosted {
+        fn redirect(&self) -> Redirect {
+            Redirect { host: "localhost", port: self.1, path: "/cb" }
+        }
+        fn authorize_url(&self, r: &AuthorizeRequest<'_>) -> String {
+            format!("https://auth.test/a?redirect_uri={}", r.redirect_uri)
+        }
+        fn manual_authorize_url(&self, r: &AuthorizeRequest<'_>) -> Option<String> {
+            Some(format!("https://auth.test/hosted?state={}", r.state))
+        }
+        fn parse_pasted(&self, text: &str, _: &str, state: &str) -> Result<(String, String), CallbackError> {
+            let (code, pasted) = text.split_once('#').ok_or(CallbackError::Malformed)?;
+            (pasted == state).then(|| (code.to_owned(), "https://auth.test/hosted".to_owned())).ok_or(CallbackError::StateMismatch)
+        }
+        fn callback_pages(&self) -> CallbackPages {
+            super::super::callback::pages::OPENAI
+        }
+        async fn exchange_checked(&self, _: &str, _: &str, redirect_uri: &str) -> Result<Option<String>, Refusal> {
+            self.0.lock().unwrap().push(redirect_uri.to_owned());
+            Ok(Some("me".into()))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_taken_loopback_port_falls_back_to_the_hosted_paste_page() {
+        mixdog_rt::testing::tokens();
+        let taken = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let provider = Arc::new(Hosted(Default::default(), taken.local_addr().unwrap().port()));
+        let flow = PkceLoginFlow::new(LoginTarget::Provider("hosted".into()), provider.clone());
+        let session = flow.start().await.expect("a taken port is not a failed sign-in");
+        let LoginState::Authorize { url, manual_url } = session.started() else { panic!("authorize first") };
+        assert!(url.starts_with("https://auth.test/hosted?state="));
+        let state = url.split("state=").nth(1).unwrap().to_owned();
+        assert_eq!(manual_url, Some(url));
+        session.provide(mixdog_core_api::domain::login::LoginInput::AuthorizationCode(format!("abc#{state}"))).await.unwrap();
+        let mut last = None;
+        while let Some(next) = session.next().await {
+            last = Some(next);
+        }
+        assert_eq!(last, Some(LoginState::Done { account: Some("me".into()) }));
+        assert_eq!(*provider.0.lock().unwrap(), ["https://auth.test/hosted"]);
     }
 
     #[tokio::test]

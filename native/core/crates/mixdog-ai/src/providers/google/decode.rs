@@ -131,6 +131,8 @@ fn merge_usage(current: &mut Option<Value>, next: &serde_json::Map<String, Value
     let cache = if style == UsageStyle::ToolUseAdded { GATEWAY_CACHE } else { GEMINI_CACHE };
     let families = [PROMPT, TOOL_PROMPT, CANDIDATES, THOUGHTS, TOTAL, cache];
     let current = current.get_or_insert_with(|| Value::Object(serde_json::Map::new())).as_object_mut().expect("usage is an object");
+    // A null count is shown only while the latest snapshot states it (Node's `raw` is the latest snapshot).
+    current.retain(|key, value| token_count(value).is_some() || !families.iter().any(|family| family.contains(&key.as_str())));
     for family in families {
         if family.iter().any(|key| next.get(*key).and_then(token_count).is_some()) {
             for key in family {
@@ -138,8 +140,12 @@ fn merge_usage(current: &mut Option<Value>, next: &serde_json::Map<String, Value
             }
         }
     }
+    // A null or missing count is still the snapshot's own field (Node's `raw` shows it) when no observation of its family is
+    // kept from an earlier snapshot.
+    let kept: Vec<bool> = families.iter().map(|family| family.iter().any(|key| current.get(*key).and_then(token_count).is_some())).collect();
     for (key, value) in next {
-        if token_count(value).is_some() || !families.iter().any(|family| family.contains(&key.as_str())) {
+        let family = families.iter().position(|family| family.contains(&key.as_str()));
+        if token_count(value).is_some() || family.is_none_or(|at| !kept[at]) {
             current.insert(key.clone(), value.clone());
         }
     }
@@ -226,12 +232,51 @@ fn complete_call(call: &Value) -> bool {
     named && !streaming && args_ok
 }
 
+/// How a continued hop's answer was asked for.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HopAsk {
+    /// Streamed, with asks left: an unusable answer is asked again.
+    Open,
+    /// Streamed, the asks spent: an unusable answer fails the turn.
+    Spent,
+    /// The non-streaming re-issue: never asked again, judged by the merged turn's finish alone.
+    Reissued,
+}
+
+/// The lengths of the gathered answer text, the relayed text and the dispatched calls when a hop began.
+#[derive(Clone, Copy, Default)]
+struct HopMark {
+    raw: usize,
+    shown: usize,
+    dispatched: usize,
+}
+
+/// Cloned at the start of a long-decode hop, so a retried hop decodes its new answer from where the hop began.
+#[derive(Clone)]
 pub struct GeminiDecoder {
     dialect: DecodeDialect,
     buf: Vec<u8>,
     parts: Vec<Value>,
     saw_chunk: bool,
     finish: Option<String>,
+    /// The token a `CONTINUATION` candidate carried: the long decode's next request resends the body with it.
+    continuation: Option<String>,
+    /// The usage of each finished long-decode hop; every hop is billed, so the turn's counts are their sum.
+    hop_usage: Vec<Value>,
+    /// Finished long-decode hops before the stream being read.
+    hops: u32,
+    /// The usage of discarded attempts of continued hops that no ledger booked apart: billed, so counted in the turn's
+    /// sum. Kept across every rollback of a hop.
+    discarded: Vec<Value>,
+    /// Where the hop being read began in the gathered text and calls.
+    hop_mark: HopMark,
+    /// A continued hop's own answer is judged before the hops merge (`geminiInvalidStreamReask`); `Some(after_tool_result)`
+    /// once the stream asks for it.
+    judge_hops: Option<bool>,
+    /// How the hop being read is asked.
+    hop_ask: HopAsk,
+    /// The last conclusion failed on the hop's own answer, not on the merged turn.
+    hop_invalid: bool,
     usage: Option<Value>,
     usage_updated: bool,
     sources: Vec<String>,
@@ -240,6 +285,9 @@ pub struct GeminiDecoder {
     calls: usize,
     whole_calls: usize,
     incomplete_call: bool,
+    /// The whole calls and the unfinished one of the hop being read (`assertGeminiStreamCompleted` reads one hop's parts).
+    hop_whole_calls: usize,
+    hop_incomplete_call: bool,
     exposure: Exposure,
     done: bool,
     /// The text-leak guard over the answer text (`createGeminiTextLeakGuard`, deferring its calls).
@@ -291,6 +339,14 @@ impl GeminiDecoder {
             parts: Vec::new(),
             saw_chunk: false,
             finish: None,
+            continuation: None,
+            hop_usage: Vec::new(),
+            hops: 0,
+            discarded: Vec::new(),
+            hop_mark: HopMark::default(),
+            judge_hops: None,
+            hop_ask: HopAsk::Open,
+            hop_invalid: false,
             usage: None,
             usage_updated: false,
             sources: Vec::new(),
@@ -299,6 +355,8 @@ impl GeminiDecoder {
             calls: 0,
             whole_calls: 0,
             incomplete_call: false,
+            hop_whole_calls: 0,
+            hop_incomplete_call: false,
             exposure: Exposure::default(),
             done: false,
             leak: LeakGuard::new(HashSet::new(), false),
@@ -391,8 +449,12 @@ impl GeminiDecoder {
 
     /// `filterNativeToolCalls` + the release of the deferred calls after a clean finish.
     fn release_calls(&mut self, out: &mut Vec<StreamEvent>) {
+        // The guard filters the natives against what it recovered (`filterNativeToolCalls`); `emitGeminiToolCalls` emits
+        // each id once.
+        let mut emitted = HashSet::new();
         for call in std::mem::take(&mut self.native_done) {
-            if self.dispatched.insert(leak::fingerprint(&call.name, &call.arguments)) {
+            let passed = !self.leak.enabled() || self.dispatched.insert(leak::fingerprint(&call.name, &call.arguments));
+            if passed && emitted.insert(call.id.clone()) {
                 out.push(StreamEvent::ToolCallDone(call));
             }
         }
@@ -462,6 +524,9 @@ impl GeminiDecoder {
         {
             self.finish = Some(reason.to_owned());
         }
+        if let Some(token) = candidate.get("continuationToken").and_then(Value::as_str).filter(|t| !t.is_empty()) {
+            self.continuation = Some(token.to_owned());
+        }
         self.collect_sources(candidate);
         for part in candidate.pointer("/content/parts").and_then(Value::as_array).into_iter().flatten() {
             self.part(part, out);
@@ -485,9 +550,11 @@ impl GeminiDecoder {
             self.calls += 1;
             if !complete_call(call) {
                 self.incomplete_call = true;
+                self.hop_incomplete_call = true;
                 return;
             }
             self.whole_calls += 1;
+            self.hop_whole_calls += 1;
             let name = call["name"].as_str().unwrap_or_default().to_owned();
             let args = call.get("args").cloned().unwrap_or_else(|| json!({}));
             let id = call
@@ -499,12 +566,9 @@ impl GeminiDecoder {
             self.open_item(ItemKind::Tool, out);
             out.push(StreamEvent::ToolCallStart { id: id.clone(), name: name.clone() });
             out.push(StreamEvent::ToolCallArgsDelta { id: id.clone(), delta: args.to_string() });
-            let call = ToolCall { id, name, arguments: args, native_type: None };
-            if self.leak.enabled() {
-                self.native_done.push(call);
-            } else {
-                out.push(StreamEvent::ToolCallDone(call));
-            }
+            // Native calls are emitted only once the turn finished cleanly (`emitGeminiToolCalls` after
+            // `geminiIncompleteError`), whether or not the guard runs.
+            self.native_done.push(ToolCall { id, name, arguments: args, native_type: None });
             self.open = None;
             return;
         }
@@ -584,6 +648,26 @@ impl GeminiDecoder {
         Some(err)
     }
 
+    /// `geminiInvalidStreamReason` over the hop being read alone: its calls, its recovered calls, its relayed text and its
+    /// answer text. A hop that carried a call or relayed text is usable; else an invalid tool call is unusable, and so is an
+    /// empty `STOP` unless it answers a tool result.
+    fn hop_unusable(&self, kind: FinishKind, after_tool_result: bool) -> Option<String> {
+        let mark = self.hop_mark;
+        let relayed = if self.leak.enabled() { self.shown.len() > mark.shown } else { self.raw.len() > mark.raw };
+        if self.hop_whole_calls > 0 || self.hop_incomplete_call || self.dispatched.len() > mark.dispatched || relayed {
+            return None;
+        }
+        match kind {
+            FinishKind::InvalidToolCall => self.finish.as_deref().map(|reason| normalize_reason(reason).to_owned()),
+            FinishKind::Complete if !after_tool_result => {
+                let invisible = |c: char| matches!(c, '\u{200B}'..='\u{200D}' | '\u{FEFF}' | '\u{200E}' | '\u{200F}');
+                let text: String = self.raw[mark.raw..].chars().filter(|c| !invisible(*c)).collect();
+                text.trim().is_empty().then(|| "NO_RESPONSE_TEXT".to_owned())
+            }
+            _ => None,
+        }
+    }
+
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
     fn conclude(&mut self) -> Result<Vec<StreamEvent>, ProviderError> {
         let mut out = Vec::new();
@@ -593,51 +677,8 @@ impl GeminiDecoder {
             return Err(truncated(&format!("{label} truncated: empty stream"), self.exposure));
         }
         let kind = self.finish.as_deref().map_or(FinishKind::Unfinished, finish_kind);
-        let whole_calls = self.whole_calls > 0 && !self.incomplete_call;
-        // A delivered turn carries no stop reason (Node's Gemini results have
-        // none); only an output cutoff or an unmapped finish is named.
-        let stop = match kind {
-            FinishKind::Unfinished if whole_calls => None,
-            FinishKind::Unfinished => {
-                return Err(self.retired_model().unwrap_or_else(|| truncated(&format!("{label} truncated: no finishReason"), self.exposure)));
-            }
-            _ if self.incomplete_call => {
-                return Err(truncated("stream truncated: unfinished function call", self.exposure));
-            }
-            FinishKind::Complete => None,
-            FinishKind::OutputLimit if whole_calls => None,
-            // An output cut that showed text is the truncated answer the session keeps (Node throws
-            // `PROVIDER_INCOMPLETE` and `send-with-recovery.mjs` `isPromotableIncomplete` promotes it); with no text
-            // there is nothing to keep, and the turn fails.
-            FinishKind::OutputLimit if !self.exposure.text_emitted => {
-                let reason = self.finish.clone().unwrap_or_default();
-                return Err(self.fail(ErrorKind::Unknown, "PROVIDER_INCOMPLETE", &reason));
-            }
-            FinishKind::OutputLimit => Some(StopReason::MaxTokens),
-            FinishKind::Policy | FinishKind::Language | FinishKind::Recitation => {
-                let reason = self.finish.clone().unwrap_or_default();
-                let code = policy_finish_code(&reason).unwrap_or_default();
-                return Err(self.fail(ErrorKind::Policy, code, &reason));
-            }
-            FinishKind::InvalidToolCall if !self.exposure.text_emitted => {
-                let reason = self.finish.clone().unwrap_or_default();
-                let code = normalize_reason(&reason).to_lowercase();
-                return Err(self.fail(ErrorKind::Transient, &code, &reason));
-            }
-            FinishKind::ToolCallTerminal => {
-                let reason = self.finish.clone().unwrap_or_default();
-                let code = normalize_reason(&reason).to_lowercase();
-                return Err(self.fail(ErrorKind::InvalidRequest, &code, &reason));
-            }
-            FinishKind::Continuation => {
-                let reason = self.finish.clone().unwrap_or_default();
-                return Err(self.fail(ErrorKind::Unknown, "continuation_unsupported", &reason));
-            }
-            FinishKind::InvalidToolCall | FinishKind::Other => {
-                Some(StopReason::Other(self.finish.clone().unwrap_or_default()))
-            }
-        };
-        // The stream ended cleanly: nothing is held back, and the held calls are released.
+        // Every call is collected before the finish decides: the guard's held tail and the whole-text scan can still
+        // recover a call spelled across chunks, and a failed candidate must release none of them.
         let tail = self.leak.flush();
         // The guard's flush forwards its text but reports no progress (`createGeminiTextLeakGuard` calls
         // `onStreamDelta` only for a recovered call): the tail is transport only.
@@ -654,6 +695,97 @@ impl GeminiDecoder {
                 out.push(StreamEvent::FinalContent(content));
             }
         }
+        // A continued hop's streamed answer is judged on its own before the hops merge: an unusable one is re-asked while
+        // asks remain (`runGeminiStreamAttempts`), and fails the turn once they are spent. The non-streaming re-issue's
+        // answer is never re-asked; the merged turn's finish judges it below, as any answer.
+        if self.hops > 0
+            && self.hop_ask != HopAsk::Reissued
+            && let Some(after_tool_result) = self.judge_hops
+            && let Some(reason) = self.hop_unusable(kind, after_tool_result)
+        {
+            self.hop_invalid = true;
+            let empty = reason == "NO_RESPONSE_TEXT";
+            let spent = self.hop_ask == HopAsk::Spent;
+            let mut err = if spent && !empty {
+                // `geminiIncompleteError` over the merged turn: the hop's finish ends it.
+                self.incomplete()
+            } else {
+                let mut err = self.fail(ErrorKind::Transient, &reason.to_lowercase(), &reason);
+                err.message = format!("Gemini stream unusable: {reason}");
+                err.finish_reason = self.finish.as_deref().map(Into::into);
+                err
+            };
+            if spent {
+                // An empty answer that survives every ask is a failure, not an answer (`geminiInvalidStreamReask`); a
+                // malformed one is spent, and the loop must not multiply its asks.
+                err.recovery_exhausted = true;
+                err.recovery_terminal |= empty;
+            }
+            return Err(err);
+        }
+        let whole_calls = self.whole_calls > 0 && !self.incomplete_call;
+        let holds_calls = whole_calls || !self.leaked.is_empty();
+        // A delivered turn carries no stop reason (Node's Gemini results have
+        // none); only an output cutoff is named.
+        let stop = match kind {
+            // A stream that ends without a finish but carried whole calls of its own, none unfinished, is a delivered turn,
+            // whichever hop it is; a hop with no calls of its own is truncated, whatever calls an earlier hop gathered.
+            FinishKind::Unfinished if self.hop_whole_calls > 0 && !self.hop_incomplete_call => None,
+            FinishKind::Unfinished => {
+                return Err(self.retired_model().unwrap_or_else(|| truncated(&format!("{label} truncated: no finishReason"), self.exposure)));
+            }
+            _ if self.incomplete_call => {
+                return Err(truncated("stream truncated: unfinished function call", self.exposure));
+            }
+            FinishKind::Complete => None,
+            // A failed candidate's calls are never dispatched: Node's `geminiIncompleteError` runs before
+            // `emitGeminiToolCalls`, so a cut-off turn that carries whole calls still fails.
+            FinishKind::OutputLimit if holds_calls => {
+                let reason = self.finish.clone().unwrap_or_default();
+                return Err(self.fail(ErrorKind::Unknown, "PROVIDER_INCOMPLETE", &reason));
+            }
+            // An output cut that showed text is the truncated answer the session keeps (Node throws
+            // `PROVIDER_INCOMPLETE` and `send-with-recovery.mjs` `isPromotableIncomplete` promotes it); with no text
+            // there is nothing to keep, and the turn fails.
+            FinishKind::OutputLimit if !self.exposure.text_emitted => {
+                let reason = self.finish.clone().unwrap_or_default();
+                return Err(self.fail(ErrorKind::Unknown, "PROVIDER_INCOMPLETE", &reason));
+            }
+            FinishKind::OutputLimit => Some(StopReason::MaxTokens),
+            FinishKind::Policy | FinishKind::Language | FinishKind::Recitation => {
+                let reason = self.finish.clone().unwrap_or_default();
+                let code = policy_finish_code(&reason).unwrap_or_default();
+                return Err(self.fail(ErrorKind::Policy, code, &reason));
+            }
+            // Whether the answer is asked again: text it showed prevents that (`geminiInvalidStreamReason`), so only a
+            // malformed answer with none is the re-askable invalid stream.
+            FinishKind::InvalidToolCall if !self.exposure.text_emitted => {
+                let reason = self.finish.clone().unwrap_or_default();
+                let code = normalize_reason(&reason).to_lowercase();
+                return Err(self.fail(ErrorKind::Transient, &code, &reason));
+            }
+            FinishKind::ToolCallTerminal => {
+                let reason = self.finish.clone().unwrap_or_default();
+                let code = normalize_reason(&reason).to_lowercase();
+                return Err(self.fail(ErrorKind::InvalidRequest, &code, &reason));
+            }
+            FinishKind::Continuation => {
+                let reason = self.finish.clone().unwrap_or_default();
+                return Err(self.fail(ErrorKind::Unknown, "continuation_unsupported", &reason));
+            }
+            // Whether a final finish is acceptable: `geminiIncompleteError` accepts only `STOP`, and the session promotes
+            // only an output cut that showed text (`isPromotableIncomplete`). A malformed or unmapped finish fails the
+            // turn, with or without text, on any hop.
+            FinishKind::InvalidToolCall | FinishKind::Other => {
+                let reason = self.finish.clone().unwrap_or_default();
+                let mut err = self.fail(ErrorKind::Unknown, "PROVIDER_INCOMPLETE", &reason);
+                // A malformed non-streaming answer relayed nothing, so it is an invalid stream whose asks the loop must
+                // not multiply (`markProviderRecoveryExhausted`).
+                err.recovery_exhausted = kind == FinishKind::InvalidToolCall && self.hop_ask == HopAsk::Reissued;
+                return Err(err);
+            }
+        };
+        // The stream ended cleanly: nothing is held back, and the held calls are released.
         let recovered = !self.leaked.is_empty();
         self.release_calls(&mut out);
         // A recovered call has no part in the response, so the parts cannot be replayed.
@@ -668,7 +800,7 @@ impl GeminiDecoder {
             out.push(StreamEvent::ReasoningReplay(ProviderReplay { owner: self.dialect.owner.clone(), items }));
         }
         out.extend(self.citations.drain(..).map(StreamEvent::Citation));
-        if let Some(um) = &self.usage {
+        if let Some(um) = &self.usage_total() {
             out.push(StreamEvent::Usage(usage_of(um, self.dialect.usage)));
         }
         out.push(StreamEvent::Completed { stop, pricing_model: None, request_ms: None });
@@ -680,10 +812,147 @@ impl GeminiDecoder {
 impl GeminiDecoder {
     pub(super) fn take_usage_update(&mut self) -> Option<(Usage, Option<String>)> {
         if std::mem::take(&mut self.usage_updated) {
-            self.usage.as_ref().map(|um| (usage_of(um, self.dialect.usage), self.model.clone()))
+            self.usage_now()
         } else {
             None
         }
+    }
+
+    /// The turn's usage: the sum of every finished hop and the one in flight (`sumGeminiHopUsage`).
+    fn usage_total(&self) -> Option<Value> {
+        if self.hop_usage.is_empty() && self.discarded.is_empty() {
+            return self.usage.clone();
+        }
+        let metas: Vec<&Value> = self.hop_usage.iter().chain(&self.discarded).chain(self.usage.as_ref()).collect();
+        let mut summed = metas.last().and_then(|meta| meta.as_object()).cloned().unwrap_or_default();
+        for family in [PROMPT, TOOL_PROMPT, CANDIDATES, THOUGHTS, TOTAL, GEMINI_CACHE] {
+            if metas.iter().any(|meta| count(meta, family).is_some()) {
+                let total = metas.iter().map(|meta| count(meta, family).unwrap_or(0)).fold(0u64, u64::saturating_add);
+                for key in family {
+                    summed.shift_remove(*key);
+                }
+                summed.insert(family[0].to_owned(), json!(total));
+            }
+        }
+        // The context holds the first hop's prompt plus what was generated, which the summed prompt overstates: the
+        // first hop's prompt and cache counts ride the usage as Node's `initialPromptTokenCount` (`sumGeminiHopUsage`).
+        let first = metas[0];
+        summed.insert("initialPromptTokenCount".to_owned(), json!(count(first, PROMPT).unwrap_or(0)));
+        summed.insert("initialCachedContentTokenCount".to_owned(), json!(count(first, GEMINI_CACHE).unwrap_or(0)));
+        Some(Value::Object(summed))
+    }
+
+    /// The body ended: a `CONTINUATION` finish that carried a token is a long-decode hop, not the turn's end. The hop's usage
+    /// is folded in and its token returned for the next request; the decoder keeps the text, calls and parts it gathered.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value")]
+    pub(super) fn end_hop(&mut self) -> Result<(Vec<StreamEvent>, Option<String>), ProviderError> {
+        if let Some(err) = self.failed.take() {
+            return Err(err);
+        }
+        let rest = std::mem::take(&mut self.buf);
+        let mut out = Vec::new();
+        if let Err(mut err) = self.line(&rest, &mut out) {
+            self.stamp_failure(&mut err);
+            return Err(err);
+        }
+        Ok((out, self.fold_hop()))
+    }
+
+    /// A finished hop that ended `CONTINUATION` with a token: folded in, its token returned.
+    fn fold_hop(&mut self) -> Option<String> {
+        let continues = self.finish.as_deref().map(finish_kind) == Some(FinishKind::Continuation);
+        let token = if continues { self.continuation.take() } else { None };
+        if token.is_some() {
+            self.finish = None;
+            self.hops += 1;
+            // The next hop must show its own chunks: an empty one is an empty stream, not a continuation of this one.
+            self.saw_chunk = false;
+            self.hop_whole_calls = 0;
+            self.hop_incomplete_call = false;
+            self.hop_ask = HopAsk::Open;
+            self.hop_invalid = false;
+            self.hop_mark = HopMark { raw: self.raw.len(), shown: self.shown.len(), dispatched: self.dispatched.len() };
+            self.hop_usage.extend(self.usage.take());
+        }
+        token
+    }
+
+    /// Judge each continued hop's own answer, `after_tool_result` when the request answers a tool result.
+    pub(super) fn judge_hops(&mut self, after_tool_result: bool) {
+        self.judge_hops = Some(after_tool_result);
+    }
+
+    /// The hop's streamed asks are spent: an unusable answer fails the turn.
+    pub(super) fn last_ask(&mut self) {
+        self.hop_ask = HopAsk::Spent;
+    }
+
+    /// The turn's usage as the decoder now holds it, the pending update consumed: after a rollback it can be less than
+    /// what was last observed, or none.
+    pub(super) fn settle_usage(&mut self) -> Option<(Usage, Option<String>)> {
+        self.usage_updated = false;
+        self.usage_now()
+    }
+
+    /// `geminiIncompleteError` of the finish the hop being read ended on.
+    pub(super) fn incomplete(&self) -> ProviderError {
+        let reason = self.finish.clone().unwrap_or_default();
+        self.fail(ErrorKind::Unknown, "PROVIDER_INCOMPLETE", &reason)
+    }
+
+    /// The last conclusion refused the hop's own answer.
+    pub(super) fn hop_invalid(&self) -> bool {
+        self.hop_invalid
+    }
+
+    /// A failed attempt of a continued hop: decoding starts over from `start`, the decoder as the hop began. What the
+    /// attempt reported was billed: `book` books it apart (`noteAbandonedUsage`), and what it does not take is carried in
+    /// the turn's sum, across every later rollback.
+    pub(super) fn restart_hop(&mut self, start: &GeminiDecoder, book: impl FnOnce(Usage, Option<String>) -> bool) {
+        let billed = self.usage.take();
+        let mut discarded = std::mem::take(&mut self.discarded);
+        if let Some(um) = billed
+            && !book(usage_of(&um, self.dialect.usage), self.model.clone())
+        {
+            discarded.push(um);
+        }
+        *self = start.clone();
+        self.discarded = discarded;
+        self.usage_updated = true;
+    }
+
+    /// The turn's usage so far, every finished hop included, with the model it is booked to.
+    pub(super) fn usage_now(&self) -> Option<(Usage, Option<String>)> {
+        self.usage_total().map(|um| (usage_of(&um, self.dialect.usage), self.model.clone()))
+    }
+
+    /// A failure that did not come from the decoder still carries the usage every finished hop reported.
+    pub(super) fn carry_usage(&self, err: &mut ProviderError) {
+        if err.partial_usage.is_none() && let Some((usage, model)) = self.usage_now() {
+            err.partial_usage = Some(Box::new(usage));
+            err.partial_model = model.as_deref().map(Into::into);
+        }
+    }
+
+    /// One unary answer of a long decode: its token when it ended `CONTINUATION` (the answer is not concluded), else the
+    /// turn's events.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value")]
+    pub(super) fn unary_hop(&mut self, payload: Value) -> Result<(Vec<StreamEvent>, Option<String>), ProviderError> {
+        self.hop_ask = HopAsk::Reissued;
+        let mut out = Vec::new();
+        self.chunk(payload, &mut out).map_err(|mut err| {
+            self.stamp_failure(&mut err);
+            err
+        })?;
+        if let Some(token) = self.fold_hop() {
+            return Ok((out, Some(token)));
+        }
+        let end = self.conclude().map_err(|mut err| {
+            self.stamp_failure(&mut err);
+            err
+        })?;
+        out.extend(end);
+        Ok((out, None))
     }
 
     pub(super) fn stamp_failure(&self, err: &mut ProviderError) {
@@ -691,14 +960,12 @@ impl GeminiDecoder {
         if self.finish.as_deref().and_then(policy_finish_code).is_some() {
             err.recovery_terminal = true;
         }
-        if err.partial_usage.is_none() && let Some(usage) = &self.usage {
-            err.partial_usage = Some(Box::new(usage_of(usage, self.dialect.usage)));
-            err.partial_model = self.model.as_deref().map(Into::into);
-        }
+        self.carry_usage(err);
     }
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value")]
     pub(super) fn unary(&mut self, payload: Value) -> Result<Vec<StreamEvent>, ProviderError> {
+        self.hop_ask = HopAsk::Reissued;
         let mut out = Vec::new();
         let end = self.chunk(payload, &mut out).and_then(|()| self.conclude()).map_err(|mut err| {
             self.stamp_failure(&mut err);
@@ -877,5 +1144,98 @@ mod tests {
         let max = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"cut\"}]},\"finishReason\":\"MAX_TOKENS\"}]}\n";
         let events = run(&mut decoder(false), max).unwrap();
         assert_eq!(events.last(), Some(&StreamEvent::Completed { stop: Some(StopReason::MaxTokens), pricing_model: None, request_ms: None }));
+    }
+
+    /// `geminiIncompleteError` runs before `emitGeminiToolCalls`: a candidate that ends MAX_TOKENS or OTHER after a whole call
+    /// is a failed turn and releases no call.
+    #[test]
+    fn a_failed_candidate_releases_none_of_its_whole_calls() {
+        for reason in ["MAX_TOKENS", "OTHER"] {
+            let body = format!("data: {{\"candidates\":[{{\"content\":{{\"parts\":[{{\"text\":\"x\"}},{{\"functionCall\":{{\"name\":\"f\",\"args\":{{}}}}}}]}},\"finishReason\":\"{reason}\"}}]}}\n\n");
+            let mut decoder = decoder(false).with_known_tools(["f".to_owned()].into());
+            let events = decoder.feed(body.as_bytes()).unwrap();
+            assert!(!events.iter().any(|e| matches!(e, StreamEvent::ToolCallDone(_))), "{reason}");
+            let err = decoder.finish().unwrap_err();
+            assert_eq!(err.code.as_deref(), Some("PROVIDER_INCOMPLETE"), "{reason}");
+        }
+    }
+
+    /// A call written as text across chunks is recovered by the guard, and a candidate that then ends MAX_TOKENS or OTHER
+    /// releases it no more than a native call.
+    #[test]
+    fn a_call_recovered_from_text_is_not_released_by_a_failed_candidate() {
+        for reason in ["MAX_TOKENS", "OTHER", "MALFORMED_FUNCTION_CALL"] {
+            let chunk = |text: &str, finish: &str| {
+                let finish = if finish.is_empty() { String::new() } else { format!(",\"finishReason\":\"{finish}\"") };
+                format!("data: {{\"candidates\":[{{\"content\":{{\"parts\":[{{\"text\":{}}}]}}{finish}}}]}}\n\n", serde_json::json!(text))
+            };
+            let mut decoder = decoder(false).with_known_tools(["f".to_owned()].into());
+            let body = chunk("sure <invoke name=\"f\"><param", "") + &chunk("eter name=\"a\">1</parameter></invoke>", reason);
+            let mut events = decoder.feed(body.as_bytes()).unwrap();
+            let end = decoder.finish();
+            assert!(end.is_err(), "{reason}");
+            events.extend(end.err().map(|_| Vec::new()).unwrap_or_default());
+            assert!(!events.iter().any(|e| matches!(e, StreamEvent::ToolCallDone(_))), "{reason}");
+        }
+    }
+
+    /// A long decode's later hop is judged by its own stream: an empty hop, or one that ends with no finish reason, is a
+    /// truncation, never the first hop's whole call released as if it were the finished turn.
+    #[test]
+    fn a_later_hop_is_finished_by_its_own_stream() {
+        let first = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"f\",\"args\":{}}}]},\"finishReason\":\"CONTINUATION\",\"continuationToken\":\"t\"}]}\n\n";
+        let silent = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"x\"}]}}]}\n\n";
+        for second in ["", silent] {
+            let mut decoder = decoder(false).with_known_tools(["f".to_owned()].into());
+            decoder.feed(first.as_bytes()).unwrap();
+            let (_, token) = decoder.end_hop().unwrap();
+            assert_eq!(token.as_deref(), Some("t"));
+            decoder.feed(second.as_bytes()).unwrap();
+            let err = decoder.finish().unwrap_err();
+            assert!(err.message.contains("truncated"), "{}", err.message);
+        }
+    }
+
+    /// Text the answer showed keeps it from being asked again, but does not make its finish acceptable: a single-hop turn
+    /// that showed text and ended malformed or on an unmapped finish fails `PROVIDER_INCOMPLETE` (`geminiIncompleteError`).
+    #[test]
+    fn a_malformed_or_unmapped_finish_after_text_fails_the_turn() {
+        for reason in ["MALFORMED_FUNCTION_CALL", "OTHER"] {
+            let body = format!("data: {{\"candidates\":[{{\"content\":{{\"parts\":[{{\"text\":\"shown\"}}]}},\"finishReason\":\"{reason}\"}}]}}\n\n");
+            let err = run(&mut decoder(false), &body).unwrap_err();
+            assert_eq!((err.kind, err.code.as_deref()), (ErrorKind::Unknown, Some("PROVIDER_INCOMPLETE")), "{reason}");
+            assert!(err.exposure.text_emitted, "{reason}");
+        }
+    }
+
+    /// `assertGeminiStreamCompleted` judges each hop by its own parts: a later hop that carried whole calls of its own and no
+    /// finish reason is a delivered tool-use turn, whatever the first hop carried.
+    #[test]
+    fn a_later_hop_with_whole_calls_of_its_own_needs_no_finish_reason() {
+        let first = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"looking \"}]},\"finishReason\":\"CONTINUATION\",\"continuationToken\":\"t\"}]}\n\n";
+        let second = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"f\",\"args\":{\"a\":1}}}]}}]}\n\n";
+        let mut decoder = decoder(false);
+        decoder.feed(first.as_bytes()).unwrap();
+        assert_eq!(decoder.end_hop().unwrap().1.as_deref(), Some("t"));
+        let mut events = decoder.feed(second.as_bytes()).unwrap();
+        events.extend(decoder.finish().expect("a delivered tool-use hop"));
+        assert!(events.iter().any(|e| matches!(e, StreamEvent::ToolCallDone(call) if call.name == "f")));
+        assert_eq!(events.last(), Some(&StreamEvent::Completed { stop: None, pricing_model: None, request_ms: None }));
+    }
+
+    /// Hops are billed in sum while the first hop's prompt and cache counts stay as the context figures.
+    #[test]
+    fn the_summed_usage_keeps_the_first_hops_context_figures() {
+        let hop = |prompt: u64, cached: u64, finish: &str| format!(
+            "data: {{\"candidates\":[{{\"content\":{{\"parts\":[{{\"text\":\"x\"}}]}},\"finishReason\":\"{finish}\",\"continuationToken\":\"t\"}}],\"usageMetadata\":{{\"promptTokenCount\":{prompt},\"cachedContentTokenCount\":{cached},\"candidatesTokenCount\":2}}}}\n\n");
+        let mut decoder = decoder(false);
+        decoder.feed(hop(100, 40, "CONTINUATION").as_bytes()).unwrap();
+        assert!(decoder.end_hop().unwrap().1.is_some());
+        decoder.feed(hop(130, 40, "STOP").as_bytes()).unwrap();
+        let events = decoder.finish().unwrap();
+        let usage = events.iter().find_map(|e| if let StreamEvent::Usage(u) = e { Some(u.clone()) } else { None }).unwrap();
+        assert_eq!((usage.input_tokens, usage.output_tokens), (230, 4));
+        let raw = usage.raw.unwrap();
+        assert_eq!((raw["initialPromptTokenCount"].clone(), raw["initialCachedContentTokenCount"].clone()), (json!(100), json!(40)));
     }
 }

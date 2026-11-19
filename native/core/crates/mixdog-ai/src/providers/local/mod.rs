@@ -107,9 +107,15 @@ impl Rewriter for LocalRewriter {
 
 /// The Chat codec aimed at the endpoint the managed runtime reported.
 pub fn codec(base_url: &str) -> Arc<dyn WireCodec> {
+    codec_with(base_url, Vec::new())
+}
+
+/// [`codec`] carrying the provider's configured `extraHeaders` (the inner provider takes `...this.config`).
+pub fn codec_with(base_url: &str, extra_headers: Vec<(String, String)>) -> Arc<dyn WireCodec> {
     let profile = CompatProfile::plain(PROVIDER_ID, "http://127.0.0.1/v1", CredentialKind::Keyless);
     let config = CompatConfig {
         base_url: Some(base_url.to_owned()),
+        extra_headers,
         ..CompatConfig::for_profile(&profile)
     };
     Arc::new(CompatChatCodec::new(profile, config))
@@ -173,6 +179,8 @@ pub struct RegisteredAdapter {
     current: Mutex<Option<(Endpoint, Arc<HttpAdapter>)>>,
     /// The sends in flight by send group: each holds its queue slot across its retries.
     groups: Groups,
+    /// The provider's configured `extraHeaders`, sent on every request to the managed server.
+    extra_headers: Vec<(String, String)>,
 }
 
 /// The unprofiled compat rows without recovery: a local server that answers 5xx surfaces after the request
@@ -193,7 +201,15 @@ impl RegisteredAdapter {
             runtime,
             current: Mutex::new(None),
             groups: Groups::default(),
+            extra_headers: Vec::new(),
         }
+    }
+
+    /// Sends `extra_headers` (the provider config's `extraHeaders`) with every request.
+    #[must_use]
+    pub fn with_extra_headers(mut self, extra_headers: Vec<(String, String)>) -> Self {
+        self.extra_headers = extra_headers;
+        self
     }
 
     fn inner_for(&self, endpoint: Endpoint) -> Arc<HttpAdapter> {
@@ -203,7 +219,7 @@ impl RegisteredAdapter {
         {
             return adapter.clone();
         }
-        let built = Arc::new(adapter(self.http.clone(), endpoint.base_url.clone(), &endpoint.api_key, self.policy.clone(), self.runtime.clone()));
+        let built = Arc::new(adapter(self.http.clone(), endpoint.base_url.clone(), &endpoint.api_key, self.policy.clone(), self.runtime.clone(), self.extra_headers.clone()));
         *current = Some((endpoint, built.clone()));
         built
     }
@@ -541,11 +557,12 @@ pub fn adapter(
     api_key: &str,
     retry_policy: RetryPolicy,
     installed: Arc<dyn InstalledModels>,
+    extra_headers: Vec<(String, String)>,
 ) -> HttpAdapter {
     let credential = (!api_key.is_empty()).then(|| ("authorization".to_owned(), format!("Bearer {api_key}")));
     HttpAdapter::new(
         ProviderId::from(PROVIDER_ID),
-        Arc::new(RewriteCodec::new(codec(&base_url), LocalRewriter)),
+        Arc::new(RewriteCodec::new(codec_with(&base_url, extra_headers), LocalRewriter)),
         http,
         Arc::new(StaticCredential(credential)),
         retry_policy,
@@ -706,8 +723,15 @@ mod tests {
         assert!(http.requests.lock().unwrap().is_empty());
 
         request.tools.clear();
-        let _ = adapter.attempt(Arc::new(request)).await;
+        let _ = adapter.attempt(Arc::new(request.clone())).await;
         assert_eq!(http.requests.lock().unwrap().len(), 1, "a text-only request still reaches Chat Completions");
+
+        // The provider's configured `extraHeaders` ride every request to the managed server (`mixdog-local.mjs:35-40`).
+        let http = Arc::new(crate::providers::listing_row::testing::Replay::new(|_| (400, b"{}".to_vec())));
+        let adapter = RegisteredAdapter::new(http.clone(), runtime).with_extra_headers(vec![("x-team".into(), "blue".into())]);
+        let _ = adapter.attempt(Arc::new(request)).await;
+        let sent = http.requests.lock().unwrap()[0].clone();
+        assert!(sent.headers.iter().any(|(name, value)| name.eq_ignore_ascii_case("x-team") && value == "blue"), "{:?}", sent.headers);
     }
 }
 

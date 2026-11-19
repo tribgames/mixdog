@@ -266,7 +266,8 @@ async fn visible_reasoning_ends_the_send_without_reconnect_refresh_or_fallback()
             assert!(events.iter().any(|event| matches!(event, StreamEvent::ReasoningDelta(_) | StreamEvent::Progress(ProgressKind::Reasoning))));
             let error = error.expect("the original failure must surface");
             assert_eq!(error.status, Some(status));
-            assert!(error.unsafe_to_retry && error.recovery_terminal);
+            // Unsafe for this send to retry on its own, and not ended for the loop, which may withdraw the reasoning and replay.
+            assert!(error.unsafe_to_retry && !error.recovery_exhausted);
             assert_eq!(keys.0.load(Ordering::SeqCst), 0);
             assert_eq!(dial.wire().iter().filter(|entry| matches!(entry, SocketWire::Frame(_))).count(), 1);
             assert!(http.requests.lock().unwrap().is_empty());

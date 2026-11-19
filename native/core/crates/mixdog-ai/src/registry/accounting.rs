@@ -713,7 +713,8 @@ impl SendAccounting {
                 completed
                     .and_then(|c| c.request_service_tier.clone())
                     .unwrap_or_else(|| identity.request_service_tier.clone()),
-            ),
+            )
+            .filter(|t| !t.is_empty()),
             response_id: completed.and_then(|c| c.response_id.clone()).unwrap_or_default(),
             account,
             duration_ms,

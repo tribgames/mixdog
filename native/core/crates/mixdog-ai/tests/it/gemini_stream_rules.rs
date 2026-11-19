@@ -258,7 +258,8 @@ fn each_finish_reason_ends_the_turn_the_way_its_kind_says() {
         ("MAX_TOKENS", &json!([]), Some((ErrorKind::Unknown, "PROVIDER_INCOMPLETE"))),
         ("STOP", &text_part, None),
         ("MAX_TOKENS", &text_part, None),
-        ("MALFORMED_FUNCTION_CALL", &text_part, None),
+        // Shown text prevents the re-ask, not the failure: `geminiIncompleteError` accepts no finish but `STOP`.
+        ("MALFORMED_FUNCTION_CALL", &text_part, Some((ErrorKind::Unknown, "PROVIDER_INCOMPLETE"))),
     ];
     for (finish, parts, expected) in cases {
         let (events, error) = run(&mut decoder(), &[line(candidate(parts.clone(), Some(finish)))]);
@@ -273,13 +274,12 @@ fn each_finish_reason_ends_the_turn_the_way_its_kind_says() {
         if finish == "MAX_TOKENS" && expected.is_none() {
             assert_eq!(stop(&events), Some(Some(StopReason::MaxTokens)), "an answer cut by the output limit is kept and says so");
         }
-        if finish == "MALFORMED_FUNCTION_CALL" && expected.is_none() {
-            assert_eq!(stop(&events), Some(Some(StopReason::Other("MALFORMED_FUNCTION_CALL".into()))), "text already shown is kept");
-        }
     }
-    // Output cut after whole calls is still a tool-use turn.
+    // An output cut after whole calls is a failed candidate (`geminiIncompleteError`), not a tool-use turn.
     let (events, error) = run(&mut decoder(), &[line(candidate(call.clone(), Some("MAX_TOKENS")))]);
-    assert!(error.is_none() && stop(&events) == Some(None) && calls(&events).len() == 1);
+    let error = error.expect("a cut candidate fails");
+    assert_eq!((error.kind, error.code.as_deref()), (ErrorKind::Unknown, Some("PROVIDER_INCOMPLETE")));
+    assert!(calls(&events).is_empty(), "a failed candidate releases none of its calls");
 }
 
 #[test]

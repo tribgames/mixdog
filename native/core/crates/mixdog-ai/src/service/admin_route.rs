@@ -259,7 +259,9 @@ pub fn validate_requested_model_selector(config: &Obj, requested: &Obj) -> Resul
     ))
 }
 
-/// `ensureProviderEnabled`: the providers map with `provider` enabled.
+/// `ensureProviderEnabled`: the providers map with `provider` enabled when it has no say of its own (a key-only provider
+/// has no entry). An explicit `enabled: false` is the user's decision and stays; a probe's `false` that could not read the
+/// credential (`credentialProbeUnavailable`) is no decision and is enabled.
 pub fn ensure_provider_enabled(config: &Obj, provider: &str) -> Obj {
     let mut providers = match config.get("providers") {
         Some(Value::Object(o)) => o.clone(),
@@ -269,9 +271,18 @@ pub fn ensure_provider_enabled(config: &Obj, provider: &str) -> Obj {
         Some(Value::Object(o)) => o.clone(),
         _ => Obj::new(),
     };
-    entry.insert("enabled".into(), Value::Bool(true));
+    if !provider_switched_off(config, provider) {
+        entry.insert("enabled".into(), Value::Bool(true));
+    }
     providers.insert(provider.to_owned(), Value::Object(entry));
     providers
+}
+
+/// Whether the user switched `provider` off in the agent `config` (`providers.<id>.enabled: false` that is no unreadable
+/// probe's): such a provider is absent wherever it is requested, registered or not.
+pub fn provider_switched_off(config: &Obj, provider: &str) -> bool {
+    let entry = config.get("providers").and_then(|providers| providers.get(provider));
+    entry.and_then(|e| e.get("enabled")) == Some(&Value::Bool(false)) && entry.and_then(|e| e.get("credentialProbeUnavailable")) != Some(&Value::Bool(true))
 }
 
 /// `modelMetaLooksResolved`: the row says more than its `id` and `provider`.
@@ -642,6 +653,28 @@ pub fn refresh_route_fields(
 #[cfg(test)]
 #[path = "admin_route_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod ensure_enabled_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn enabled(config: Value, provider: &str) -> Value {
+        ensure_provider_enabled(config.as_object().unwrap(), provider)[provider]["enabled"].clone()
+    }
+
+    #[test]
+    fn an_absent_entry_is_enabled_and_an_explicit_false_is_left_alone() {
+        assert_eq!(enabled(json!({}), "openrouter"), json!(true), "no providers section");
+        assert_eq!(enabled(json!({ "providers": { "xai": { "enabled": false } } }), "openrouter"), json!(true), "no entry of its own");
+        assert_eq!(enabled(json!({ "providers": { "openrouter": { "baseURL": "u" } } }), "openrouter"), json!(true), "an entry with no enabled");
+        assert_eq!(enabled(json!({ "providers": { "openrouter": { "enabled": true } } }), "openrouter"), json!(true));
+        assert_eq!(enabled(json!({ "providers": { "openrouter": { "enabled": false } } }), "openrouter"), json!(false), "the user's decision stays");
+        // A probe that could not read the credential decides nothing.
+        assert_eq!(enabled(json!({ "providers": { "grok-oauth": { "enabled": false, "credentialProbeUnavailable": true } } }), "grok-oauth"), json!(true));
+    }
+}
 
 /// `upsertWorkflowPreset`.
 pub fn upsert_workflow_preset(presets: &Value, slot: &str, route: &Value) -> Result<Value, String> {

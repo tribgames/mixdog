@@ -260,7 +260,8 @@ fn spend_pool(spend: &Map<String, Value>) -> Option<SpendPool> {
         .into_iter()
         .map(row)
         .find(|(limit, _, _)| limit.is_some_and(|l| l > 0.0))
-        .or_else(|| pools.into_iter().map(row).find(|(l, u, r)| l.is_some() || u.is_some() || r.is_some()))
+        // A pool whose figures are all zero states nothing (proto3 omits zeros): the next pool or the bare total shows.
+        .or_else(|| pools.into_iter().map(row).find(|(l, u, r)| [l, u, r].into_iter().any(|v| v.is_some_and(|v| v > 0.0))))
         .or_else(|| reported("totalSpend").map(|total| (None, Some(total), None)))?;
     let used = used.or_else(|| limit.zip(remaining).map(|(l, r)| l - r));
     let remaining = remaining.or_else(|| limit.zip(used).map(|(l, u)| (l - u).max(0.0)));
@@ -330,7 +331,8 @@ pub fn normalize_cursor_usage(usage: &Map<String, Value>, plan_response: &Map<St
         windows.push(Value::Object(with_reset(row, reset_at)));
     }
     // The usage-based spend window; none when the account has no spend limit data.
-    if let Some(spend) = &spend {
+    // Figures that are all zero (or below) state nothing: proto3 omits zeros, so they are no limit data.
+    if let Some(spend) = spend.as_ref().filter(|s| [s.limit, s.used, s.remaining].iter().any(|v| v.is_some_and(|v| v > 0.0))) {
         let mut row = Map::new();
         row.insert("label".into(), "Usage-based spend".into());
         row.insert("source".into(), "cursor-dashboard".into());
@@ -451,10 +453,11 @@ mod quota_scope_tests {
         // Unknown or open spend: a full lane is shown as measured, covers its models, and refuses nothing.
         for spend in [json!({}), json!({"overallLimit": 1000, "overallUsed": 400, "overallRemaining": 600})] {
             let windows = lanes(100.0, 40.0, spend);
-            assert_eq!((windows[0]["usedPct"].clone(), windows[0]["binding"].clone()), (json!(100.0), json!(false)));
+            // The snapshot writes numbers as JavaScript does (an integral value has no fraction): compared by value.
+            assert_eq!((windows[0]["usedPct"].as_f64(), windows[0]["binding"].clone()), (Some(100.0), json!(false)));
             assert_eq!(windows[0]["models"], json!(AUTO_POOL_MODELS), "a Basic refusal still names only Basic models");
             assert_eq!(windows[1]["except"], json!(AUTO_POOL_MODELS));
-            assert_eq!(windows[1]["usedPct"], json!(40.0), "a partly used lane stays positive evidence");
+            assert_eq!(windows[1]["usedPct"].as_f64(), Some(40.0), "a partly used lane stays positive evidence");
         }
         // A cap used up in its own pool makes the full lane binding.
         let windows = lanes(100.0, 40.0, json!({"overallLimit": 1000, "overallUsed": 1000}));
@@ -475,7 +478,7 @@ mod quota_scope_tests {
     fn spend_figures_never_mix_pools_or_invent_values() {
         let windows = lanes(100.0, 100.0, json!({"overallLimit": 1000, "individualUsed": 1000}));
         let spend = windows.last().unwrap();
-        assert_eq!(spend["limitUsd"], json!(10.0));
+        assert_eq!(spend["limitUsd"].as_f64(), Some(10.0));
         assert!(spend.get("usedUsd").is_none(), "another pool's usage is not this cap's usage");
         assert!(windows[0].get("binding").is_some(), "an unmatched figure proves no exhaustion");
     }

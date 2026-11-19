@@ -1499,7 +1499,15 @@ mod liveness {
                         .map(|(at, _)| at)
                         .find(|&at| text[at..].lines().nth(2).is_some_and(|line| line.trim_end().ends_with('{')))
                         .unwrap_or(text.len());
-                    let text = &text[..cut];
+                    let mut text = text[..cut].to_owned();
+                    // The one deadline the family arms is Node's WebSocket `handshakeTimeout` on xAI's socket
+                    // (`openai-ws-pool.mjs:625`, `PROVIDER_WS_HANDSHAKE_TIMEOUT_MS` 30_000): it bounds the upgrade, before
+                    // any content, and never decides when a response ends.
+                    if path.file_name().is_some_and(|n| n == "xai_transport.rs") {
+                        const HANDSHAKE: &str = "mixdog_rt::time::timeout(Duration::from_secs(30), self.dial.dial(handshake))";
+                        assert_eq!(text.matches(HANDSHAKE).count(), 1, "{}: the handshake deadline, once", path.display());
+                        text = text.replacen(HANDSHAKE, "", 1);
+                    }
                     for pattern in &banned {
                         assert!(!text.contains(pattern.as_str()), "{} uses {pattern}", path.display());
                     }

@@ -78,7 +78,17 @@ fn a_refused_request_reads_as_what_was_refused_not_the_providers_words() {
     assert_eq!(refused(ErrorKind::InvalidRequest, 400, "image dimensions exceed the maximum of 8000 pixels"), "An attached image exceeds the provider limit.");
     assert_eq!(refused(ErrorKind::InvalidRequest, 400, "Invalid schema for function 'lookup'"), "The provider rejected a tool definition.");
     assert_eq!(refused(ErrorKind::RequestTooLarge, 413, "too big"), "The request exceeds the size limit.");
-    assert_eq!(refused(ErrorKind::InvalidRequest, 400, "something odd"), "The provider rejected this request.");
+    // The status and the provider's own text ride the summary (issue #374), credentials redacted.
+    assert_eq!(refused(ErrorKind::InvalidRequest, 400, "something odd"), "The provider rejected this request (HTTP 400): something odd");
+    let long = refused(ErrorKind::InvalidRequest, 400, &"x".repeat(500));
+    assert_eq!(long.chars().count(), "The provider rejected this request (HTTP 400): ".chars().count() + 300, "{long}");
+    // A failure that already reads as the summary keeps its status, and its text is capped like a first presentation's.
+    let again = refused(ErrorKind::InvalidRequest, 400, &format!("The provider rejected this request: {}", "y".repeat(500)));
+    assert_eq!(again.chars().count(), "The provider rejected this request (HTTP 400): ".chars().count() + 300, "{again}");
+    assert!(again.starts_with("The provider rejected this request (HTTP 400): yyy"), "{again}");
+    let leaked = refused(ErrorKind::InvalidRequest, 400, "messages.1: bad block, key sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123");
+    assert!(leaked.starts_with("The provider rejected this request (HTTP 400): messages.1: bad block"), "{leaked}");
+    assert!(!leaked.contains("abcdefghijklmnopqrstuvwxyz0123"), "{leaked}");
 }
 
 #[test]
