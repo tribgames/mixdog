@@ -143,6 +143,7 @@ async function goLive(host, n) {
 }
 
 const readies = (host) => host.signals.filter((signal) => signal.type === 'ready').length;
+const departures = (host) => host.signals.filter((signal) => signal.type === 'close' && signal.reason === 'viewer-left');
 
 /** A lost connection is retried silently (as RemoteConnectionBanner does):
  *  no state card, no text; the picture's place stays shown. */
@@ -189,6 +190,7 @@ test('regression: the screen pane survives the phone losing its connection and c
     });
     await flush();
     assert.equal(readies(host), 2, 'the view asks for the screen again by itself');
+    assert.deepEqual(departures(host), [], 'the old viewer must not send a close over the new relay');
     assertSilent(element, 'until the new session pictures');
     await goLive(host, 2);
     assert.equal(document.querySelector('.remote-screen-picture').style.opacity, '1', 'live again');
@@ -197,6 +199,18 @@ test('regression: the screen pane survives the phone losing its connection and c
     await act(async () => root.unmount());
     element.remove();
   }
+  const latestReady = host.signals.findLast((signal) => signal.type === 'ready');
+  assert.deepEqual(departures(host), [
+    {
+      v: REMOTE_WEBRTC_VERSION,
+      source,
+      type: 'close',
+      reason: 'viewer-left',
+      connectionId: 'conn0000000000000002',
+      generation: 1,
+      viewerAttempt: latestReady.viewerAttempt,
+    },
+  ], 'unmount tells the connected host exactly which viewer left');
 });
 
 test('a session the PC ended because the phone’s connection left starts again; one its user stopped does not', async () => {
@@ -230,8 +244,11 @@ test('a session the PC ended because the phone’s connection left starts again;
     assertSilent(element, 'after a viewer-left stop');
 
     await goLive(host, 4);
+    const video = element.querySelector('video');
     await push({ state: 'stopped', reason: 'user', helper: 'not-needed', control: false });
     await flush();
+    assert.equal(peers.at(-1).closed, true, 'the host stop releases the receiving peer');
+    assert.equal(video.srcObject, null, 'the detached video no longer retains the stream');
     await act(async () => window.dispatchEvent(new window.Event(REMOTE_CONNECTION_READY_EVENT)));
     await flush();
     assert.equal(readies(host), 2, 'a stop someone decided is not undone by a reconnect');
@@ -323,10 +340,15 @@ test('regression: leaving the app and coming back does not undo a deliberate sto
     const live = readies(host);
     await setVisibility('hidden');
     await flush();
+    assert.deepEqual(departures(host).map(({ connectionId }) => connectionId), ['conn0000000000000006']);
     await setVisibility('visible');
     await flush();
     assert.equal(readies(host), live + 1, 'shown again: a new ready');
     await goLive(host, 7);
+    await act(async () =>
+      host.listener(desktop({ type: 'close', connectionId: 'conn0000000000000006', generation: 1, reason: 'viewer-left' }))
+    );
+    assert.equal(peers.at(-1).closed, undefined, 'a late close of the old viewer cannot end its replacement');
     assert.equal(element.querySelector('.remote-screen-picture')?.style.opacity, '1', 'live again');
 
     // Stopped on purpose by the PC's user: away and back changes nothing.
@@ -420,7 +442,7 @@ test('an unrelated render error during an outage is a render failure, not a conn
     await act(async () => root.render(React.createElement(DesktopErrorBoundary, null, React.createElement(Broken))));
     assert.equal(
       element.querySelector('.desktop-recovery-screen h1')?.textContent,
-      'Mixdog could not show this screen'
+      'Could not show this screen'
     );
     assert.match(element.textContent, /Your work continues on your PC\. Retry this screen or reload the interface\./);
     assert.doesNotMatch(element.textContent, /connection|desktop/i);

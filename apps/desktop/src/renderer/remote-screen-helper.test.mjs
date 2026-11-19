@@ -156,7 +156,7 @@ test('every line the panel can show has Korean copy', () => {
     assert.ok(copy.has(id), `${id} has copy in the pane`);
     assert.ok(ko[copy.get(id)], `${id}: ${copy.get(id)}`);
   }
-  for (const text of ['PC에 접근 권한 요청', '접근 권한 다시 승인', 'PC에 뜬 확인 창에서 승인해 주세요.']) {
+  for (const text of ['PC에 접근 권한 요청', '접근 권한 다시 승인', 'PC에 표시된 확인 창에서 승인하세요.']) {
     assert.ok(Object.values(ko).includes(text), text);
   }
   assert.ok(

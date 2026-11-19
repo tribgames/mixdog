@@ -12,9 +12,11 @@ use mixdog_app_protocol::CLIENT_METHODS;
 use mixdog_app_server::{AppServer, Inbound, Outgoing, ServerConfig, VersionOrder};
 use mixdog_app_server_transport::relay::{RelayEndpoint, RelayOut, open_relay};
 use mixdog_app_server_transport::{AcceptedConnection, ConnectionHub};
-use mixdog_core_api::feed::Window;
+use bytes::Bytes;
+use mixdog_core_api::feed::{FeedFrame, FeedPosition, FeedView, Window};
 use mixdog_core_api::ids::ThreadId;
-use mixdog_core_api::mock::{MockCore, MockLimits, event};
+use mixdog_core_api::mock::{MockCore, MockLimits};
+use mixdog_rt::{CpuInteractive, InLane};
 use mixdog_core_api::{Feed, FeedSource, Reply, Subscribe};
 use mixdog_protocol::Origin;
 use mixdog_remote::bridge::local::{Accept, LocalDialer};
@@ -86,7 +88,9 @@ async fn a_phone_and_a_direct_connection_receive_the_same_thread_frames() {
             resume_from: None,
         }))
     }));
-    thread.feed().publish(&[event(1), event(2)], None).unwrap();
+    // A relay connection's writer refuses a frame that is not a JSON object and ends the connection (writer.rs `relay_frame`), so
+    // this feed's frames are JSON rather than the mock's plain labels.
+    thread.feed().publish(&[json_event(1), json_event(2)], Some(Arc::new(JsonView))).unwrap();
     let hub = ConnectionHub::new(Limits::default()).unwrap();
     let origins = hub.clone();
     let server = AppServer::new(
@@ -137,16 +141,15 @@ async fn a_phone_and_a_direct_connection_receive_the_same_thread_frames() {
         from_phone.push(phone.recv().await);
         from_direct.push(next_text(&mut direct).await);
     }
-    thread.feed().publish(&[event(3)], None).unwrap();
+    thread.feed().publish(&[json_event(3)], None).unwrap();
     from_phone.push(phone.recv().await);
     from_direct.push(next_text(&mut direct).await);
 
-    // The mock feed's snapshot and event frames are plain labels ("snapshot@2"), not JSON.
     let same = |frames: Vec<String>| -> Vec<Value> {
         frames
             .iter()
             .map(|text| {
-                let mut frame: Value = serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.clone()));
+                let mut frame: Value = serde_json::from_str(text).expect("a relay connection is written JSON frames only");
                 if let Some(id) = frame.pointer_mut("/result/subscription/id") {
                     *id = Value::Null;
                 }
@@ -158,6 +161,20 @@ async fn a_phone_and_a_direct_connection_receive_the_same_thread_frames() {
     assert_eq!(phone_view, direct_view);
     assert!(phone_view[1]["result"]["subscription"].is_object(), "{}", phone_view[1]);
     assert!(phone_view.len() == 4, "snapshot and the live event arrived on both");
+}
+
+/// A view whose snapshot frame is `{"snapshot": <seq>}`.
+struct JsonView;
+
+impl FeedView for JsonView {
+    fn encode_snapshot(&self, _: &InLane<CpuInteractive>, at: FeedPosition, _: &Window) -> Bytes {
+        Bytes::from(json!({ "snapshot": at.seq }).to_string())
+    }
+}
+
+/// The frame `{"event": <seq>}`.
+fn json_event(seq: u64) -> FeedFrame {
+    FeedFrame { seq, bytes: Bytes::from(json!({ "event": seq }).to_string()) }
 }
 
 async fn next_text(endpoint: &mut RelayEndpoint) -> String {

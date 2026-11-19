@@ -136,7 +136,8 @@ test('the core\'s settings and provider-model announcements reach the phone\'s l
   assert.deepEqual(seen.map(([list]) => list), ['P']);
 });
 
-test('a connected phone follows only changes to the configured orchestration default', () => {
+test('a connected phone follows only changes to the configured orchestration default', async () => {
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
   const seen = [];
   const listeners = new Set([(value) => seen.push(value)]);
   let agent = { orchestrationMode: 'focused' };
@@ -156,15 +157,92 @@ test('a connected phone follows only changes to the configured orchestration def
     ctx: { orchestrationModeListeners: listeners, fanOut: (set, value) => { for (const listener of set) listener(value); } },
     onClient: (wire) => (wire(client), () => {}),
   });
-  const updateAgent = (next) => {
+  const updateAgent = async (next) => {
     agent = next;
     onChange({ type: 'section', section: 'config', key: 'agent' });
+    await settle();
   };
   onChange({ type: 'thread', threadId: 's1' });
   onChange({ type: 'section', section: 'config', key: 'desktop' });
-  updateAgent({ orchestrationMode: 'focused', compaction: {} });
-  updateAgent({ orchestrationMode: 'swarm' });
-  updateAgent({});
+  await settle();
+  await updateAgent({ orchestrationMode: 'focused', compaction: {} });
+  await updateAgent({ orchestrationMode: 'swarm' });
+  await updateAgent({});
   assert.deepEqual(seen, [{ mode: 'swarm' }, { mode: 'balanced' }]);
+  stop();
+});
+
+test('the phone pages a stubbed config subtree it reads (settings, pins, conversation overrides) and nothing else', async () => {
+  const { sent, call } = scripted({
+    sections: { 'config:desktop': { value: null }, 'config:agent': { value: {} }, 'config:notifications': { value: null } },
+    replies: { 'config/read': ({ keys }) => ({ config: { desktop: { keepAwake: false, activityRailPins: { pins: ['skills'], revision: 2 } }, notifications: {} } }) },
+  });
+  assert.equal((await call('readSettings', [])).keepAwake, false);
+  assert.deepEqual(await call('readActivityRailPins', []), { pins: ['skills'], revision: 2 });
+  assert.deepEqual(await call('listConversationNotifications', []), []);
+  assert.deepEqual(sent.map((s) => s.params.keys), [['desktop'], ['desktop'], ['notifications']]);
+});
+
+test('a live change of a stubbed agent or desktop subtree is paged, and a read a newer change superseded is discarded', async () => {
+  const seen = [];
+  const pinsSeen = [];
+  const subscribers = new Set();
+  const answers = [];
+  let agent = null;
+  const client = {
+    store: {
+      appFeed: () => ({ id: 'app', epoch: 'e1', seq: 1 }),
+      section: (section, key) => (section === 'config' ? { value: key === 'agent' ? agent : null } : undefined),
+      subscribe: (listener) => (subscribers.add(listener), () => subscribers.delete(listener)),
+    },
+    call: (method, params) => new Promise((resolve) => answers.push({ params, resolve })),
+    on: () => () => {},
+  };
+  const fan = (set, value) => { for (const listener of set) listener(value); };
+  const stop = adapter.install({
+    ctx: { orchestrationModeListeners: new Set([(v) => seen.push(v)]), activityRailPinsListeners: new Set([(v) => pinsSeen.push(v)]), fanOut: fan },
+    onClient: (wire) => (wire(client), () => {}),
+  });
+  const settle = () => new Promise((resolve) => setImmediate(resolve));
+  // Startup reads: pins (desktop stub) and the mode (agent stub).
+  answers.splice(0).forEach(({ params, resolve }) => resolve({ config: params.keys[0] === 'agent' ? { agent: { orchestrationMode: 'focused' } } : { desktop: { activityRailPins: { pins: ['sessions'], revision: 1 } } } }));
+  await settle();
+  const change = (key) => subscribers.forEach((s) => s({ type: 'section', section: 'config', key }));
+  change('agent');
+  change('agent');
+  change('desktop');
+  const [first, second, pins] = answers.splice(0);
+  assert.deepEqual([first.params.keys, second.params.keys, pins.params.keys], [['agent'], ['agent'], ['desktop']]);
+  second.resolve({ config: { agent: { orchestrationMode: 'swarm' } } });
+  first.resolve({ config: { agent: { orchestrationMode: 'focused' } } });
+  pins.resolve({ config: { desktop: { activityRailPins: { pins: ['sessions', 'agents'], revision: 2 } } } });
+  await settle();
+  assert.deepEqual(seen, [{ mode: 'swarm' }]);
+  assert.deepEqual(pinsSeen, [{ pins: ['sessions', 'agents'], revision: 2 }]);
+  stop();
+});
+test('a live mode change that supersedes the initial paged read of a stubbed agent subtree is still published', async () => {
+  const seen = [];
+  const subscribers = new Set();
+  const answers = [];
+  const client = {
+    store: {
+      appFeed: () => ({ id: 'app', epoch: 'e1', seq: 1 }),
+      section: (section, key) => (section === 'config' && key === 'agent' ? { value: null } : undefined),
+      subscribe: (listener) => (subscribers.add(listener), () => subscribers.delete(listener)),
+    },
+    call: () => new Promise((resolve) => answers.push(resolve)),
+    on: () => () => {},
+  };
+  const stop = adapter.install({
+    ctx: { orchestrationModeListeners: new Set([(v) => seen.push(v)]), fanOut: (set, value) => { for (const l of set) l(value); } },
+    onClient: (wire) => (wire(client), () => {}),
+  });
+  subscribers.forEach((s) => s({ type: 'section', section: 'config', key: 'agent' }));
+  const [initial, live] = answers;
+  live({ config: { agent: { orchestrationMode: 'swarm' } } });
+  initial({ config: { agent: { orchestrationMode: 'focused' } } });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(seen, [{ mode: 'swarm' }]);
   stop();
 });

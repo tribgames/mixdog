@@ -3,71 +3,25 @@
 // an unregistered Project, the home of an unknown agent, a secret for a request the core never minted. Each case keeps the request the
 // phone's adapter sends (the route it takes) and the core's whole reply or error body, as the core sent it.
 //
-// Usage: node remote-protocol-chat-refusals.record.mjs <mixdogd.exe> <real-turn-harness dir> <out file>
+// Usage: node remote-protocol-chat-refusals.record.mjs <mixdogd.exe> <out file>   (MIXDOG_PG_RUNTIME_ARCHIVE = the win32-x64 PostgreSQL runtime tar.gz)
 // The out file is installed as the fixture by remote-protocol-chat-fixtures.mjs (`refusals`).
 // Every wait has a deadline that names what it waits for (the harness deadline), and nothing waits for time.
-import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, statSync, watch, existsSync, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import WebSocket from 'ws';
 import { uuidv7 } from '../../../../packages/protocol-client/src/client.ts';
 import { routeService } from '../main/protocol/service-route.ts';
-import { endLeftovers } from './remote-protocol-chat-abort-procs.mjs';
+import { CLIENT_VERSION, openRecording } from './remote-protocol-chat-record-core.mjs';
 
-const [bin, harness, outFile] = process.argv.slice(2);
-// The version this client announces is the tree's own: a core refuses an older client.
-const CLIENT_VERSION = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
-if (!outFile) throw new Error('usage: <mixdogd.exe> <real-turn-harness dir> <out file>');
-const lib = (name) => join(harness, 'lib', name);
-const PINNED = ['env.mjs', 'scenarios.mjs', 'stage.mjs', 'fake-provider.mjs', 'proc.mjs', 'deadline.mjs', 'pg-version.json'];
-const sha256 = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
-process.env.HARNESS_ENV_ROOT = join(harness, 'run', 'env-ph2-chat-refusals');
-const load = (name) => import(pathToFileURL(lib(name)).href);
-const { daemonEnv, isolatedPaths } = await load('env.mjs');
-const { seedPgRuntime } = await load('stage.mjs');
-const { startFakeProvider } = await load('fake-provider.mjs');
-const { launch } = await load('proc.mjs');
-const { createDeadline, latch } = await load('deadline.mjs');
-
-const paths = isolatedPaths();
-rmSync(paths.envRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
-for (const d of [paths.dataDir, paths.runtimeRoot, paths.appData, paths.localAppData, paths.tmp, paths.workspace]) mkdirSync(d, { recursive: true });
+const [bin, outFile] = process.argv.slice(2);
+if (!outFile) throw new Error('usage: <mixdogd.exe> <out file> (MIXDOG_PG_RUNTIME_ARCHIVE names the win32-x64 PostgreSQL runtime tar.gz)');
+// One run, one owned storage folder, one teardown (remote-protocol-chat-record-core.mjs): a dev core of THIS checkout, the public harness, and
+// everything started is ended on every path, the ones before the core serves included.
+const recording = await openRecording('refusals', bin);
+const { paths, deadline, latch, socket, core, route } = recording;
 const project = join(paths.workspace, 'a');
 const unregistered = join(paths.workspace, 'never-registered');
 mkdirSync(project, { recursive: true });
 mkdirSync(unregistered, { recursive: true });
-seedPgRuntime(paths.dataDir);
-const provider = await startFakeProvider({ workspace: paths.workspace });
-writeFileSync(join(paths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent: { providers: { 'custom-harness': { type: 'custom', schemaVersion: 2, name: 'harness', protocol: 'openai-chat', baseURL: provider.baseURL, auth: 'none', enabled: true, modelOverrides: { 'harness-model': { manual: true } } } } } }));
-const route = { provider: 'custom-harness', model: 'harness-model' };
-
-const core = launch(bin, ['serve'], { env: daemonEnv(paths, { RUST_LOG: 'warn' }), cwd: paths.envRoot });
-const deadline = createDeadline(240_000, () => core.tail());
-
-const daemonDoc = () => {
-  const file = join(paths.runtimeRoot, 'daemon.json');
-  if (!existsSync(file)) return null;
-  try {
-    const d = JSON.parse(readFileSync(file, 'utf8'));
-    if (d?.core?.state === 'blocked') throw new Error(`blocked ${JSON.stringify(d.core.blocked)}`);
-    return d?.core?.state === 'serving' && d.core.rpc?.port ? d : null;
-  } catch (e) {
-    if (String(e.message).startsWith('blocked')) throw e;
-    return null;
-  }
-};
-const served = latch();
-const watcher = watch(paths.runtimeRoot, () => {
-  try { const d = daemonDoc(); if (d) served.resolve(d); } catch (e) { served.reject(e); }
-});
-const early = daemonDoc();
-if (early) served.resolve(early);
-const doc = await deadline.race(served.promise, 'the core to serve');
-watcher.close();
-
-const socket = new WebSocket(`ws://127.0.0.1:${doc.core.rpc.port}/rpc`, { headers: { Authorization: `Bearer ${doc.endpoints.session.token}` }, perMessageDeflate: false });
-await deadline.race(new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); }), 'the app-server socket to open');
 const pending = new Map();
 const notified = new Set();
 const waiters = new Set();
@@ -129,28 +83,17 @@ try {
   const frame = await op(directory.request.method, directory.request.params);
   directory.reply = frame.error ? { error: frame.error } : { result: frame.result };
   out = {
-    manifest: {
-      binary: bin, binarySha256: sha256(bin), binaryBuilt: statSync(bin).mtime.toISOString(),
-      harness: Object.fromEntries(PINNED.map((name) => [`lib/${name}`, sha256(lib(name))])),
-      source: 'running mixdogd serve, isolated env (real-turn harness env.mjs / stage.mjs / fake-provider.mjs, pinned above), driven over the WebSocket JSON-RPC protocol',
-    },
+    // The capture's identities (binary, its sources, recorder, public harness), refused if any moved during the run.
+    manifest: recording.finish({
+      source: 'running mixdogd serve, isolated env (the public harness remote-protocol-chat-harness/lib, pinned above), driven over the WebSocket JSON-RPC protocol',
+    }),
     thread: threadId, project, unregistered, cases,
   };
-  writeFileSync(outFile, JSON.stringify(out, null, 2));
+  recording.write(outFile, out);
   console.log(`recorded ${cases.length} cases`);
   for (const c of cases) console.log(c.name, JSON.stringify(c.request.method), JSON.stringify(c.reply).slice(0, 300));
 } finally {
   deadline.clear();
-  socket.close();
-  core.kill();
-  // The exit is waited for under a deadline of its own; a core that does not end is reported with its pid.
-  const ended = createDeadline(60_000, () => `the core (pid ${core.pid}) did not exit after its kill: ${core.tail()}`);
-  try {
-    await ended.race(core.exited, `the core (pid ${core.pid}) to exit`);
-  } finally {
-    ended.clear();
-    // The core's tree and anything naming its folder (its postgres, whose command line writes the folder with `/`), ended with proof.
-    endLeftovers(core.pid, paths.envRoot);
-  }
+  await recording.cleanup();
 }
 process.exit(0);

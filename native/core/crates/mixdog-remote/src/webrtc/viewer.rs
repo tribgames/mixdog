@@ -408,7 +408,7 @@ impl<E: ViewerEffects> Viewer<E> {
                 | ClientSignal::PromoteAck { connection, .. }
                 | ClientSignal::DemoteAck { connection, .. }
                 | ClientSignal::Close { connection, .. } => connection,
-                ClientSignal::Ready { .. } | ClientSignal::GeometryAck { .. } | ClientSignal::ResizeRequest { .. } => return Ok(()),
+                ClientSignal::Ready { .. } | ClientSignal::CancelScreen { .. } | ClientSignal::GeometryAck { .. } | ClientSignal::ResizeRequest { .. } => return Ok(()),
             };
             let is_current = m.i.connection.as_ref().is_some_and(|c| c.id == connection.connection_id && c.generation == connection.generation);
             if !is_current {
@@ -487,7 +487,7 @@ impl<E: ViewerEffects> Viewer<E> {
                     m.start_pending()
                 }
                 ClientSignal::Close { reason, .. } => m.fail(*reason),
-                ClientSignal::Ready { .. } | ClientSignal::GeometryAck { .. } | ClientSignal::ResizeRequest { .. } => Ok(()),
+                ClientSignal::Ready { .. } | ClientSignal::CancelScreen { .. } | ClientSignal::GeometryAck { .. } | ClientSignal::ResizeRequest { .. } => Ok(()),
             }
         })
     }

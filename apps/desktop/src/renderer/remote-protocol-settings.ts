@@ -53,9 +53,13 @@ const held = (client: Client, section: string, key: string | null = null): unkno
 // when it mounted. The core keeps the same value in the `desktop` subtree of its `config` section: a read is that section's held value,
 // an update is one `config/value/write`, and the push is the section's next revision with a pins revision the page has not been told.
 
-/** The held pins (Node's `readActivityRailPins`: null until some client saved them). */
-const heldPins = (client: Client): ActivityRailPinsState | null =>
-  storedPinsState(record(held(client, 'config', 'desktop')).activityRailPins);
+/** A config subtree as the page reads it: the held value, or, when the core published it as a stub (over the inline limit, held as
+ *  null), the value config/read answers for exactly that subtree. */
+async function configTree(host: PhoneProtocolHost, subtree: string): Promise<unknown> {
+  const value = held(host.client(), 'config', subtree);
+  if (value !== null) return value;
+  return record(record(await request(host, 'config/read', { keys: [subtree] })).config)[subtree];
+}
 
 /** Node's phone read a refused call as an `Error` carrying the host's text (remote-shim-dispatch.ts:165-178). */
 const refused = (text: string): Error => new Error(text);
@@ -74,20 +78,47 @@ async function updatePins(pins: unknown, host: PhoneProtocolHost): Promise<Activ
  *  set while the sections a snapshot swapped in are still being announced. */
 const announcingSnapshot = (client: Client): boolean => Boolean((client.store as { readonly owed?: unknown }).owed);
 
-/** Tells the page each pins revision the connected client hears live; what a connection's snapshot holds is not announced. */
-function followPins(host: PhoneProtocolHost, client: Client): () => void {
-  let told = heldPins(client)?.revision ?? 0;
-  return client.store.subscribe((change) => {
-    // A snapshot announces every section it holds: it is where the pins stand, not a change.
-    if (change.type === 'appSnapshot') told = heldPins(client)?.revision ?? 0;
-    if (change.type !== 'section' || change.section !== 'config' || change.key !== 'desktop' || announcingSnapshot(client)) return;
-    const state = heldPins(client);
-    if (!state || state.revision === told) return;
-    told = state.revision;
-    host.ctx.fanOut(host.ctx.activityRailPinsListeners, state);
-  });
+/** A `config` subtree of the held fold, or, when the core published it as a stub (held as null), what `config/read` answers for
+ *  exactly that subtree. */
+async function pagedConfigTree(client: Client, subtree: string): Promise<unknown> {
+  const value = held(client, 'config', subtree);
+  if (value !== null) return value;
+  const answer = await (client.call as (m: string, p: unknown) => Promise<unknown>)('config/read', { keys: [subtree] });
+  return record(record(answer).config)[subtree];
 }
 
+/** Tells the page each pins revision the connected client hears live; what a connection's snapshot holds is not announced. A
+ *  read that a newer change superseded, or that ends after the client was dropped, is discarded. */
+function followPins(host: PhoneProtocolHost, client: Client): () => void {
+  let told = 0;
+  let latest = 0;
+  let closed = false;
+  const check = (announce: boolean): void => {
+    const mine = ++latest;
+    void pagedConfigTree(client, 'desktop').then(
+      (tree) => {
+        if (closed || mine !== latest) return;
+        const state = storedPinsState(record(tree).activityRailPins);
+        if (!announce) told = state?.revision ?? 0;
+        else if (state && state.revision !== told) {
+          told = state.revision;
+          host.ctx.fanOut(host.ctx.activityRailPinsListeners, state);
+        }
+      },
+      () => undefined
+    );
+  };
+  check(false);
+  const off = client.store.subscribe((change) => {
+    // A snapshot announces every section it holds: it is where the pins stand, not a change.
+    if (change.type === 'appSnapshot') check(false);
+    else if (change.type === 'section' && change.section === 'config' && change.key === 'desktop' && !announcingSnapshot(client)) check(true);
+  });
+  return () => {
+    closed = true;
+    off();
+  };
+}
 const isWindowGone = (error: unknown): boolean => {
   const failure = (error as { detail?: { kind?: unknown; data?: { reason?: unknown; capability?: unknown } } } | null)?.detail;
   return failure?.kind === 'rpc' && failure.data?.reason === 'capabilityUnavailable' && failure.data.capability === 'desktopHost';
@@ -135,8 +166,8 @@ const call =
 
 const calls: Record<string, NodeCall> = {
   // ── settings (settingsRemoteMethods, remote-methods.ts:1086-1107) ──
-  readSettings: call((_args, host) =>
-    desktopSettingsFromConfig({ agent: held(host.client(), 'config', 'agent'), desktop: held(host.client(), 'config', 'desktop') })
+  readSettings: call(async (_args, host) =>
+    desktopSettingsFromConfig({ agent: await configTree(host, 'agent'), desktop: await configTree(host, 'desktop') })
   ),
   // Node answered the desktop settings of the config its locked update saved; the core's write answers that config. Node then
   // announced `desktop` to every client whether or not anything changed (remote-methods.ts:1098): the write's `announce`.
@@ -146,7 +177,7 @@ const calls: Record<string, NodeCall> = {
     const saved = await request(host, 'config/value/write', { path, value: enabled, announce: 'desktop' });
     return desktopSettingsFromConfig(record(saved).config);
   }),
-  readActivityRailPins: (_params, host) => heldPins(host.client()),
+  readActivityRailPins: async (_params, host) => storedPinsState(record(await configTree(host, 'desktop')).activityRailPins),
   // remote-methods.ts:915: a phone's update never initializes; only its first argument reaches the store.
   updateActivityRailPins: ([pins], host) => updatePins(pins, host),
 
@@ -186,15 +217,15 @@ const calls: Record<string, NodeCall> = {
   setNotificationPreferences: call(async ([deviceId, patch], host) => {
     const id = requiredNotificationDeviceId(deviceId);
     const value = requiredNotificationPreferencesPatch(patch);
-    const mode = notificationWriteMode(id, await notificationRoster(host), held(host.client(), 'config', 'notifications'));
+    const mode = notificationWriteMode(id, await notificationRoster(host), await configTree(host, 'notifications'));
     await request(host, 'config/value/write', { path: `notifications.devices.${id}`, value, mode });
     return notificationState(host);
   }),
   sendTestNotification: call(([deviceId], host) =>
     request(host, 'notify/test', { target: requiredNotificationDeviceId(deviceId) })
   ),
-  listConversationNotifications: call((_args, host) =>
-    activeOverrides(storedOverrides(held(host.client(), 'config', 'notifications')), Date.now())
+  listConversationNotifications: call(async (_args, host) =>
+    activeOverrides(storedOverrides(await configTree(host, 'notifications')), Date.now())
   ),
   // Node answered the overrides in force after the write: the stored list the write answers.
   setConversationNotification: call(async ([target, setting], host) => {
@@ -211,19 +242,35 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
   let toldMode: ReturnType<typeof configuredOrchestrationMode> | undefined;
   const wire = (client: Client): void => {
     unwire?.();
-    const followMode = (): void => {
-      const mode = configuredOrchestrationMode(held(client, 'config', 'agent'));
-      const previous = toldMode;
-      toldMode = mode;
-      if (previous !== undefined && mode !== previous) ctx.fanOut(ctx.orchestrationModeListeners, { mode });
+    // A read of a stubbed `agent` subtree that a newer change superseded, or that ends after this wiring ended, is discarded.
+    let latestMode = 0;
+    let wired = true;
+    const followMode = (announce: boolean): void => {
+      const mine = ++latestMode;
+      void pagedConfigTree(client, 'agent').then(
+        (tree) => {
+          if (!wired || mine !== latestMode) return;
+          const mode = configuredOrchestrationMode(tree);
+          const previous = toldMode;
+          toldMode = mode;
+          // Initialization only records the mode. A live change is published when it differs from the mode told; when none was told
+          // yet because the initial read was superseded, it is compared with what the fold held at wiring (unknown for a stub).
+          const changed = previous !== undefined ? mode !== previous : announce && (initialMode === undefined || mode !== initialMode);
+          if (changed) ctx.fanOut(ctx.orchestrationModeListeners, { mode });
+        },
+        () => undefined
+      );
     };
-    if (client.store.appFeed()) followMode();
+    // The mode the fold holds at wiring (a stub reads as unknown): the baseline a live change is compared with until a read has told one.
+    const heldAgent = held(client, 'config', 'agent');
+    const initialMode = heldAgent === null ? undefined : configuredOrchestrationMode(heldAgent);
+    if (client.store.appFeed()) followMode(false);
     const offStore = client.store.subscribe((change) => {
       if (
         change.type === 'appSnapshot' ||
         (change.type === 'section' && change.section === 'config' && change.key === 'agent' && !announcingSnapshot(client))
       ) {
-        followMode();
+        followMode(change.type === 'section');
       }
       if (change.type !== 'section' || change.section !== 'update') return;
       const state = client.store.section('update' as never, null)?.value as { status?: unknown } | undefined;
@@ -239,6 +286,7 @@ function install(host: PhoneProtocolHost): (() => void) | undefined {
     });
     const offPins = followPins(host, client);
     unwire = () => {
+      wired = false;
       offStore();
       offEvents();
       offPins();

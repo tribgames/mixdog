@@ -25,6 +25,8 @@ export interface PhoneClientOptions extends Omit<RelayConnectorDeps, 'closed'> {
   readonly random?: () => number;
   /** Receives every change of what the UI shows, starting with `connecting`. */
   readonly onConnection: (connection: PhoneConnection) => void;
+  /** Hands out the page-lifecycle link as soon as it exists, before the first connection resolves. */
+  readonly linked?: (link: PhoneClient['link']) => void;
   /** Stops the first-connect retries. */
   readonly signal?: AbortSignal;
   /** What the phone shows; the core reads it as `ui/screenSessions/changed` to hold back pushes for a thread being looked at. */
@@ -123,16 +125,25 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
   const sleepers = new Set<() => void>();
   const sleep = (_libraryMs: number): Promise<void> =>
     new Promise((done) => {
+      // Rule A: nothing waits for an attempt that was already aborted.
+      if (options.signal?.aborted) return done();
       const silentRedial = silent;
       const ms = redialDelay();
+      const away = (): boolean => (options.visible ? !options.visible() : false);
       // Node's silent redial runs inside the close handler, ahead of whatever the close settles; any other redial is a timer, however short.
-      if (silentRedial && ms === 0) return done();
+      if (silentRedial && ms === 0 && !away()) return done();
       const finish = (): void => {
         clearTimeout(timer);
         sleepers.delete(finish);
+        options.signal?.removeEventListener('abort', finish);
         done();
       };
-      const timer = setTimeout(finish, ms);
+      // Node's scheduleReconnect arms nothing while the page is hidden, and a timer that fires after the page was hidden waits for the
+      // wake that brings it back; a pairing reset (abort) ends every wait.
+      const timer = setTimeout(() => {
+        if (options.signal?.aborted || !away()) finish();
+      }, ms);
+      options.signal?.addEventListener('abort', finish);
       sleepers.add(finish);
     });
   let last: PhoneConnection | undefined;
@@ -162,6 +173,24 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
       if (state) settle({ state });
     },
   });
+  // The link exists from the first dial on: a wake, a hide or a suspension that comes before the first connection must reach it too.
+  const link: PhoneClient['link'] = {
+    hidden: () => connector.hidden(),
+    suspend: () => connector.suspend(),
+    retire: () => connector.retire(),
+    silentSince: (since) => connector.silentSince(since),
+    get suspended() {
+      return connector.suspended;
+    },
+    wake: () => {
+      // A wake never inherits a grown backoff: the redial that follows it is the gap the user watches.
+      schedule.reset();
+      const probing = connector.wake();
+      for (const finish of [...sleepers]) finish();
+      return probing;
+    },
+  };
+  options.linked?.(link);
   options.onConnection({ state: 'connecting' });
   for (let attempt = 0; ; attempt++) {
     if (options.signal?.aborted) throw new Error('aborted');
@@ -178,7 +207,7 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
         ladder: DEFAULT_LADDER,
       });
     } catch (error) {
-      if (terminal) throw error;
+      if (terminal || options.signal?.aborted) throw error;
       const detail = error instanceof ClientFailure ? error.detail : undefined;
       if (detail?.kind === 'versionRefused') {
         settle({ state: 'update-required', reason: detail.reason });
@@ -189,6 +218,13 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
     }
     break;
   }
+  if (options.signal?.aborted) {
+    void client.close();
+    throw new Error('aborted');
+  }
+  // The attempt's end is the client's: its reconnect ladder must not outlive the pairing it served.
+  const owned = client;
+  options.signal?.addEventListener('abort', () => void owned.close(), { once: true });
   const report = (shown: PhoneConnection): void => {
     if (terminal) return;
     if (shown.state === 'update-required') {
@@ -215,21 +251,5 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
   report(phoneConnectionOf(client.status));
   if (terminal) void client.close();
   const screen = options.screen ? createScreenReporter(client, options.screen) : undefined;
-  const link: PhoneClient['link'] = {
-    hidden: () => connector.hidden(),
-    suspend: () => connector.suspend(),
-    retire: () => connector.retire(),
-    silentSince: (since) => connector.silentSince(since),
-    get suspended() {
-      return connector.suspended;
-    },
-    wake: () => {
-      // A wake never inherits a grown backoff: the redial that follows it is the gap the user watches.
-      schedule.reset();
-      const probing = connector.wake();
-      for (const finish of [...sleepers]) finish();
-      return probing;
-    },
-  };
   return { client, link, ...(screen ? { screen } : {}) };
 }

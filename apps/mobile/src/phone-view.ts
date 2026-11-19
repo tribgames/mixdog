@@ -41,6 +41,11 @@ function newGate() {
   };
 }
 
+function threadGone(error: unknown): boolean {
+  const detail = ((error as { detail?: unknown } | null)?.detail ?? error) as { kind?: string; reason?: string; data?: { reason?: string } } | null;
+  return detail?.kind === 'rpc' && (detail.reason === 'threadNotFound' || detail.data?.reason === 'threadNotFound');
+}
+
 export type ViewClient = Pick<ProtocolClient<SessionFold>, 'resumeThread' | 'unsubscribeThread' | 'subscribeApp' | 'confirmFeeds' | 'status' | 'on'> & {
   readonly store: Pick<ProtocolClient<SessionFold>['store'], 'subscribe'>;
 };
@@ -155,9 +160,16 @@ export function createViewManager(
     for (const id of want) {
       if (open.has(id) && !force) continue;
       sent.push(
-        c.resumeThread(id, VIEW_WINDOW, force ? { force: true, follow: true } : { join: true, follow: true }).then(() => {
-          open.add(id);
-        })
+        c.resumeThread(id, VIEW_WINDOW, force ? { force: true, follow: true } : { join: true, follow: true }).then(
+          () => {
+            open.add(id);
+          },
+          (error: unknown) => {
+            // A remembered thread deleted on the PC is gone, not a failed sync (Node delivered the rest and marked it gone).
+            if (wanted.includes(id) || !restored.includes(id) || !threadGone(error)) throw error;
+            restored = restored.filter((kept) => kept !== id);
+          }
+        )
       );
     }
     const outcomes = await Promise.allSettled(sent);
@@ -179,7 +191,7 @@ export function createViewManager(
       const watch = armCallWatch(inFlight, id, reject, options.probe, options.silentSince, timers);
       // This sync's own claim, carried by its own frames (the first one it writes): a reconnect between the claim and the write cannot hand the
       // frame to another sync.
-      const own = scopeClient(client, firstFrame((sent) => void sent.then(watch.transmitted)));
+      const own = scopeClient(client, firstFrame((sent) => void sent.then(watch.transmitted, () => undefined)));
       const done = (): void => {
         watch.cancel();
         inFlight.delete(id);

@@ -79,20 +79,39 @@ test('lane pushes: Node passes every lane before the phone registers, the core d
 const NODE_ONLY_REQUEST = /^request:setRemoteLanes\(empty\)@/u;
 const withoutNodeOnly = (checkpoint) => (checkpoint.log ? { ...checkpoint, log: checkpoint.log.filter((entry) => !NODE_ONLY_REQUEST.test(entry)) } : checkpoint);
 
+// Where the phone departs from Node on purpose, the checkpoint it is held to instead (with the reason) is in the departures file; the recording itself
+// is never edited, and a checkpoint not named there is still compared with Node's whole.
+// A departure with a script replaces Node's script (a resync the phone never sends cannot be refused) by the phone's own for the same failure.
+const departures = JSON.parse(readFileSync(new URL('./remote-shim-lifecycle-departures.json', import.meta.url), 'utf8'));
 for (const name of Object.keys(golden)) {
   test(`phone lifecycle replays the Node recording: ${name}`, () => {
     const got = run(runner, name);
     const want = golden[name];
+    const departure = departures[name];
+    if (departure?.script) {
+      // The phone runs its own script for this failure: its checkpoints are the departure's, except the ones named in `fromRecording`,
+      // which still apply and are Node's whole.
+      assert.deepEqual(
+        got.map((c) => c.name),
+        departure.checkpoints.map((c) => c.name)
+      );
+      got.forEach((checkpoint, i) => {
+        const recorded = departure.fromRecording.includes(checkpoint.name) ? withoutNodeOnly(want.find((c) => c.name === checkpoint.name)) : departure.checkpoints[i];
+        assert.deepEqual(checkpoint, recorded, `${name} / ${checkpoint.name}`);
+      });
+      return;
+    }
     assert.deepEqual(
       got.map((c) => c.name),
       want.map((c) => c.name)
     );
-    want.map(withoutNodeOnly).forEach((expected, i) => {
+    const replaced = departure?.checkpoints ?? {};
+    want.map(withoutNodeOnly).forEach((recorded, i) => {
+      const expected = replaced[recorded.name] ?? recorded;
       assert.deepEqual(got[i], expected, `${name} / ${expected.name}`);
     });
   });
 }
-
 // The transport oracle: the whole ordered, decoded control trace of a scripted session must equal Node's -- every ACK (through, ranges), its
 // presence, its virtual time and its carrier, the pings and pongs, the records and what the page received.
 for (const name of Object.keys(transport)) {

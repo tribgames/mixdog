@@ -84,6 +84,19 @@ fn a_sources_key_tells_browser_sessions_from_screens() {
 }
 
 #[test]
+fn only_a_screen_viewer_departure_can_omit_the_peer_reference() {
+    let display = json!({ "kind": "screen", "screenId": "1" });
+    let mut leave = json!({ "v": 1, "source": display, "type": "close", "reason": "viewer-left", "viewerAttempt": 3 });
+    assert_eq!(ClientSignal::parse(&leave).unwrap().to_json(), leave);
+    leave["connectionId"] = json!("abcdefghijklmnop");
+    assert_eq!(refusal(&leave), "remote webrtc generation is invalid.");
+    leave["generation"] = json!(1);
+    assert_eq!(ClientSignal::parse(&leave).unwrap().to_json(), leave);
+    leave["source"] = source();
+    assert_eq!(refusal(&leave), "remote webrtc viewer attempt is invalid.");
+}
+
+#[test]
 fn a_stream_moves_only_along_the_transport_states_and_only_the_connected_one_closes_for_good() {
     use TransportState::*;
     assert!(Relay.can_move_to(Negotiating) && Negotiating.can_move_to(Connected) && Connected.can_move_to(Promoting));

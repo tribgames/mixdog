@@ -38,7 +38,11 @@ export function builtFrom(bin) {
   if (foreign.length) throw new Error(`${bin} was built from another checkout (${foreign[0]}), not ${root}`);
   const newer = sources.filter((path) => path.toLowerCase().startsWith(root) && (!existsSync(path) || statSync(path).mtimeMs > built));
   if (newer.length) throw new Error(`${bin} is older than ${newer.length} of its sources (e.g. ${newer.slice(0, 3).join(', ')}): rebuild it`);
-  return { depInfo, sources: sources.filter((path) => path.toLowerCase().startsWith(root)).length };
+  // The identity of the sources: each one's repo-relative path and content hash, in path order, folded into one digest.
+  // A folder in the list (a build script's rerun-if-changed) has no bytes to hash: its age is checked above, its files are listed on their own.
+  const own = sources.filter((path) => path.toLowerCase().startsWith(root) && !statSync(path).isDirectory()).map((path) => `${path.slice(root.length + 1).replaceAll('\\', '/')}\0${createHash('sha256').update(readFileSync(path)).digest('hex')}`).sort();
+  if (!own.length) throw new Error(`${bin}'s dep-info lists no source of this checkout (${root}): it is not evidence of a build of it`);
+  return { sources: own.length, sourceSha256: createHash('sha256').update(own.join('\n')).digest('hex') };
 }
 
 /**

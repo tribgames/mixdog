@@ -59,6 +59,8 @@ export interface RelayConnectorDeps {
   ready?(hello: Readonly<Record<string, unknown>>, media?: { sid: string; key: CryptoKey }): void;
   /** Whether the page is visible; the keepalive does not run while it is not. */
   visible?(): boolean;
+  /** The attempt's end: aborted, nothing is dialed, held or kept open for it. */
+  readonly signal?: AbortSignal;
   /** A dial (or the takeover of a parked socket) is starting. */
   dialing?(): void;
   /** A parked socket is being re-keyed for the desktop's return. */
@@ -70,7 +72,7 @@ export interface RelayConnectorDeps {
   /** The relay answered a wake probe (its pong, or traffic that proves the leg live): the page's wake recovery may go on. */
   probeAnswered?(): void;
   /** The relay's cleartext resync hint (any resync but desktop-gone). */
-  resyncHint?(): void;
+  resyncHint?(word: Readonly<Record<string, unknown>>): void;
   /** Present only where `RTCPeerConnection` exists: its absence is the transport opt-out. */
   webrtc?: {
     createPeer(configuration: RTCConfiguration): RTCPeerConnection;
@@ -131,7 +133,8 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
   let held: Promise<void> | null = null;
 
   interface Session {
-    probe(): void;
+    /** False for a socket that is still opening or handshaking: nothing to prove yet, and a wake must not recycle a healthy first dial. */
+    probe(): boolean;
     silentSince(since: number): boolean;
     unprove(): void;
     recycle(code: number, reason: string): void;
@@ -139,6 +142,20 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
     suspend(): void;
   }
 
+  const away = (): boolean => suspended || (deps.visible ? !deps.visible() : false);
+  deps.signal?.addEventListener('abort', () => {
+    release?.();
+    // The abort ends every socket the connector still owns, a parked one (no session, no listener of its own) included.
+    if (parked) {
+      const { ws } = parked;
+      parked = null;
+      try {
+        ws.close();
+      } catch {
+        // already gone
+      }
+    }
+  });
   const hold = (): Promise<void> => {
     held ??= new Promise<void>((resolve) => {
       release = resolve;
@@ -152,7 +169,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
       current?.unprove();
     },
     wake: () => {
-      if (suspended) {
+      if (suspended || held) {
         suspended = false;
         const resume = release;
         release = null;
@@ -160,8 +177,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
         resume?.();
         return false;
       }
-      const probing = current !== null;
-      current?.probe();
+      const probing = current?.probe() ?? false;
       active?.wake();
       return probing;
     },
@@ -171,12 +187,24 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
       suspended = true;
       hold();
       current?.suspend();
+      // A socket parked on `desktop-gone` has no session; the background ends it too.
+      if (parked) {
+        const { ws } = parked;
+        parked = null;
+        try {
+          ws.close(CLOSE_NORMAL, 'background');
+        } catch {
+          // already gone
+        }
+      }
     },
     get suspended() {
       return suspended;
     },
     open: async (target, sink) => {
-      while (suspended) await hold();
+      // Rule B: no socket while the page is hidden or suspended; the wake that brings it back (or an abort) ends the hold.
+      while (away() && !deps.signal?.aborted) await hold();
+      if (deps.signal?.aborted) throw new Error('aborted');
       deps.dialing?.();
       return new Promise<TransportWriter>((resolve, reject) => {
         const reuse = parked;
@@ -223,6 +251,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
         const finish = (code: number, reason: string, remote: boolean): void => {
           if (finished) return;
           finished = true;
+          deps.signal?.removeEventListener('abort', onAbort);
           stopTimers();
           closePeer();
           if (unproven) quiet = true;
@@ -230,6 +259,9 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
           if (ready) sink.closed(code, reason);
           else reject(new Error(`relay socket closed before ready (${code}${reason ? ` ${reason}` : ''})`));
         };
+        // An aborted attempt closes its socket and reports nothing further than the one close.
+        const onAbort = (): void => fail(CLOSE_NORMAL, 'aborted', true);
+        deps.signal?.addEventListener('abort', onAbort, { once: true });
         // A new handshake or the end of the socket ends the transport stream with it.
         const closePeer = (): void => {
           peer?.close();
@@ -240,7 +272,8 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
         const fail = (code: number, reason: string, bare = false): void => {
           if (finished) return;
           try {
-            if (bare) ws.close();
+            // A browser WebSocket throws on any code but 1000 and 3000-4999 (1002 included), leaving the socket open.
+            if (bare || (code !== CLOSE_NORMAL && (code < 3000 || code > 4999))) ws.close();
             else ws.close(code, reason);
           } catch {
             // the socket is already gone; finish() below still ends the attempt
@@ -252,6 +285,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
         const park = (waiting: unknown[]): void => {
           if (finished || !ready) return;
           finished = true;
+          deps.signal?.removeEventListener('abort', onAbort);
           quiet = waiting.length > 0;
           stopTimers();
           closePeer();
@@ -261,7 +295,9 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
             if (typeof event.data === 'string') mine.inbox.push(event.data);
           };
           ws.onclose = (event) => {
-            if (parked === mine) parked = null;
+            // A socket the connector no longer owns (taken over, or closed by a suspension) says nothing.
+            if (parked !== mine) return;
+            parked = null;
             deps.closed?.(event.code, event.reason, { ready: false, remote: true, quiet: false });
           };
           const reason = quiet ? 'desktop leg replaced' : 'desktop leg gone';
@@ -309,7 +345,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
           }
           if ('resync' in word) {
             if (word.resync === 'desktop-gone') park([]);
-            else deps.resyncHint?.();
+            else deps.resyncHint?.(word);
             return true;
           }
           return false;
@@ -475,7 +511,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
             if (!finished) unproven = true;
           },
           probe: () => {
-            if (finished) return;
+            if (finished || !ready) return false;
             unproven = true;
             pingSentAt = Date.now();
             awaitingPong = true;
@@ -493,6 +529,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
               deps.unresponsive?.();
               recycle(CLOSE_NORMAL, 'wake probe unanswered');
             }, WAKE_PROBE_MS);
+            return true;
           },
           silentSince: (since) => wakeTimer === undefined && lastTrafficAt < since,
           recycle,

@@ -29,7 +29,11 @@
             ]
           },
           "text": "x",
-          "meta": {}
+          "meta": {
+            "ext": {
+              "historyPosition": "h1:0:<item-id>"
+            }
+          }
         }
       ]
     },
@@ -86,7 +90,10 @@
           "text": "status?",
           "meta": {
             "at": 1800000000000,
-            "messageId": "ask_1"
+            "messageId": "ask_1",
+            "ext": {
+              "historyPosition": "h1:0:<item-id>"
+            }
           }
         },
         {
@@ -101,7 +108,10 @@
           "text": "hi",
           "meta": {
             "at": 1800000000000,
-            "messageId": "ask_2"
+            "messageId": "ask_2",
+            "ext": {
+              "historyPosition": "h1:0:<item-id>"
+            }
           }
         },
         {
@@ -114,7 +124,10 @@
           "text": "mine",
           "meta": {
             "at": 1800000000000,
-            "messageId": "u1"
+            "messageId": "u1",
+            "ext": {
+              "historyPosition": "h1:0:<item-id>"
+            }
           }
         }
       ]
@@ -197,7 +210,10 @@
           "text": "hi",
           "meta": {
             "at": 5,
-            "messageId": "u1"
+            "messageId": "u1",
+            "ext": {
+              "historyPosition": "h1:0:<item-id>"
+            }
           }
         },
         {
@@ -212,7 +228,10 @@
           "text": "ok",
           "meta": {
             "at": 1800000000000,
-            "messageId": "s1"
+            "messageId": "s1",
+            "ext": {
+              "historyPosition": "h1:0:<item-id>"
+            }
           }
         }
       ],
@@ -319,7 +338,10 @@
           ],
           "meta": {
             "at": 5,
-            "messageId": "sub-1"
+            "messageId": "sub-1",
+            "ext": {
+              "historyPosition": "h1:0:<item-id>"
+            }
           }
         }
       ],
@@ -426,7 +448,10 @@
           ],
           "meta": {
             "at": 1800000000000,
-            "messageId": "s1"
+            "messageId": "s1",
+            "ext": {
+              "historyPosition": "h1:0:<item-id>"
+            }
           }
         }
       ],
@@ -671,7 +696,10 @@
           ],
           "meta": {
             "at": 7,
-            "messageId": "sub-9"
+            "messageId": "sub-9",
+            "ext": {
+              "historyPosition": "h1:0:<item-id>"
+            }
           }
         }
       ]

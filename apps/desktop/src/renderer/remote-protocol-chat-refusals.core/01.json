@@ -1,34 +1,49 @@
 {
   "manifest": {
-    "binary": "D:/mixdog-build/mig/live/iso/core/mixdogd.exe",
-    "binarySha256": "795853739e28ab54eae335ffdaf6785ecfa619253678933f9127286fe3614dc2",
-    "binaryBuilt": "2026-11-15T05:36:16.138Z",
-    "harness": {
-      "lib/env.mjs": "358840d97f5df0ec1649b0c66d55be23ea31e1498cc9f5274505cb0767ead715",
-      "lib/scenarios.mjs": "e8c34cc876cf300d803a533f3ae5aa0e08553fff2f20ba3db7e6a5906e5c37d8",
-      "lib/stage.mjs": "e31c94a547bb1263c65db9ab7015089e7186227369c10f95aca3e3bb5cd58689",
-      "lib/fake-provider.mjs": "53d200f2b45e147baa971086bb87462e4399f15ac0c80d170d39ae93b391f699",
-      "lib/proc.mjs": "55b1e92d2fac78d4e46780f544a2e7d0929f9661bb76e71aac83ae8f238d8979",
-      "lib/deadline.mjs": "d89fb8c88b96bcb122df03c55964d2fa40d7cd0bbe36325d6ab8aa7878073539",
-      "lib/pg-version.json": "5e8cca4e89784fde84e58ee38173ac8202f9975ef9295a80dc1570fce8b977fc"
+    "binary": "mixdogd.exe",
+    "binarySha256": "d0e783fbd02884feeea40051469abb228d1490c3dc48b8c394dfb7b4923a49e4",
+    "binaryBuilt": "2026-11-19T20:16:33.979Z",
+    "builtFrom": {
+      "sources": 3705,
+      "sourceSha256": "499c4dbae9581ba7973b0874eed9c760107fb4168b8935534b7e8970471be60c"
     },
-    "source": "running mixdogd serve, isolated env (real-turn harness env.mjs / stage.mjs / fake-provider.mjs, pinned above), driven over the WebSocket JSON-RPC protocol"
+    "recorder": {
+      "remote-protocol-chat-refusals.record.mjs": "44ab5ee705142c3beac388bf62ee79e3f2a50a7fa4379d4bafe3e325986a7303",
+      "../../../../packages/protocol-client/src/client.ts": "5a23d380093dbb3314a9ae8219d093495901e564bc8b53f9b10f17da82b49472",
+      "../main/protocol/service-route.ts": "690a6ca7093920aba55215e7739abc3413870b250c2a1a91a5e1007e88facaf5",
+      "../shared/core-lanes/service-route.ts": "648160b27d39fcad86ace6f172737fc33d93ea2d0f30cc7596eaa61183c0565d",
+      "remote-protocol-chat-abort-live.mjs": "87fc7f1ba5963673d8b74963935c3e926c794c6fe3cf5b75f30c2bcd8ad1e80b",
+      "remote-protocol-chat-record-core.mjs": "46d94de9276d5b716b0ab4b71f47be9871c7cef1868f2255ca62667f8aca3318",
+      "remote-protocol-chat-fixtures.mjs": "af68defbc31e072aafaab63719f70d1b17e2fef1bdd1f870b3f14d91e61d31da",
+      "remote-protocol-chat-abort-procs.mjs": "2283528c6a2dc4c5e8ce0b1f9f251fdb1e873ee06bcbf4cbff4a832ae4125f61"
+    },
+    "harness": {
+      "lib/deadline.mjs": "d89fb8c88b96bcb122df03c55964d2fa40d7cd0bbe36325d6ab8aa7878073539",
+      "lib/env.mjs": "47d13bae02135e0ba33a2ba9f927f5d69c4d424e1fdfcf95cb97c535672fa6bd",
+      "lib/fake-provider.mjs": "ec28126ffb364bfcf99b87f6ea62b35dced74ef4d8abfe3af0c1cfd8af1388aa",
+      "lib/pg-version.json": "5e8cca4e89784fde84e58ee38173ac8202f9975ef9295a80dc1570fce8b977fc",
+      "lib/proc.mjs": "55b1e92d2fac78d4e46780f544a2e7d0929f9661bb76e71aac83ae8f238d8979",
+      "lib/scenarios.mjs": "5b50c5388bc1a593bd8c5df1717c6bd4e456b05ea21710fda5f8a5122f756d25",
+      "lib/stage.mjs": "329973da37db72c453b35438cf965f26377218c604601f6979b50e3f92a06b89"
+    },
+    "clientVersion": "1.5.0",
+    "source": "running mixdogd serve, isolated env (the public harness remote-protocol-chat-harness/lib, pinned above), driven over the WebSocket JSON-RPC protocol"
   },
-  "thread": "sess_45020_1794721405679_1794721405679_4ab6b636f1cf4f8da9a9fb942301827a",
-  "project": "D:\\mixdog-build\\tmp-kept\\c-tmp-1113\\real-turn-harness\\run\\env-ph2-chat-refusals\\ws\\a",
-  "unregistered": "D:\\mixdog-build\\tmp-kept\\c-tmp-1113\\real-turn-harness\\run\\env-ph2-chat-refusals\\ws\\never-registered",
+  "thread": "sess_48192_1795119437069_1795119437069_cf375e760824452590580e18f9b854f6",
+  "project": "C:\\mixdog-chat-record\\refusals-gyKZYj\\ws\\a",
+  "unregistered": "C:\\mixdog-chat-record\\refusals-gyKZYj\\ws\\never-registered",
   "cases": [
     {
       "name": "abortSession-idle",
       "call": "abortSession",
       "args": [
-        "sess_45020_1794721405679_1794721405679_4ab6b636f1cf4f8da9a9fb942301827a",
+        "sess_48192_1795119437069_1795119437069_cf375e760824452590580e18f9b854f6",
         {}
       ],
       "request": {
         "method": "turn/interrupt",
         "params": {
-          "threadId": "sess_45020_1794721405679_1794721405679_4ab6b636f1cf4f8da9a9fb942301827a"
+          "threadId": "sess_48192_1795119437069_1795119437069_cf375e760824452590580e18f9b854f6"
         }
       },
       "reply": {
@@ -48,7 +63,7 @@
       "name": "submitToSession-empty",
       "call": "submitToSession",
       "args": [
-        "sess_45020_1794721405679_1794721405679_4ab6b636f1cf4f8da9a9fb942301827a",
+        "sess_48192_1795119437069_1795119437069_cf375e760824452590580e18f9b854f6",
         "",
         {
           "id": "refusals-empty"
@@ -57,7 +72,7 @@
       "request": {
         "method": "turn/start",
         "params": {
-          "threadId": "sess_45020_1794721405679_1794721405679_4ab6b636f1cf4f8da9a9fb942301827a",
+          "threadId": "sess_48192_1795119437069_1795119437069_cf375e760824452590580e18f9b854f6",
           "input": {
             "prompt": "",
             "options": {
@@ -82,7 +97,7 @@
       "name": "submitToSession-blank",
       "call": "submitToSession",
       "args": [
-        "sess_45020_1794721405679_1794721405679_4ab6b636f1cf4f8da9a9fb942301827a",
+        "sess_48192_1795119437069_1795119437069_cf375e760824452590580e18f9b854f6",
         "   ",
         {
           "id": "refusals-blank"
@@ -91,7 +106,7 @@
       "request": {
         "method": "turn/start",
         "params": {
-          "threadId": "sess_45020_1794721405679_1794721405679_4ab6b636f1cf4f8da9a9fb942301827a",
+          "threadId": "sess_48192_1795119437069_1795119437069_cf375e760824452590580e18f9b854f6",
           "input": {
             "prompt": "   ",
             "options": {
@@ -193,12 +208,12 @@
       "name": "startProjectTask-unknown",
       "call": "startProjectTask",
       "args": [
-        "D:\\mixdog-build\\tmp-kept\\c-tmp-1113\\real-turn-harness\\run\\env-ph2-chat-refusals\\ws\\never-registered"
+        "C:\\mixdog-chat-record\\refusals-gyKZYj\\ws\\never-registered"
       ],
       "request": {
         "method": "project/directory",
         "params": {
-          "path": "D:\\mixdog-build\\tmp-kept\\c-tmp-1113\\real-turn-harness\\run\\env-ph2-chat-refusals\\ws\\never-registered",
+          "path": "C:\\mixdog-chat-record\\refusals-gyKZYj\\ws\\never-registered",
           "owner": true
         }
       },

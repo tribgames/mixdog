@@ -39,15 +39,15 @@
   "recorderFiles": [
     {
       "path": "benchmarks/rust-core/recorders/record-phone-settings.mjs",
-      "sha256": "e0aca3c459a9887d7df829e34dd17618fd78537d951b86df82c9fcd0a51092bd"
+      "sha256": "136361b186185ed050ed5b4d228b1caa2996fd87822fad9c0f5ac854b30da58a"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "0bca2d2cbc7927e2a28b332c841ee846c3dd24c1c70aee89b5d38f34b266eb8d"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/phone-relay-core.mjs",
-      "sha256": "ad55b52b40440cade7f33e14632f5eac8d4cc64313726ed42ddc96826d7b28b0"
+      "sha256": "427b08aeea7b43e88c5efcc611982a5d983153488daee055ddf1a0ff9e42e66e"
     }
   ],
   "set": "phone-settings",

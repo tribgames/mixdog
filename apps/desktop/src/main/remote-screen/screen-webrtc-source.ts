@@ -93,7 +93,13 @@ export function createScreenWebrtcSource(
     options.sink.geometryChanged(key, geometry);
     options.sink.captureChanged(key);
   });
-  screen.onStop(() => options.sink.geometryChanged(key, null));
+  let ended = false;
+  const end = () => {
+    if (ended) return;
+    ended = true;
+    options.sink.geometryChanged(key, null);
+  };
+  screen.onStop(end);
 
   const statusMessage = (): RemoteWebrtcChannelPush => ({
     v: REMOTE_WEBRTC_VERSION,
@@ -190,13 +196,14 @@ export function createScreenWebrtcSource(
       if (starting) return;
       starting = screen.start().then(
         (result) => {
+          if (ended) return;
           // The first run, declared once the session runs (a later one was
           // declared when it started).
           screen.setVideoRun(epoch);
           options.sink.geometryChanged(key, result.geometry);
         },
         (error: unknown) => {
-          options.sink.geometryChanged(key, null);
+          end();
           options.onStartError?.(error);
         }
       );

@@ -3,6 +3,8 @@
 
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use base64::Engine;
@@ -61,6 +63,7 @@ fn connection() -> ConnectionRef {
 
 struct Screen {
     log: Log,
+    session: u64,
 }
 
 impl Screen {
@@ -71,12 +74,16 @@ impl Screen {
 
 #[async_trait]
 impl VideoSource for Screen {
+    fn screen_session(&self) -> Option<u64> {
+        Some(self.session)
+    }
+
     fn start(&self) {
         self.note("start".into());
     }
 
     fn stop(&self) {
-        self.note("stop".into());
+        self.note(format!("stop session {}", self.session));
     }
 
     fn page(&self) -> (Option<String>, Option<Geometry>) {
@@ -121,6 +128,8 @@ impl VideoSource for Screen {
 
 struct Env {
     log: Log,
+    session: AtomicU64,
+    peers: AtomicU64,
 }
 
 impl Env {
@@ -134,13 +143,17 @@ impl HostEnv for Env {
         tokio::spawn(work);
     }
 
-    fn send_signal(&self, _client: &str, signal: &DesktopSignal) -> BoxFuture<'static, Result<(), String>> {
+    fn send_signal(&self, client: &str, signal: &DesktopSignal) -> BoxFuture<'static, Result<(), String>> {
         self.note(format!("signal {}", signal.type_name()));
+        if let DesktopSignal::Offer { connection, .. } = signal {
+            self.note(format!("offer {client} {}", connection.generation));
+        }
         Box::pin(async { Ok(()) })
     }
 
     fn source(&self, source: &Source, _client: &str, _signal: &str) -> Option<Arc<dyn VideoSource>> {
-        matches!(source, Source::Screen { screen_id } if screen_id == "0").then(|| Arc::new(Screen { log: self.log.clone() }) as Arc<dyn VideoSource>)
+        matches!(source, Source::Screen { screen_id } if screen_id == "0")
+            .then(|| Arc::new(Screen { log: self.log.clone(), session: self.session.load(Ordering::Relaxed) }) as Arc<dyn VideoSource>)
     }
 
     fn open(&self, connection_id: &str, source_key: &str, _ice_servers: &[IceServer], _receive_codecs: &[String]) {
@@ -167,10 +180,15 @@ impl HostEnv for Env {
         self.note(format!("source-closed {source_key}"));
     }
 
+    fn screen_source_closed(&self, source_key: &str, session: u64) {
+        self.note(format!("source-closed {source_key} session {session}"));
+    }
+
     fn report(&self, _event: &str, _data: Value) {}
 
     fn new_connection_id(&self) -> String {
-        CONNECTION.to_owned()
+        let id = self.peers.fetch_add(1, Ordering::Relaxed) + 1;
+        format!("connection-id-{id:04}")
     }
 
     fn now(&self) -> f64 {
@@ -184,9 +202,15 @@ impl HostEnv for Env {
     fn clear_timer(&self, _handle: u64) {}
 }
 
-fn host() -> (LiveHost, Log) {
+fn host_with_env() -> (LiveHost, Arc<Env>) {
     let log = Log::default();
-    (LiveHost::new(Arc::new(Env { log: log.clone() })), log)
+    let env = Arc::new(Env { log, session: AtomicU64::new(1), peers: AtomicU64::new(0) });
+    (LiveHost::new(env.clone()), env)
+}
+
+fn host() -> (LiveHost, Log) {
+    let (host, env) = host_with_env();
+    (host, env.log.clone())
 }
 
 fn entries(log: &Log) -> Vec<String> {
@@ -205,7 +229,7 @@ async fn settle() {
 
 /// Brings a screen viewer from the phone's `ready` to the promoted channel.
 async fn promoted(host: &LiveHost, log: &Log) {
-    let ready = ClientSignal::Ready { source: source(), receive_codecs: vec!["video/VP8".into()], video_limit: None };
+    let ready = ClientSignal::Ready { source: source(), receive_codecs: vec!["video/VP8".into()], video_limit: None, viewer_attempt: None };
     host.signal(CLIENT, &ready, &[]).await.unwrap();
     assert!(saw(log, "signal geometry") && saw(log, "start") && saw(log, &format!("open {CONNECTION} screen:0")));
     host.sender_event(SenderEvent::Offer { connection_id: CONNECTION.into(), sdp: sdp() });
@@ -240,8 +264,83 @@ async fn a_screen_source_is_taken_and_a_promoted_channel_is_told_its_state() {
 #[tokio::test]
 async fn a_source_the_environment_does_not_stream_is_refused() {
     let (host, _log) = host();
-    let ready = ClientSignal::Ready { source: Source::Screen { screen_id: "7".into() }, receive_codecs: vec![], video_limit: None };
+    let ready = ClientSignal::Ready { source: Source::Screen { screen_id: "7".into() }, receive_codecs: vec![], video_limit: None, viewer_attempt: None };
     assert_eq!(host.signal(CLIENT, &ready, &[]).await, Err("remote webrtc source is not streamed.".to_owned()));
+}
+
+#[tokio::test]
+async fn a_screen_cancel_after_the_peer_is_gone_releases_only_its_own_start() {
+    let (host, log) = host();
+    let ready = |viewer_attempt| ClientSignal::Ready {
+        source: source(), receive_codecs: vec!["video/VP8".into()], video_limit: None, viewer_attempt: Some(viewer_attempt),
+    };
+    let close = |viewer_attempt| ClientSignal::CancelScreen { source: source(), viewer_attempt, connection: None };
+    host.signal(CLIENT, &ready(1), &[]).await.unwrap();
+    host.sender_event(SenderEvent::Failed { connection_id: CONNECTION.into(), reason: super::signal::CloseReason::IceFailed });
+    assert!(saw(&log, "close connection"));
+    assert!(!saw(&log, "stop"));
+    host.signal(CLIENT, &close(1), &[]).await.unwrap();
+    assert!(saw(&log, "stop"));
+    host.signal(CLIENT, &ready(2), &[]).await.unwrap();
+    host.signal(CLIENT, &close(1), &[]).await.unwrap();
+    host.signal("another-client", &close(2), &[]).await.unwrap();
+    assert_eq!(entries(&log).iter().filter(|event| event.as_str() == "stop session 1").count(), 1);
+    host.signal(CLIENT, &close(2), &[]).await.unwrap();
+    assert_eq!(entries(&log).iter().filter(|event| event.as_str() == "stop session 1").count(), 2);
+}
+
+fn screen_ready(attempt: u64) -> ClientSignal {
+    ClientSignal::Ready {
+        source: source(), receive_codecs: vec!["video/VP8".into()], video_limit: None, viewer_attempt: Some(attempt),
+    }
+}
+
+#[tokio::test]
+async fn a_newer_screen_start_after_failure_opens_a_fresh_viewer_without_stopping_the_source() {
+    let (host, log) = host();
+    host.signal(CLIENT, &screen_ready(1), &[]).await.unwrap();
+    host.sender_event(SenderEvent::Failed { connection_id: CONNECTION.into(), reason: super::signal::CloseReason::IceFailed });
+    host.signal(CLIENT, &screen_ready(1), &[]).await.unwrap();
+    assert_eq!(entries(&log).iter().filter(|event| event.starts_with("open ")).count(), 1);
+    host.signal(CLIENT, &screen_ready(2), &[]).await.unwrap();
+    host.sender_event(SenderEvent::Offer { connection_id: "connection-id-0002".into(), sdp: sdp() });
+    assert!(saw(&log, "offer client-1 1"), "the replacement starts with generation one");
+    assert!(!saw(&log, "stop session 1"));
+}
+
+#[tokio::test]
+async fn a_late_ice_failure_cannot_put_a_newer_screen_start_into_cooldown() {
+    let (host, log) = host();
+    host.signal(CLIENT, &screen_ready(1), &[]).await.unwrap();
+    host.signal(CLIENT, &screen_ready(2), &[]).await.unwrap();
+    host.sender_event(SenderEvent::Failed { connection_id: CONNECTION.into(), reason: super::signal::CloseReason::IceFailed });
+    host.sender_event(SenderEvent::Offer { connection_id: "connection-id-0002".into(), sdp: sdp() });
+    assert!(saw(&log, "offer client-1 1"), "the replacement must still receive its own offer");
+    assert!(!saw(&log, "stop session 1"));
+}
+
+#[tokio::test]
+async fn replacing_a_display_session_retires_the_previous_clients_without_stopping_the_new_source() {
+    let (host, env) = host_with_env();
+    let log = &env.log;
+    host.signal(CLIENT, &screen_ready(1), &[]).await.unwrap();
+    host.signal("other-old-client", &screen_ready(1), &[]).await.unwrap();
+    // The resolver can admit a replacement before the old stop reaches the host.
+    env.session.store(2, Ordering::Relaxed);
+    host.signal("replacement", &screen_ready(1), &[]).await.unwrap();
+    assert!(saw(log, "close connection-id-0001"));
+    assert!(saw(log, "close connection-id-0002"));
+    assert!(saw(log, "stop session 1"));
+    assert!(saw(log, "source-closed screen:0 session 1"));
+    assert!(saw(log, "open connection-id-0003"));
+    let cancel = ClientSignal::CancelScreen { source: source(), viewer_attempt: 1, connection: None };
+    host.signal(CLIENT, &cancel, &[]).await.unwrap();
+    assert!(!saw(log, "close connection-id-0003"));
+    assert!(!saw(log, "stop session 2"));
+    host.signal("replacement", &cancel, &[]).await.unwrap();
+    assert!(saw(log, "close connection-id-0003"));
+    assert!(saw(log, "source-closed screen:0 session 2"));
+    assert!(saw(log, "stop session 2"));
 }
 
 #[tokio::test]

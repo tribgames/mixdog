@@ -97,6 +97,7 @@ struct Deps {
     screen_allowed: Mutex<bool>,
     screen_gates: Mutex<VecDeque<oneshot::Receiver<bool>>>,
     ice_gates: Mutex<VecDeque<oneshot::Receiver<Vec<IceServer>>>>,
+    forward_gate: Mutex<Option<oneshot::Receiver<()>>>,
 }
 
 impl Deps {
@@ -148,6 +149,10 @@ impl RelayDeps for D {
 
     async fn forward(&self, client: &str, signal: &ClientSignal, ice_servers: Option<&[IceServer]>, _origin: Origin) -> Result<(), String> {
         self.0.note(format!("forward {client} {} ice={:?}", signal.type_name(), ice_servers.map(<[IceServer]>::len)));
+        let gate = self.0.forward_gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            gate.await.unwrap();
+        }
         Ok(())
     }
 
@@ -248,6 +253,140 @@ async fn a_host_signal_reaches_its_phone_wrapped_as_the_live_view_event() {
     let sent = deps.log.lock().unwrap().sent.clone();
     assert_eq!(sent, vec![json!({ "event": "browserRemoteWebrtc", "payload": DesktopSignal::parse(&close).unwrap().to_json() })]);
     assert!(relay.send("c1", &json!({ "type": "close" })).await.is_err(), "a malformed host signal is refused");
+}
+
+#[tokio::test]
+async fn a_screen_cancel_retires_its_pending_start_but_not_a_replacement_or_other_client() {
+    let (relay, deps) = relay();
+    *deps.screen_allowed.lock().unwrap() = true;
+    let ready = |n| ClientSignal::parse(&json!({ "type": "ready", "v": 1, "source": screen(), "receiveCodecs": [], "viewerAttempt": n })).unwrap();
+    let close = |n| ClientSignal::parse(&json!({ "type": "close", "v": 1, "source": screen(), "reason": "viewer-left", "viewerAttempt": n })).unwrap();
+    let (done, held) = oneshot::channel();
+    deps.ice_gates.lock().unwrap().push_back(held);
+    let first = ready(1);
+    let (result, ()) = futures::join!(relay.forward("c1", &first, 1), async {
+        relay.forward("c1", &close(1), 1).await.unwrap();
+        relay.forward("c1", &first, 1).await.unwrap();
+        done.send(vec![]).unwrap();
+    });
+    assert_eq!(result, Ok(()));
+    assert_eq!(deps.calls(), ["forward c1 close ice=None"]);
+
+    let (done, held) = oneshot::channel();
+    deps.ice_gates.lock().unwrap().push_back(held);
+    let replacement = ready(2);
+    let (result, ()) = futures::join!(relay.forward("c1", &replacement, 1), async {
+        relay.forward("c1", &close(1), 1).await.unwrap();
+        relay.forward("c2", &first, 2).await.unwrap();
+        done.send(vec![]).unwrap();
+    });
+    assert_eq!(result, Ok(()));
+    assert_eq!(deps.calls(), ["forward c1 close ice=None", "forward c1 close ice=None", "forward c2 ready ice=Some(1)", "forward c1 ready ice=Some(0)"]);
+}
+
+#[tokio::test]
+async fn screen_replay_compacts_only_cancelled_ids_and_explicitly_requires_a_new_connection_on_overflow() {
+    let (relay, deps) = relay();
+    *deps.screen_allowed.lock().unwrap() = true;
+    let signal = |kind: &str, screen_id: &str, id| {
+        let mut raw = json!({ "type": kind, "v": 1, "source": { "kind": "screen", "screenId": screen_id }, "viewerAttempt": id });
+        if kind == "ready" {
+            raw["receiveCodecs"] = json!(["video/VP8"]);
+        } else {
+            raw["reason"] = json!("viewer-left");
+        }
+        relay.accept("c1", &raw).unwrap()
+    };
+    let phone = async |kind: &str, screen_id: &str, id| relay.forward("c1", &signal(kind, screen_id, id), 1).await;
+
+    phone("ready", "live", 1).await.unwrap();
+    let (allowed, held) = oneshot::channel();
+    deps.screen_gates.lock().unwrap().push_back(held);
+    let (superseded, ()) = futures::join!(phone("ready", "main", 4), async {
+        phone("ready", "main", 5).await.unwrap();
+        phone("close", "main", 4).await.unwrap();
+        allowed.send(true).unwrap();
+    });
+    superseded.unwrap();
+
+    for id in (100..230).filter(|&id| id != 166) {
+        phone("close", "reordered", id).await.unwrap();
+        phone("ready", "reordered", id).await.unwrap();
+    }
+    assert_eq!(deps.calls().iter().filter(|call| call.contains("ready")).count(), 2, "only the live viewer and replacement were forwarded");
+    let before = deps.calls().len();
+    phone("ready", "reordered", 100).await.unwrap();
+    phone("ready", "reordered", 229).await.unwrap();
+    phone("ready", "main", 4).await.unwrap();
+    assert_eq!(deps.calls().len(), before, "no cancelled ready was replayed");
+    phone("ready", "live", 1).await.unwrap();
+    phone("ready", "unseen", 2).await.unwrap();
+    phone("ready", "unseen", 166).await.unwrap();
+    phone("close", "other-display", 6).await.unwrap();
+    phone("ready", "main", 6).await.unwrap();
+    assert_eq!(
+        &deps.calls()[before..],
+        ["forward c1 ready ice=Some(1)", "forward c1 ready ice=Some(1)", "forward c1 ready ice=Some(1)", "forward c1 close ice=None", "forward c1 ready ice=Some(1)"]
+    );
+
+    phone("close", "first-unmatched", 999).await.unwrap();
+    let mut overflow = None;
+    for id in 1000..1128 {
+        if let Err(error) = phone("close", &format!("unseen-{id}"), id).await {
+            assert!(error.contains("resynchronization") && error.contains("Reconnect"));
+            overflow = Some((id, error));
+            break;
+        }
+    }
+    let (id, resync) = overflow.expect("unmatched closes reach a bounded limit");
+    let before = deps.calls().len();
+    phone("ready", "first-unmatched", 999).await.unwrap();
+    assert_eq!(deps.calls().len(), before, "the earliest unmatched close still blocks its ready");
+    // Joining the two retired ranges frees capacity, but cannot recover a lost close.
+    phone("close", "unseen", 166).await.unwrap();
+    assert_eq!(phone("ready", &format!("unseen-{id}"), id).await.unwrap_err(), resync);
+    assert_eq!(phone("ready", "fresh", 3).await.unwrap_err(), resync);
+    phone("ready", "live", 1).await.unwrap();
+    phone("close", "live", 1).await.unwrap();
+    phone("ready", "live", 1).await.unwrap();
+    assert_eq!(&deps.calls()[before..], ["forward c1 close ice=None", "forward c1 ready ice=Some(1)", "forward c1 close ice=None"]);
+
+    let before = deps.calls().len();
+    let (allowed, held) = oneshot::channel();
+    deps.screen_gates.lock().unwrap().push_back(held);
+    let old_close = signal("close", "live", 1);
+    let (result, ()) = futures::join!(relay.forward("c1", &old_close, 1), async {
+        relay.connection_removed("c1");
+        relay.forward("c1", &signal("ready", "live", 1), 2).await.unwrap();
+        allowed.send(true).unwrap();
+    });
+    assert_eq!(result, Ok(()));
+    assert_eq!(&deps.calls()[before..], ["forward c1 ready ice=Some(1)"], "only the replacement reaches the host");
+}
+
+#[tokio::test]
+async fn a_slow_screen_handoff_does_not_delay_another_connections_cancellation() {
+    let (relay, deps) = relay();
+    *deps.screen_allowed.lock().unwrap() = true;
+    let ready = relay.accept("c1", &json!({ "type": "ready", "v": 1, "source": screen(), "receiveCodecs": [], "viewerAttempt": 1 })).unwrap();
+    let close = relay.accept("c1", &json!({ "type": "close", "v": 1, "source": screen(), "reason": "viewer-left", "viewerAttempt": 1 })).unwrap();
+    relay.forward("c2", &ready, 2).await.unwrap();
+
+    let (finish, held) = oneshot::channel();
+    *deps.forward_gate.lock().unwrap() = Some(held);
+    let mut slow = std::pin::pin!(relay.forward("c1", &ready, 1));
+    assert!(futures::poll!(&mut slow).is_pending());
+    let mut own = std::pin::pin!(relay.forward("c1", &close, 1));
+    assert!(futures::poll!(&mut own).is_pending(), "same-connection cancel stays behind handoff");
+    let mut other = std::pin::pin!(relay.forward("c2", &close, 2));
+    assert_eq!(futures::poll!(&mut other), std::task::Poll::Ready(Ok(())));
+    relay.forward("c2", &ready, 2).await.unwrap();
+    assert_eq!(deps.calls(), ["forward c2 ready ice=Some(1)", "forward c1 ready ice=Some(1)", "forward c2 close ice=None"]);
+
+    finish.send(()).unwrap();
+    slow.await.unwrap();
+    own.await.unwrap();
+    assert_eq!(deps.calls().last().unwrap(), "forward c1 close ice=None");
 }
 
 #[tokio::test]

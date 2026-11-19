@@ -69,6 +69,7 @@ const ownBytes = (pixels: Uint8Array): Uint8Array =>
 interface ViewerEntry {
   clientId: string;
   sourceKey: string;
+  viewerAttempt?: number;
   viewer: RemoteWebrtcViewer;
 }
 
@@ -465,11 +466,24 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
     {
       if (!CLIENT_ID.test(clientId)) throw new TypeError('remote webrtc client id is invalid.');
       const signal = parseRemoteWebrtcClientSignal(raw);
-      const source = deps.sources(signal.source, { clientId, signal: signal.type });
-      if (!source) throw new TypeError('remote webrtc source is not streamed.');
       const sourceKey = remoteWebrtcSourceKey(signal.source);
       const key = viewerKey(clientId, sourceKey);
       let entry = viewers.get(key);
+      if (signal.type === 'close' && 'viewerAttempt' in signal) {
+        if (entry?.viewerAttempt === signal.viewerAttempt) stopViewer(key);
+        return;
+      }
+      const previous = entry?.viewerAttempt ?? 0;
+      const incoming = signal.type === 'ready' ? (signal.viewerAttempt ?? 0) : 0;
+      if (signal.type === 'ready' && incoming < previous) return;
+      const source = deps.sources(signal.source, { clientId, signal: signal.type });
+      if (!source) throw new TypeError('remote webrtc source is not streamed.');
+      if (entry && incoming > previous && (entry.viewer.state === 'cooldown' || entry.viewer.state === 'demoting')) {
+        // A new screen start must not inherit the failed viewer's retry state.
+        // Its source is unchanged; retire only the viewer and its input lane.
+        entry.viewer.stop();
+        entry = undefined;
+      }
       if (!entry) {
         // A late acknowledgement or connection packet must not recreate a departed viewer.
         if (signal.type === 'geometry-ack' || 'connectionId' in signal) return;
@@ -481,6 +495,7 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
       }
       switch (signal.type) {
         case 'ready':
+          entry.viewerAttempt = signal.viewerAttempt;
           // A larger video limit than the stream's frame bound widens the
           // capture before the offer, which then carries the new geometry.
           if (signal.videoLimit) source.videoLimit?.(signal.videoLimit);
@@ -502,7 +517,7 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
           // buttons are still released), and forgotten — its next `ready` is
           // a new viewer.
           if (signal.reason === 'viewer-left') {
-            if (signal.connectionId === entry.viewer.connectionId) stopViewer(key);
+            if (entry.viewerAttempt === undefined && signal.connectionId === entry.viewer.connectionId) stopViewer(key);
             return;
           }
           entry.viewer.signal(signal);

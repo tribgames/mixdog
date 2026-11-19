@@ -1,0 +1,1393 @@
+{
+ "wake-probe-answered": {
+  "reason": "The phone confirms its feeds on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts) where Node resynced every view: no resync request, no syncing/connected cycle, no connected notice, no resync-banner state.",
+  "checkpoints": {
+   "probe-answered": {
+    "name": "probe-answered",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [
+     "ping@10000"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   }
+  }
+ },
+ "relay-resync-hint": {
+  "reason": "The phone confirms its feeds on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts) where Node resynced every view: no resync request, no syncing/connected cycle, no connected notice, no resync-banner state.",
+  "checkpoints": {
+   "hint": {
+    "name": "hint",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   }
+  }
+ },
+ "wake-late-pong": {
+  "reason": "The phone confirms its feeds on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts) where Node resynced every view: no resync request, no syncing/connected cycle, no connected notice, no resync-banner state.",
+  "checkpoints": {
+   "late-pong": {
+    "name": "late-pong",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   "quiet-after": {
+    "name": "quiet-after",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   }
+  }
+ },
+ "backlog-kept": {
+  "reason": "The phone confirms its feeds on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts) where Node resynced every view: no resync request, no syncing/connected cycle, no connected notice, no resync-banner state.",
+  "checkpoints": {
+   "kept": {
+    "name": "kept",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [
+     "ping@10000"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   }
+  }
+ },
+ "proven-drop-visible": {
+  "reason": "A dropped, proven socket reconnects through the library: the phone does not resync the views on the new leg first (no syncing state, no resync request, one connected notice) - the wake design of b065f71034.",
+  "checkpoints": {
+   "dropped": {
+    "name": "dropped",
+    "states": [
+     "connected",
+     "reconnecting"
+    ],
+    "banner": [
+     false,
+     true
+    ],
+    "offline": false,
+    "log": [
+     "ping@10000",
+     "socket@10000"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [
+     "connected"
+    ],
+    "calls": [],
+    "core": null
+   }
+  }
+ },
+ "resync-fails-once": {
+  "reason": "The phone confirms its feeds on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts) where Node resynced every view: no resync request, no syncing/connected cycle, no connected notice, no resync-banner state. The scripted refusal of the first sync therefore has nothing to refuse.",
+  "checkpoints": {
+   "refused": {
+    "name": "refused",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   "waiting": {
+    "name": "waiting",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   "retried": {
+    "name": "retried",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   }
+  }
+ },
+ "mxt-negotiated": {
+  "reason": "The phone confirms its feeds on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts) where Node resynced every view: no resync request, no syncing/connected cycle, no connected notice, no resync-banner state.",
+  "checkpoints": {
+   "woken": {
+    "name": "woken",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [
+     "ping@0",
+     "x:ping@0",
+     "x:ping@3350"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [
+      "s1"
+     ],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   }
+  }
+ },
+ "resync-gates-reads": {
+  "reason": "The phone confirms its feeds on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts) where Node resynced every view: no resync request, no syncing/connected cycle, no connected notice, no resync-banner state. Without a resync there is no held sync to gate the reads: the read the recording holds behind the resync is answered at once.",
+  "checkpoints": {
+   "resync-held": {
+    "name": "resync-held",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [
+     "request:readSettings@0",
+     "settled:gated:ok={\"settings\":\"S\"}@0"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   "resync-landed": {
+    "name": "resync-landed",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   }
+  }
+ },
+ "resync-retry-gates-reads": {
+  "reason": "The phone confirms its feeds on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts) where Node resynced every view: no resync request, no syncing/connected cycle, no connected notice, no resync-banner state. Without a resync there is no held sync to gate the reads: the read the recording holds behind the resync is answered at once.",
+  "checkpoints": {
+   "refused-and-waiting": {
+    "name": "refused-and-waiting",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [
+     "request:readSettings@0",
+     "settled:gated:ok={\"settings\":\"S\"}@0"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   "retry-held": {
+    "name": "retry-held",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   "retry-still-held": {
+    "name": "retry-still-held",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   "retry-landed": {
+    "name": "retry-landed",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   }
+  }
+ },
+ "disconnect-during-held-resync": {
+  "reason": "The phone confirms its feeds on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts) where Node resynced every view: no resync request, no syncing/connected cycle, no connected notice, no resync-banner state. Without a resync there is no held sync to gate the reads.",
+  "checkpoints": {
+   "resync-held": {
+    "name": "resync-held",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [
+     "request:readSettings@0",
+     "settled:gated:ok={\"settings\":\"S\"}@0"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   "dropped": {
+    "name": "dropped",
+    "states": [
+     "connected",
+     "reconnecting"
+    ],
+    "banner": [
+     false,
+     true
+    ],
+    "offline": false,
+    "log": [
+     "socket@0"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [
+     "connected"
+    ],
+    "calls": [],
+    "core": null
+   }
+  }
+ },
+ "reconnect-sync-refused-once": {
+  "reason": "On the reconnect the phone is not gated behind the sync the script refuses (the first sync of a reconnected leg is the view machine's own re-attachment, settled in the same turn), so its reads are answered at once and the reconnected signal is given there; Node held them until the retry.",
+  "checkpoints": {
+   "refused-and-waiting": {
+    "name": "refused-and-waiting",
+    "states": [
+     "connected",
+     "reconnecting",
+     "syncing",
+     "connected"
+    ],
+    "banner": [
+     false,
+     true,
+     false
+    ],
+    "offline": false,
+    "log": [
+     "socket@0",
+     "request:synchronizeViews@0",
+     "request:synchronizeViews@0",
+     "request:readSettings@0",
+     "settled:gated:ok={\"settings\":\"S\"}@0"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 1,
+    "notices": [
+     "connected",
+     "connected",
+     "reconnected"
+    ],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   "retried": {
+    "name": "retried",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   }
+  }
+ },
+ "call-delayed-send": {
+  "reason": "The protocol client's own heartbeat (packages/protocol-client/src/health.ts) sends a probe request 3 s after the call left; its answer is traffic, so the relay-level ping that Node sent after 5 s of silence is not due.",
+  "checkpoints": {
+   "silence-probe-5s-after-send": {
+    "name": "silence-probe-5s-after-send",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   }
+  }
+ },
+ "resync-fails-repeatedly": {
+  "reason": "The phone does not resync a view on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts), so the recording's scripted refusal of that resync is never met and its script cannot run to its end. The same failure on the phone is a view sync refused on a fresh leg after a drop: the script drops the socket and refuses the app feed's restore 3 times (refuse-syncs). The library gives up after the third refusal (feed restore refused, close 1000) at 250 ms, where Node retried at 250 and 500 ms and recycled at 750; the redial follows at +500 ms and recovers. No read is waiting in this scenario.",
+  "script": [
+   {
+    "op": "boot"
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "expect": {
+     "foreground": true
+    },
+    "op": "check",
+    "name": "connected"
+   },
+   {
+    "value": 0,
+    "op": "random"
+   },
+   {
+    "code": 1006,
+    "op": "drop"
+   },
+   {
+    "op": "refuse-syncs",
+    "times": 3
+   },
+   {
+    "ms": 0,
+    "op": "advance"
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "ms": 249,
+    "op": "advance"
+   },
+   {
+    "name": "first-refused",
+    "op": "mark"
+   },
+   {
+    "ms": 1,
+    "op": "advance"
+   },
+   {
+    "name": "second-refused",
+    "op": "mark"
+   },
+   {
+    "ms": 499,
+    "op": "advance"
+   },
+   {
+    "name": "before-third",
+    "op": "mark"
+   },
+   {
+    "ms": 1,
+    "op": "advance"
+   },
+   {
+    "name": "recycled",
+    "op": "mark"
+   },
+   {
+    "ms": 1000,
+    "op": "advance"
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "expect": {
+     "foreground": true
+    },
+    "op": "check",
+    "name": "recovered"
+   }
+  ],
+  "fromRecording": [
+   "connected"
+  ],
+  "checkpoints": [
+   {
+    "name": "connected",
+    "states": [
+     "connecting",
+     "syncing",
+     "connected"
+    ],
+    "banner": [
+     true,
+     false
+    ],
+    "offline": false,
+    "log": [
+     "socket@0"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [
+     "connected"
+    ],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "first-refused",
+    "states": [
+     "connected",
+     "reconnecting",
+     "syncing"
+    ],
+    "banner": [
+     false,
+     true,
+     false
+    ],
+    "offline": false,
+    "log": [
+     "socket@0"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [
+     "connected"
+    ],
+    "calls": [],
+    "core": {
+     "foreground": null,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "second-refused",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": null,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "before-third",
+    "states": [
+     "reconnecting"
+    ],
+    "banner": [
+     true
+    ],
+    "offline": false,
+    "log": [
+     "close(1000,feed restore refused)@250"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": null,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "recycled",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": null,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "recovered",
+    "states": [
+     "reconnecting",
+     "syncing",
+     "connected"
+    ],
+    "banner": [
+     true,
+     false
+    ],
+    "offline": false,
+    "log": [
+     "socket@750"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 1,
+    "notices": [
+     "connected",
+     "reconnected"
+    ],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   }
+  ]
+ },
+ "resync-recycle-rejects-gate": {
+  "reason": "The phone does not resync a view on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts), so the recording's scripted refusal of that resync is never met and its script cannot run to its end. The same failure on the phone is a view sync refused on a fresh leg after a drop: the script drops the socket and refuses the app feed's restore 3 times (refuse-syncs). The library gives up after the third refusal (feed restore refused, close 1000) at 250 ms, where Node retried at 250 and 500 ms and recycled at 750; the redial follows at +500 ms and recovers. A read gated behind the sync is rejected as interrupted by that recycle (at 250 ms, Node: at 750 ms).",
+  "script": [
+   {
+    "reads": true,
+    "op": "boot"
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "expect": {
+     "foreground": true
+    },
+    "op": "check",
+    "name": "connected"
+   },
+   {
+    "ms": 10000,
+    "op": "advance"
+   },
+   {
+    "name": "boot-window-expired",
+    "op": "mark"
+   },
+   {
+    "value": 0,
+    "op": "random"
+   },
+   {
+    "code": 1006,
+    "op": "drop"
+   },
+   {
+    "op": "refuse-syncs",
+    "times": 3
+   },
+   {
+    "ms": 0,
+    "op": "advance"
+   },
+   {
+    "op": "read",
+    "name": "readSettings",
+    "as": "gated"
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "ms": 249,
+    "op": "advance"
+   },
+   {
+    "name": "refused-twice",
+    "op": "mark"
+   },
+   {
+    "ms": 1,
+    "op": "advance"
+   },
+   {
+    "name": "recycled",
+    "op": "mark"
+   },
+   {
+    "ms": 499,
+    "op": "advance"
+   },
+   {
+    "ms": 1,
+    "op": "advance"
+   },
+   {
+    "name": "waiting-to-redial",
+    "op": "mark"
+   },
+   {
+    "ms": 1000,
+    "op": "advance"
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "op": "check",
+    "expect": {
+     "foreground": true
+    },
+    "name": "back"
+   },
+   {
+    "ms": 0,
+    "op": "advance"
+   },
+   {
+    "name": "served",
+    "op": "mark"
+   }
+  ],
+  "fromRecording": [
+   "connected",
+   "boot-window-expired"
+  ],
+  "checkpoints": [
+   {
+    "name": "connected",
+    "states": [
+     "connecting",
+     "syncing",
+     "connected"
+    ],
+    "banner": [
+     true,
+     false
+    ],
+    "offline": false,
+    "log": [
+     "socket@0",
+     "request:readSettings@0",
+     "request:readHostDisplayPreferences@0",
+     "request:readActivityRailPins@0",
+     "request:viewerDevice@0",
+     "request:synchronizeViews@0",
+     "request:getSnapshot@0",
+     "request:listProjects@0"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [
+     "connected"
+    ],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "boot-window-expired",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "refused-twice",
+    "states": [
+     "connected",
+     "reconnecting",
+     "syncing"
+    ],
+    "banner": [
+     false,
+     true,
+     false
+    ],
+    "offline": false,
+    "log": [
+     "socket@0",
+     "request:synchronizeViews@0",
+     "request:synchronizeViews@0"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [
+     "connected"
+    ],
+    "calls": [],
+    "core": {
+     "foreground": null,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "recycled",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": null,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "waiting-to-redial",
+    "states": [
+     "reconnecting"
+    ],
+    "banner": [
+     true
+    ],
+    "offline": false,
+    "log": [
+     "request:synchronizeViews@250",
+     "close(1000,feed restore refused)@250",
+     "settled:gated:err(MIXDOG_REMOTE_CONNECTION_INTERRUPTED)@250"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": null,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "back",
+    "states": [
+     "reconnecting",
+     "syncing",
+     "connected"
+    ],
+    "banner": [
+     true,
+     false
+    ],
+    "offline": false,
+    "log": [
+     "socket@750",
+     "request:synchronizeViews@1000"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 1,
+    "notices": [
+     "connected",
+     "reconnected"
+    ],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "served",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   }
+  ]
+ },
+ "reconnect-sync-refused-repeatedly": {
+  "reason": "On the reconnect the phone gives up on the app feed's restore after the third refusal (feed restore refused, close 1000) at 250 ms, where Node retried at 250 and 500 ms and recycled at 750 ms; the gated read is rejected as interrupted by that close, the redial follows at +500 ms and the next connection serves a read.",
+  "script": [
+   {
+    "reads": true,
+    "op": "boot"
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "expect": {
+     "foreground": true
+    },
+    "op": "check",
+    "name": "connected"
+   },
+   {
+    "ms": 10000,
+    "op": "advance"
+   },
+   {
+    "name": "boot-window-expired",
+    "op": "mark"
+   },
+   {
+    "value": 0,
+    "op": "random"
+   },
+   {
+    "code": 1006,
+    "op": "drop"
+   },
+   {
+    "op": "refuse-syncs",
+    "times": 3
+   },
+   {
+    "ms": 0,
+    "op": "advance"
+   },
+   {
+    "as": "gated",
+    "op": "read",
+    "name": "readSettings"
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "ms": 249,
+    "op": "advance"
+   },
+   {
+    "name": "first-refused",
+    "op": "mark"
+   },
+   {
+    "ms": 1,
+    "op": "advance"
+   },
+   {
+    "name": "second-refused",
+    "op": "mark"
+   },
+   {
+    "ms": 499,
+    "op": "advance"
+   },
+   {
+    "name": "before-third",
+    "op": "mark"
+   },
+   {
+    "ms": 1,
+    "op": "advance"
+   },
+   {
+    "name": "recycled",
+    "op": "mark"
+   },
+   {
+    "ms": 1000,
+    "op": "advance"
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "expect": {
+     "foreground": true
+    },
+    "op": "check",
+    "name": "back"
+   },
+   {
+    "ms": 0,
+    "op": "advance"
+   },
+   {
+    "name": "served",
+    "op": "mark"
+   },
+   {
+    "as": "after",
+    "op": "read",
+    "name": "readSettings"
+   },
+   {
+    "ms": 0,
+    "op": "advance"
+   },
+   {
+    "name": "served2",
+    "op": "mark"
+   }
+  ],
+  "fromRecording": [
+   "connected",
+   "boot-window-expired"
+  ],
+  "checkpoints": [
+   {
+    "name": "connected",
+    "states": [
+     "connecting",
+     "syncing",
+     "connected"
+    ],
+    "banner": [
+     true,
+     false
+    ],
+    "offline": false,
+    "log": [
+     "socket@0",
+     "request:readSettings@0",
+     "request:readHostDisplayPreferences@0",
+     "request:readActivityRailPins@0",
+     "request:viewerDevice@0",
+     "request:synchronizeViews@0",
+     "request:getSnapshot@0",
+     "request:listProjects@0"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [
+     "connected"
+    ],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "boot-window-expired",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "first-refused",
+    "states": [
+     "connected",
+     "reconnecting",
+     "syncing"
+    ],
+    "banner": [
+     false,
+     true,
+     false
+    ],
+    "offline": false,
+    "log": [
+     "socket@0",
+     "request:synchronizeViews@0",
+     "request:synchronizeViews@0"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [
+     "connected"
+    ],
+    "calls": [],
+    "core": {
+     "foreground": null,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "second-refused",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": null,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "before-third",
+    "states": [
+     "reconnecting"
+    ],
+    "banner": [
+     true
+    ],
+    "offline": false,
+    "log": [
+     "request:synchronizeViews@250",
+     "close(1000,feed restore refused)@250",
+     "settled:gated:err(MIXDOG_REMOTE_CONNECTION_INTERRUPTED)@250"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": null,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "recycled",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": null,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "back",
+    "states": [
+     "reconnecting",
+     "syncing",
+     "connected"
+    ],
+    "banner": [
+     true,
+     false
+    ],
+    "offline": false,
+    "log": [
+     "socket@750",
+     "request:synchronizeViews@1000"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 1,
+    "notices": [
+     "connected",
+     "reconnected"
+    ],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "served",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   },
+   {
+    "name": "served2",
+    "states": [],
+    "banner": [],
+    "offline": false,
+    "log": [
+     "request:readSettings@0",
+     "settled:after:ok={\"settings\":\"S\"}@0"
+    ],
+    "pairingInvalid": [],
+    "reconnected": 0,
+    "notices": [],
+    "calls": [],
+    "core": {
+     "foreground": true,
+     "screen": [],
+     "panels": [],
+     "view": [],
+     "lanes": [],
+     "resyncs": 0
+    }
+   }
+  ]
+ }
+}

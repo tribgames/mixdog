@@ -213,19 +213,17 @@ export function createRemoteScreenSources(deps: RemoteScreenSourcesDeps) {
         screenId: source.screenId,
         sink: deps.sink,
         onStartError: (error) => {
-          forget();
-          void screen.released().finally(() => lease.dispose());
+          relinquish();
           deps.log({ type: 'start-failed', clientId, screenId: source.screenId, error: String(error) });
         },
       }),
     };
-    const forget = (): void => {
+    // A rejected start may happen without a stop, or after one.
+    let releasing = false;
+    const relinquish = (): void => {
+      if (releasing) return;
+      releasing = true;
       if (sessions.get(key) === session) sessions.delete(key);
-    };
-    sessions.set(key, session);
-    unreleased.add(screen);
-    screen.onStop(() => {
-      forget();
       // `released()` is the running stop once this listener has returned.
       void Promise.resolve()
         .then(() => screen.released())
@@ -233,7 +231,10 @@ export function createRemoteScreenSources(deps: RemoteScreenSourcesDeps) {
           unreleased.delete(screen);
           lease.dispose();
         });
-    });
+    };
+    sessions.set(key, session);
+    unreleased.add(screen);
+    screen.onStop(relinquish);
     session.video.start();
     return session.video;
   }

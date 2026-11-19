@@ -47,6 +47,11 @@ use super::viewer::ViewerEffects;
 /// screen's hooks are no-ops for a page.
 #[async_trait]
 pub trait VideoSource: Send + Sync {
+    /// Screen instances can change while old events are still queued.
+    fn screen_session(&self) -> Option<u64> {
+        None
+    }
+
     /// A viewer needs pictures (idempotent).
     fn start(&self);
     /// No viewer of the source remains (idempotent).
@@ -109,6 +114,9 @@ pub trait HostEnv: Send + Sync + 'static {
     fn push_picture(&self, source_key: &str, frame_id: u64, picture: &Picture);
     /// The source ended: its shared picture goes.
     fn source_closed(&self, source_key: &str);
+    fn screen_source_closed(&self, source_key: &str, _session: u64) {
+        self.source_closed(source_key);
+    }
     fn report(&self, event: &str, data: Value);
     fn new_connection_id(&self) -> String;
     /// Wall clock, milliseconds.
@@ -175,6 +183,8 @@ struct Feed {
 struct Entry {
     client: String,
     source_key: String,
+    viewer_attempt: Mutex<Option<u64>>,
+    screen_session: Option<u64>,
     /// The viewer's state, kept by its `state` reports: effects run while the viewer is locked, so
     /// they read this instead of asking the viewer.
     state: Mutex<TransportState>,
@@ -346,7 +356,8 @@ impl ViewerEffects for Effects {
         }
         self.shared.env.close(connection_id);
         let others = lock(&self.shared.state).connections.values().any(|other| other.source_key == self.source_key);
-        if !self.shared.wanted(&self.source_key) && !others {
+        // A screen's lifetime is the registered viewer's, not an individual peer's.
+        if !self.source_key.starts_with("screen:") && !self.shared.wanted(&self.source_key) && !others {
             self.source.stop();
         }
     }
@@ -463,11 +474,42 @@ impl LiveHost {
             return Err(CLIENT_ID_INVALID.to_owned());
         }
         let source_ref = signal.source();
-        let source = self.shared.env.source(source_ref, client, signal.type_name());
-        let Some(source) = source else { return Err(SOURCE_NOT_STREAMED.to_owned()) };
         let source_key = source_ref.key();
         let key = viewer_key(client, &source_key);
-        let existing = lock(&self.shared.state).viewers.get(&key).cloned();
+        let mut existing = lock(&self.shared.state).viewers.get(&key).cloned();
+        if let ClientSignal::CancelScreen { viewer_attempt, .. } = signal {
+            if existing.as_ref().is_some_and(|entry| *lock(&entry.viewer_attempt) == Some(*viewer_attempt)) {
+                self.stop_viewer(&key);
+            }
+            return Ok(());
+        }
+        if source_ref.session_id().is_none() && existing.is_none() && !matches!(signal, ClientSignal::Ready { .. }) {
+            return Ok(());
+        }
+        if let (Some(entry), ClientSignal::Ready { viewer_attempt, .. }) = (&existing, signal) {
+            if *lock(&entry.viewer_attempt) > *viewer_attempt {
+                return Ok(());
+            }
+        }
+        let source = self.shared.env.source(source_ref, client, signal.type_name());
+        let Some(source) = source else { return Err(SOURCE_NOT_STREAMED.to_owned()) };
+        let session = source.screen_session();
+        if let ClientSignal::Ready { viewer_attempt, .. } = signal {
+            if let Some(session) = session {
+                self.retire_replaced_screen(&source_key, session);
+                existing = lock(&self.shared.state).viewers.get(&key).cloned();
+            }
+            if let Some(entry) = &existing
+                && *viewer_attempt > *lock(&entry.viewer_attempt)
+            {
+                // A late sender failure must not move the replacement into the old peer's cooldown.
+                // Keep the screen feed; only equal-attempt retries reuse its viewer.
+                self.finish_viewer(entry);
+                existing = None;
+            }
+        } else if existing.as_ref().is_some_and(|entry| entry.screen_session != session) {
+            return Ok(());
+        }
         let entry = match existing {
             Some(entry) => entry,
             None => {
@@ -493,7 +535,8 @@ impl LiveHost {
             }
         };
         let outcome = match signal {
-            ClientSignal::Ready { receive_codecs, video_limit, .. } => {
+            ClientSignal::Ready { receive_codecs, video_limit, viewer_attempt, .. } => {
+                *lock(&entry.viewer_attempt) = *viewer_attempt;
                 // A larger video limit than the stream's frame bound widens the capture before the
                 // offer, which then carries the new geometry.
                 if let Some(limit) = video_limit {
@@ -517,7 +560,7 @@ impl LiveHost {
             // The phone's viewer left: closed, not demoted (the channel's held buttons are still
             // released), and forgotten — its next `ready` is a new viewer.
             ClientSignal::Close { connection, reason: CloseReason::ViewerLeft, .. } => {
-                if entry.viewer.view().connection_id.as_deref() == Some(connection.connection_id.as_str()) {
+                if lock(&entry.viewer_attempt).is_none() && entry.viewer.view().connection_id.as_deref() == Some(connection.connection_id.as_str()) {
                     self.stop_viewer(&key);
                 }
                 Ok(())
@@ -533,6 +576,8 @@ impl LiveHost {
         Arc::new_cyclic(|weak| Entry {
             client: client.to_owned(),
             source_key: source_key.to_owned(),
+            viewer_attempt: Mutex::new(None),
+            screen_session: source.screen_session(),
             state: Mutex::new(TransportState::Relay),
             viewer: Viewer::new(
                 source_ref.clone(),
@@ -543,7 +588,7 @@ impl LiveHost {
     }
 
     fn stop_viewer(&self, key: &str) {
-        let (entry, last_of_client) = {
+        let (entry, ended_screen) = {
             let mut state = lock(&self.shared.state);
             let Some(entry) = state.viewers.remove(key) else { return };
             let last = !state.viewers.values().any(|other| other.client == entry.client);
@@ -551,13 +596,58 @@ impl LiveHost {
                 // The delivery loop ends once what is queued has been sent.
                 state.outgoing.remove(&entry.client);
             }
-            (entry, last)
+            let owns_feed = state.feeds.get(&entry.source_key).is_some_and(|feed| feed.source.screen_session() == entry.screen_session);
+            let ended_screen = if entry.source_key.starts_with("screen:") && owns_feed && !state.viewers.values().any(|other| other.source_key == entry.source_key && other.screen_session == entry.screen_session) {
+                state.feeds.remove(&entry.source_key)
+            } else {
+                None
+            };
+            (entry, ended_screen)
         };
-        let _ = last_of_client;
+        self.finish_viewer(&entry);
+        if let Some(feed) = ended_screen {
+            self.finish_screen_feed(&entry.source_key, feed);
+        }
+    }
+
+    fn finish_viewer(&self, entry: &Arc<Entry>) {
         if let Err(error) = entry.viewer.stop() {
             self.shared.env.report("stop-failed", json!({ "source": entry.source_key, "error": error }));
         }
-        self.shared.kick(&entry);
+        self.shared.kick(entry);
+    }
+
+    fn finish_screen_feed(&self, key: &str, feed: Feed) {
+        feed.source.stop();
+        if let Some(session) = feed.source.screen_session() {
+            self.shared.env.screen_source_closed(key, session);
+        } else {
+            self.shared.env.source_closed(key);
+        }
+    }
+
+    /// The display can acquire a new session before its old stop reaches the host.
+    /// The old entries may be under another client's key.
+    fn retire_replaced_screen(&self, key: &str, session: u64) {
+        let (feed, stale) = {
+            let mut state = lock(&self.shared.state);
+            let feed = if state.feeds.get(key).is_some_and(|feed| feed.source.screen_session() != Some(session)) {
+                state.feeds.remove(key)
+            } else {
+                None
+            };
+            let stale = state.viewers.iter()
+                .filter(|(_, entry)| entry.source_key == key && entry.screen_session != Some(session))
+                .map(|(viewer_key, _)| viewer_key.clone())
+                .collect::<Vec<_>>();
+            (feed, stale)
+        };
+        for viewer_key in stale {
+            self.stop_viewer(&viewer_key);
+        }
+        if let Some(feed) = feed {
+            self.finish_screen_feed(key, feed);
+        }
     }
 
     /// The client stopped streaming the source (or left the relay).
@@ -569,6 +659,7 @@ impl LiveHost {
     pub fn geometry_changed(&self, source_key: &str, geometry: Option<&Geometry>) {
         let entries: Vec<(String, Arc<Entry>)> =
             lock(&self.shared.state).viewers.iter().filter(|(_, e)| e.source_key == source_key).map(|(k, e)| (k.clone(), e.clone())).collect();
+        let had_viewers = !entries.is_empty();
         for (key, entry) in entries {
             if geometry.is_some() {
                 if let Err(error) = entry.viewer.geometry_changed() {
@@ -580,9 +671,18 @@ impl LiveHost {
             }
         }
         if geometry.is_none() {
-            lock(&self.shared.state).feeds.remove(source_key);
-            self.shared.env.source_closed(source_key);
+            // A screen with viewers already released its feed in stop_viewer.
+            if !source_key.starts_with("screen:") || !had_viewers {
+                lock(&self.shared.state).feeds.remove(source_key);
+                self.shared.env.source_closed(source_key);
+            }
         }
+    }
+
+    /// Apply queued screen events atomically against a phone's ready/cancel.
+    pub fn screen_event(&self, apply: impl FnOnce()) {
+        let _turn = lock(&self.shared.turn);
+        apply();
     }
 
     /// A source's newest picture; an older one not yet taken is superseded.

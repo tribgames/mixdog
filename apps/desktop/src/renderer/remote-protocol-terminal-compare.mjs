@@ -446,11 +446,17 @@ function unitDifferences(got, node) {
   return keys.filter((key) => !isDeepStrictEqual(got[key], node[key])).map((key) => `${key}: got ${showUnit(got[key])}, Node ${showUnit(node[key])}`);
 }
 
+// The shell prints its host's Windows build in its banner, which differs from the recording PC's: the build number is the host's, not the phone's.
+const WINDOWS_BANNER = /Microsoft Windows \[Version [\d.]+\]/gu;
+const withoutHostBuild = (value) => JSON.parse(JSON.stringify(value ?? null).replace(WINDOWS_BANNER, 'Microsoft Windows [Version host]'));
+
 /** Compares a whole state or entry (its units, or null) at one place. Where Node's runs agree on all of it, it must be theirs, and every
  *  unit that differs is named. Where they differ, the units they differ on are named in `exemptions` with the runs that differ from run
  *  0, and `got` must be the whole of one run's: the runs do not show their differing units varying apart, so a mix of two runs' units
  *  is not one Node showed. Throws naming the units that fail (against the closest run). */
-function compareUnits(got, recorded, what, exemptions) {
+function compareUnits(gotUnits, recordedUnits, what, exemptions) {
+  const got = gotUnits === null ? null : withoutHostBuild(gotUnits);
+  const recorded = recordedUnits.map((units) => (units === null ? null : withoutHostBuild(units)));
   const differing = recorded.flatMap((units, run) => (isDeepStrictEqual(units, recorded[0]) ? [] : [run]));
   if (differing.length === 0) {
     const failures = unitDifferences(got, recorded[0]);

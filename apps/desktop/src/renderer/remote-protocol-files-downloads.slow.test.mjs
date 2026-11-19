@@ -11,7 +11,10 @@ const recorder = fileURLToPath(new URL('../../../../benchmarks/rust-core/recorde
 const BIN = builtCoreBin();
 
 test('the files adapter replays every call of the downloads recording over a real core', () => {
-  const child = spawnSync(process.execPath, [...process.execArgv, recorder, '--replay', BIN], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 900_000 });
+  // The runner's `--test-*` flags are for test files: under `--test-force-exit` the replay, which exits from its top level, is failed as
+  // a file whose tests were dropped (scripts/lib/test-spawn-ledger.mjs).
+  const loaderArgv = process.execArgv.filter((arg) => !arg.startsWith('--test-'));
+  const child = spawnSync(process.execPath, [...loaderArgv, recorder, '--replay', BIN], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 900_000 });
   assert.equal(child.status, 0, `replay failed (${child.status}):\n${child.stdout.slice(-6000)}\n${child.stderr.slice(-2000)}`);
   const match = child.stdout.match(/file-downloads replay .*: \d+ calls compared, \d+ held calls, \d+ handle counts, \d+ staged counts, (\d+) asset ids sent past the adapter, 0 unexpected, not run on this system: (.*)/);
   assert.ok(match, child.stdout.slice(-2000));

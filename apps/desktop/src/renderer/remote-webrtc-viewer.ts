@@ -234,10 +234,14 @@ const newAttempt = (
   closed: false,
 });
 
+// One sequence across mounted panes on this relay; a new relay has a new client id.
+let screenAttemptSerial = 0;
+
 export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
   const now = options.now ?? (() => performance.now());
   const timers = options.timers ?? defaultTimers;
   const sourceKey = remoteWebrtcSourceKey(options.source);
+  const screen = options.source.kind === 'screen';
   let state: RemoteWebrtcTransportState = 'relay';
   let owner: RemoteWebrtcInputOwner = 'relay';
   /** The newest acknowledged geometry. */
@@ -258,6 +262,8 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
   let seq = 0;
   let started = false;
   let readySent = false;
+  let viewerAttempt: number | null = null;
+  let lastScreenPeer: Pick<RemoteWebrtcConnectionRef, 'connectionId' | 'generation'> | null = null;
   /** The widest video limit sent in this stream (the desktop keeps it). */
   let askedLimit: RemoteWebrtcVideoLimit | null = null;
   let disposed = false;
@@ -351,6 +357,7 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
   /** `ready`, with the page's native size as the video limit once a geometry
    *  told it (the desktop widens the capture to it, never shrinks it). */
   const sendReadySignal = (receiveCodecs: string[], page: RemoteWebrtcGeometry | null = geometry): void => {
+    if (screen) viewerAttempt ??= ++screenAttemptSerial;
     const videoLimit = page ? remoteVideoLimit(page) : null;
     if (videoLimit) {
       askedLimit = {
@@ -363,6 +370,7 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
       source: options.source,
       type: 'ready',
       receiveCodecs,
+      ...(viewerAttempt === null ? {} : { viewerAttempt }),
       ...(videoLimit ? { videoLimit } : {}),
     });
   };
@@ -563,6 +571,7 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
 
   const acceptOffer = (offer: Extract<RemoteWebrtcDesktopSignal, { type: 'offer' }>): void => {
     seen.add(offer.connectionId);
+    if (screen) lastScreenPeer = { connectionId: offer.connectionId, generation: offer.generation };
     if (owner !== 'relay') {
       // Video still owns input: the desktop must demote before a new attempt.
       void send({ ...ref(offer), type: 'close', reason: 'protocol-error', detail: 'offer while promoted' });
@@ -695,7 +704,12 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
       options.dropInput();
       owner = 'relay';
     }
-    if (current) teardown(current, true);
+    if (current) teardown(current, !screen);
+    // A screen has no JPEG fallback to retire a receiver held during demotion.
+    if (screen) {
+      dropLingering();
+      known = null;
+    }
     readySent = false;
     setState('cooldown');
     options.changed();
@@ -715,10 +729,7 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     }, signal.retryAfterMs);
   };
 
-  /** Forget the desktop's viewer: it ends with the relay stream (the stream's
-   *  stop, or this client leaving the relay), and a new one counts its
-   *  connection generations from the start. Nothing is signaled: a `close`
-   *  here would only make the desktop demote a viewer it is ending anyway. */
+  /** A new desktop viewer counts its connection generations from the start. */
   const forget = (): void => {
     readySent = false;
     if (retryTimer !== null) timers.clearTimeout(retryTimer);
@@ -730,8 +741,22 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     state = 'relay';
     options.changed();
   };
-  const stop = (): void => {
+  const stop = (notifyHost = false): void => {
     started = false;
+    // Browser viewers end with their JPEG subscription. A screen viewer on
+    // the same relay has to tell the host it left before closing the channel.
+    if (notifyHost && viewerAttempt !== null) {
+      void send({
+        v: REMOTE_WEBRTC_VERSION,
+        source: options.source,
+        ...lastScreenPeer,
+        type: 'close',
+        reason: 'viewer-left',
+        viewerAttempt,
+      });
+    }
+    viewerAttempt = null;
+    lastScreenPeer = null;
     // A new stream starts at the frame bound again.
     askedLimit = null;
     forget();
@@ -801,7 +826,7 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
       }
       // A close of an attempt the desktop ended before offering (an older
       // host without TURN, or one that could not start the attempt).
-      if (signal.type === 'close' && fresh(signal)) {
+      if (signal.type === 'close' && (!screen || (readySent && !current && !lingering)) && fresh(signal)) {
         seen.add(signal.connectionId);
         known = { connectionId: signal.connectionId, generation: signal.generation };
         closedByDesktop(signal);
@@ -902,13 +927,13 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     requestResize(resize: RemoteWebrtcResize): Promise<void> {
       return send({ v: REMOTE_WEBRTC_VERSION, source: options.source, type: 'resize-request', resize });
     },
-    dispose(): void {
+    dispose(notifyHost = false): void {
       if (disposed) return;
       // Disposed first: the stop below reports the relay state through
       // `changed`, and a listener that offers again on it must find nothing
       // to start (a disposed viewer never sends another `ready`).
       disposed = true;
-      stop();
+      stop(notifyHost);
       state = 'closed';
     },
   };

@@ -5,6 +5,7 @@
  * main stays the authority and the sender only reports.
  */
 import { BrowserWindow, type IpcMainEvent, session } from 'electron';
+import { tagRendererSurface } from '../process-memory-diagnostics';
 
 import {
   REMOTE_WEBRTC_SENDER_IPC,
@@ -81,6 +82,7 @@ export function createRemoteWebrtcSenderWindow(page: RemoteWebrtcSenderPage): Re
         backgroundThrottling: false,
       },
     });
+    tagRendererSurface(created, 'remote-webrtc-sender');
     const contents = created.webContents;
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
     contents.on('will-navigate', (event) => event.preventDefault());

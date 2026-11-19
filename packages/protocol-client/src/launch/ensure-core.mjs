@@ -6,6 +6,8 @@ import { contained } from '../link-log.mjs';
 
 const DEFAULT_READY_TIMEOUT_MS = 15_000;
 const POLL_MS = 50;
+/** How many ready windows in a row an at-work core may report nothing new before the wait fails. */
+const STALLED_WINDOWS = 6;
 /** The states of a running core that end by themselves (lifecycle spec §5.4). */
 const SELF_ENDING_STATES = new Set(['booting', 'migrating', 'draining']);
 
@@ -133,6 +135,8 @@ export async function ensureCore({
   let launched = false;
   let capture = null;
   let last = null;
+  let quiet = 0;
+  let quietSeen = null;
   // What the core says its index rebuild has come to (`{done, total}` sessions), told when it changes; null when none runs.
   const tell = contained(onProgress);
   // `boot` names the core process the counts are of: the counts of one boot only grow, and a new boot starts again.
@@ -150,6 +154,17 @@ export async function ensureCore({
     for (;;) {
       if (now() >= deadline) {
         if (!(await atWork(last, ping))) break;
+        // A core that answers but has said nothing new (its state and its counts) for `STALLED_WINDOWS` windows in a row is not at
+        // work in any way the person can see: that is an error, not a wait that never ends.
+        const seen = `${last.state}:${last.rebuild?.done ?? ''}/${last.rebuild?.total ?? ''}`;
+        quiet = seen === quietSeen ? quiet + 1 : 0;
+        quietSeen = seen;
+        if (quiet >= STALLED_WINDOWS) {
+          throw Object.assign(notReadyError(last, { launched }), {
+            message: `core is not ready: the core is ${last.state} and has reported no progress for ${Math.round((quiet * readyTimeoutMs) / 1000)} s`,
+          });
+        }
+        log(`core ${last.state}: still at work, waiting`);
         deadline = now() + Math.max(1, readyTimeoutMs);
       }
       try {

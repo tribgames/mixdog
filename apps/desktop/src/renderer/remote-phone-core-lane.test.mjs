@@ -61,6 +61,7 @@ function core() {
   let threads = 0;
   let epochs = 0;
   const epochOf = new Map();
+  const items = [];
   const serve = (request, conn) => {
     sent.push(request);
     const { method, params } = request;
@@ -78,7 +79,7 @@ function core() {
       conn.serverSend({ id: request.id, result: { thread: row(params.threadId), subscription: { id: `s${epochs}`, mode: 'snapshot', epoch, startSeq: 1 } } });
       return conn.serverSend({
         method: 'thread/snapshot',
-        params: { thread: row(params.threadId), items: [], state: { title: 'T' }, hasOlder: false },
+        params: { thread: row(params.threadId), items, state: { title: 'T' }, hasOlder: false },
         feed: { id: params.threadId, epoch, seq: 1 },
       });
     }
@@ -88,7 +89,7 @@ function core() {
   const answerHeld = () => {
     for (const { request, conn } of held.splice(0)) conn.serverSend({ id: request.id, result: {} });
   };
-  return { serve, sent, epochOf, gone, holding, answerHeld };
+  return { serve, sent, epochOf, gone, holding, answerHeld, items };
 }
 
 /** A page served by the adapter: its host hands it `client` and each client `replace` hands it later. `viewSettled()` is what the
@@ -169,6 +170,25 @@ test('the page is handed each state of a thread the phone follows: its first fol
   await settled();
   assert.equal(page.seen.length, 3);
   assert.equal(page.seen[2].snapshot.desktopSessionTitle, 'Answered');
+  stop();
+  await phone.client.close();
+});
+
+test('a large tool result reaches the page bounded with its truncation note, and "show full output" still returns all of it', async () => {
+  const c = core();
+  const whole = `${'head-'.repeat(2000)}${'x'.repeat(40_000)}-the-end`;
+  c.items.push({ id: 'call1', type: 'toolCall', name: 'read', input: { path: 'a.txt' }, output: whole, meta: { status: 'completed', at: 1 } });
+  const phone = await realClient(c.serve);
+  const adapter = phoneChatAdapter();
+  const page = pageOf(phone.client);
+  const stop = adapter.install(page.host);
+  await phone.client.resumeThread('t1', { lastItems: 50 });
+  await settled();
+  const tool = page.seen[0].snapshot.items.find((item) => item.kind === 'tool');
+  assert.ok(tool.result.length <= 8192, `result is ${tool.result.length} chars`);
+  assert.ok(tool.remoteOutputTruncated >= whole.length, 'the row says how long the output was');
+  assert.equal(tool.remoteOutputNotes.result.kind, 'omitted');
+  assert.equal((await adapter.calls.readTranscriptItem(['t1', 'call1'], page.host)).result, whole);
   stop();
   await phone.client.close();
 });

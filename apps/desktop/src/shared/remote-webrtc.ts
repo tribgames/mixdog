@@ -286,7 +286,15 @@ export interface RemoteWebrtcVideoLimit {
 
 export type RemoteWebrtcClientSignal =
   /** The phone can receive video for this source: the desktop answers with an offer. */
-  | (RemoteWebrtcSourceRef & { type: 'ready'; receiveCodecs: string[]; videoLimit?: RemoteWebrtcVideoLimit })
+  | (RemoteWebrtcSourceRef & { type: 'ready'; receiveCodecs: string[]; videoLimit?: RemoteWebrtcVideoLimit; viewerAttempt?: number })
+  /** Screen departure independent of the peer. Keep the peer ref when known for older hosts. */
+  | (RemoteWebrtcSourceRef & {
+      type: 'close';
+      reason: 'viewer-left';
+      viewerAttempt: number;
+      connectionId?: string;
+      generation?: number;
+    })
   | (RemoteWebrtcSourceRef & { type: 'geometry-ack'; geometryGeneration: number })
   | (RemoteWebrtcSourceRef & { type: 'resize-request'; resize: RemoteWebrtcResize })
   | (RemoteWebrtcConnectionRef & { type: 'answer'; sdp: string; fingerprints: RemoteWebrtcFingerprint[] })
@@ -1102,12 +1110,17 @@ export function parseRemoteWebrtcClientSignal(value: unknown): RemoteWebrtcClien
         if (typeof codec !== 'string' || !/^video\/[A-Za-z0-9.+-]{1,32}$/u.test(codec)) fail('receive codec');
         return codec;
       });
-      if (input.videoLimit === undefined) return { ...sourceRef(input), type: 'ready', receiveCodecs };
+      const ref = sourceRef(input);
+      const attempt = input.viewerAttempt === undefined
+        ? {}
+        : { viewerAttempt: screenViewerAttempt(ref.source, input.viewerAttempt) };
+      if (input.videoLimit === undefined) return { ...ref, type: 'ready', receiveCodecs, ...attempt };
       const limit = record(input.videoLimit, 'video limit');
       return {
-        ...sourceRef(input),
+        ...ref,
         type: 'ready',
         receiveCodecs,
+        ...attempt,
         videoLimit: {
           maxWidth: boundedInteger(limit.maxWidth, 64, MAX_PIXEL_DIMENSION, 'video limit width'),
           maxHeight: boundedInteger(limit.maxHeight, 64, MAX_PIXEL_DIMENSION, 'video limit height'),
@@ -1156,16 +1169,29 @@ export function parseRemoteWebrtcClientSignal(value: unknown): RemoteWebrtcClien
         type: 'demote-ack',
         inputEpoch: positiveInteger(input.inputEpoch, 'input epoch'),
       };
-    case 'close':
+    case 'close': {
+      if (input.viewerAttempt !== undefined) {
+        const ref = sourceRef(input);
+        const viewerAttempt = screenViewerAttempt(ref.source, input.viewerAttempt);
+        if (input.reason !== 'viewer-left') fail('close reason');
+        const peer = input.connectionId === undefined && input.generation === undefined ? ref : connectionRef(input);
+        return { ...peer, type: 'close', reason: 'viewer-left', viewerAttempt };
+      }
       return {
         ...connectionRef(input),
         type: 'close',
         reason: closeReason(input.reason),
         ...(input.detail === undefined ? {} : { detail: boundedText(input.detail, MAX_REASON_DETAIL, 'close detail') }),
       };
+    }
     default:
       return fail('signal type');
   }
+}
+
+function screenViewerAttempt(source: RemoteWebrtcSource, value: unknown): number {
+  if (source.kind !== 'screen') fail('viewer attempt');
+  return positiveInteger(value, 'viewer attempt');
 }
 
 /** The desktop's signal, as the phone receives it. */

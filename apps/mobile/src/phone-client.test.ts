@@ -345,3 +345,303 @@ test('a frame still sealing when its socket ends rejects its claim; the next con
     await phone.client.close();
   }
 });
+/** A socket the relay refuses at once (the PC is offline): its dial ends before ready. */
+const refusedSocket = (): RelaySocket => {
+  const ws: RelaySocket = {
+    binaryType: '', bufferedAmount: 0, onopen: null, onmessage: null, onclose: null, onerror: null, send: () => {}, close: () => {},
+  };
+  queueMicrotask(() => ws.onclose!({ code: 4002, reason: 'offline' }));
+  return ws;
+};
+
+test('a wake before the first connection cuts the redial wait short', async () => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const controller = new AbortController();
+  let made = 0;
+  let link: { wake(): boolean } | undefined;
+  const pending = connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => (made++, refusedSocket()),
+    signal: controller.signal,
+    random: () => 0.5,
+    onConnection: () => undefined,
+    linked: (l) => void (link = l),
+  });
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(made, 2, 'the next dial is waiting out a backoff of hundreds of ms');
+  link!.wake();
+  await new Promise((r) => setTimeout(r, 30));
+  assert.ok(made >= 3, 'the wake released the wait');
+  controller.abort();
+  await assert.rejects(pending);
+});
+
+test('a hidden page does not redial; the wake that brings it back does', async () => {
+  let visible = false;
+  let made = 0;
+  let link: { wake(): boolean } | undefined;
+  const identity = await generateRelayE2EEServerIdentity();
+  const controller = new AbortController();
+  const pending = connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => (made++, refusedSocket()),
+    visible: () => visible,
+    random: () => 0,
+    signal: controller.signal,
+    onConnection: () => undefined,
+    linked: (l) => void (link = l),
+  });
+  pending.catch(() => undefined);
+  await settle();
+  assert.equal(made, 0, 'a hidden page opens no socket');
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(made, 0);
+  visible = true;
+  link!.wake();
+  await settle();
+  assert.ok(made >= 1, 'the foreground wake dials');
+  controller.abort();
+  visible = false;
+});
+
+test('a fatal transport error closes the socket without a status code a browser would refuse', async () => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const far = relayPair(identity, false);
+  const served = serve(far.next, far.send);
+  far.start();
+  const phone = await connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => far.ws,
+    random: () => 0.5,
+    onConnection: () => undefined,
+  });
+  await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
+  const closed: unknown[][] = [];
+  // A browser WebSocket: close(1002) throws and leaves the socket open.
+  far.ws.close = (...args: unknown[]) => {
+    closed.push(args);
+    if (args[0] === 1002) throw new Error('InvalidAccessError');
+  };
+  far.ws.send = () => {
+    throw new Error('send failed');
+  };
+  void phone.client.call('thread/list', {}).catch(() => undefined);
+  await settle();
+  assert.ok(closed.length > 0, 'the socket was closed');
+  assert.deepEqual(closed[0], [], 'closed without a code');
+  await phone.client.close();
+});
+
+test('a relay frame-too-large notice reaches the page with its size and ceiling', async () => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const far = relayPair(identity, false);
+  const served = serve(far.next, far.send);
+  far.start();
+  const hints: Array<Record<string, unknown>> = [];
+  const phone = await connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => far.ws,
+    random: () => 0.5,
+    onConnection: () => undefined,
+    resyncHint: (word) => void hints.push({ ...word }),
+  });
+  await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
+  far.ws.onmessage!({ data: JSON.stringify({ resync: 1, error: 'frame-too-large', bytes: 2_000_000, limit: 1_000_000 }) });
+  await settle();
+  assert.deepEqual(hints, [{ resync: 1, error: 'frame-too-large', bytes: 2_000_000, limit: 1_000_000 }]);
+  await phone.client.close();
+});
+
+test('a redial timer that fires after the page was hidden waits for the wake', async () => {
+  const identity = await generateRelayE2EEServerIdentity();
+  let visible = true;
+  let made = 0;
+  let link: { wake(): boolean } | undefined;
+  const controller = new AbortController();
+  const pending = connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => (made++, refusedSocket()),
+    visible: () => visible,
+    random: () => 0,
+    signal: controller.signal,
+    onConnection: () => undefined,
+    linked: (l) => void (link = l),
+  });
+  pending.catch(() => undefined);
+  await new Promise((r) => setTimeout(r, 30));
+  const dialed = made;
+  assert.ok(dialed >= 1);
+  visible = false;
+  await new Promise((r) => setTimeout(r, 1_700));
+  assert.equal(made, dialed, 'the armed backoff fired while hidden and dialed nothing');
+  const parkedAt = made;
+  visible = true;
+  link!.wake();
+  await settle();
+  assert.ok(made > parkedAt, 'the wake dials');
+  controller.abort();
+});
+
+test('aborting the first connection ends a redial wait', async () => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const controller = new AbortController();
+  const pending = connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => refusedSocket(),
+    visible: () => false,
+    random: () => 0,
+    signal: controller.signal,
+    onConnection: () => undefined,
+  });
+  await new Promise((r) => setTimeout(r, 30));
+  controller.abort();
+  await assert.rejects(pending);
+});
+
+test('a wake does not probe a socket that is still opening', async () => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const sent: unknown[] = [];
+  const closed: unknown[] = [];
+  const ws: RelaySocket = {
+    binaryType: '', bufferedAmount: 0, onopen: null, onmessage: null, onclose: null, onerror: null,
+    send: (d) => void sent.push(d),
+    close: (...a: unknown[]) => void closed.push(a),
+  };
+  let link: { wake(): boolean } | undefined;
+  const controller = new AbortController();
+  const pending = connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => ws,
+    signal: controller.signal,
+    onConnection: () => undefined,
+    linked: (l) => void (link = l),
+  });
+  pending.catch(() => undefined);
+  await settle();
+  assert.equal(link!.wake(), false, 'nothing to probe yet');
+  assert.deepEqual(sent, []);
+  assert.deepEqual(closed, []);
+  controller.abort();
+  ws.onclose!({ code: 1000, reason: '' });
+});
+
+test('a socket parked on desktop-gone is closed by a suspension', async () => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const far = relayPair(identity, false);
+  const served = serve(far.next, far.send);
+  far.start();
+  const phone = await connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => far.ws,
+    random: () => 0.5,
+    onConnection: () => undefined,
+  });
+  await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
+  far.ws.onmessage!({ data: JSON.stringify({ resync: 'desktop-gone' }) });
+  await settle();
+  phone.link.suspend();
+  await settle();
+  assert.deepEqual(far.closes.at(-1), [1000, 'background']);
+  await phone.client.close();
+});
+
+test('an abort that already happened when a dial fails ends the attempt at once', async () => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const controller = new AbortController();
+  let made = 0;
+  const pending = connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => {
+      made++;
+      controller.abort();
+      return refusedSocket();
+    },
+    random: () => 0,
+    signal: controller.signal,
+    onConnection: () => undefined,
+  });
+  await assert.rejects(pending);
+  assert.equal(made, 1);
+});
+
+test('the late close of a parked socket the connector no longer owns reports nothing', async () => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const far = relayPair(identity, false);
+  const served = serve(far.next, far.send);
+  far.start();
+  const closes: number[] = [];
+  const phone = await connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => far.ws,
+    random: () => 0.5,
+    onConnection: () => undefined,
+    onClose: (code) => void closes.push(code),
+  });
+  await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
+  far.ws.onmessage!({ data: JSON.stringify({ resync: 'desktop-gone' }) });
+  await settle();
+  const before = closes.length;
+  phone.link.suspend();
+  await settle();
+  const afterSuspend = closes.length;
+  far.ws.onclose!({ code: 1006, reason: 'late' });
+  await settle();
+  assert.equal(closes.length, afterSuspend, 'a socket no longer owned is silent');
+  assert.ok(afterSuspend >= before);
+  await phone.client.close();
+});
+
+test('an abort closes a socket parked on desktop-gone', async () => {
+  const identity = await generateRelayE2EEServerIdentity();
+  const far = relayPair(identity, false);
+  const served = serve(far.next, far.send);
+  far.start();
+  const controller = new AbortController();
+  const phone = await connectPhone({
+    deviceId: 'dev',
+    version: options.clientInfo.version,
+    pairing: () => relayE2EEPairingMaterial(identity),
+    socketUrl: () => 'wss://relay.invalid/d/dev',
+    createSocket: () => far.ws,
+    random: () => 0.5,
+    signal: controller.signal,
+    onConnection: () => undefined,
+  });
+  await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
+  far.ws.onmessage!({ data: JSON.stringify({ resync: 'desktop-gone' }) });
+  await settle();
+  const before = far.closes.length;
+  controller.abort();
+  await settle();
+  assert.equal(far.closes.length, before + 1, 'the parked socket was closed');
+});

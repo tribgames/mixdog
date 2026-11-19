@@ -162,6 +162,34 @@ test('a first attach with K restored conversations sends the app feed and every 
   assert.equal(calls.length, 6, 'nothing is asked twice');
 });
 
+test('a remembered thread deleted on the PC is dropped and the first sync still completes', async () => {
+  const { client, calls, manager, events } = rig(false, ['gone', 'kept']);
+  client.resumeThread = async (id: string) => {
+    calls.push(`resume:${id}`);
+    if (id === 'gone') throw { kind: 'rpc', code: -32000, message: 'no thread', reason: 'threadNotFound' };
+  };
+  await manager.synced();
+  assert.equal(events.errors, 0, 'a deleted thread is not a failed sync');
+  assert.equal(events.recycled, 0);
+  assert.equal(events.synced, 1);
+  await manager.set(['t1']);
+  assert.equal(calls.filter((call) => call === 'resume:gone').length, 1, 'the deleted id is not asked for again');
+});
+
+test('a thread the page itself asked for still reports its refusal', async () => {
+  const { client, manager, events } = rig();
+  client.resumeThread = async () => {
+    throw { kind: 'rpc', code: -32000, message: 'no thread', reason: 'threadNotFound' };
+  };
+  void manager.synced().catch(() => undefined);
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.ok(events.errors >= 1, 'an explicit request is not silently dropped');
+  } finally {
+    manager.stop();
+  }
+});
+
 test('a healthy wake costs one question to the core and no re-attach', async () => {
   const { calls, manager, asked, events } = rig();
   await manager.synced();
