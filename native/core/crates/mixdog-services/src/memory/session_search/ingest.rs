@@ -44,6 +44,16 @@ pub struct IngestSession {
     pub agent_only: bool,
 }
 
+/// A session record's stamp as [`StoredSessions::stamp`] observes it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionStamp {
+    At(String),
+    /// Being written now: no stamp can be paired with a read.
+    Busy,
+    /// No record.
+    Gone,
+}
+
 /// The session store, for backfill.
 #[async_trait]
 pub trait StoredSessions: Send + Sync {
@@ -54,6 +64,11 @@ pub trait StoredSessions: Send + Sync {
     /// not move its append cursor. Persist and compare it as an opaque value.
     /// Only the listing authorizes cleanup, not a missing stamp.
     async fn record_stamp(&self, session_id: &str) -> Result<Option<String>>;
+    /// [`Self::record_stamp`], telling a record that cannot be stamped now (its log being written or rewritten) from one
+    /// that is gone: a busy one is tried again, never taken as gone.
+    async fn stamp(&self, session_id: &str) -> Result<SessionStamp> {
+        Ok(self.record_stamp(session_id).await?.map_or(SessionStamp::Gone, SessionStamp::At))
+    }
     /// One coherent transcript and header, or `None` when a read cannot establish them.
     async fn read(&self, session_id: &str) -> Option<IngestSession>;
 }
@@ -248,15 +263,36 @@ impl SessionSearchIngest {
 
     /// Best-effort removal of a deleted session's rows, after its pending writes (owned work only: [`Self::forget_session_owned`]).
     pub(crate) async fn forget_session(&self, session_id: &str) {
-        let result = self
-            .enqueue(session_id)
+        if let Err(error) = self.invalidate_session(session_id).await {
+            log_failure(&format!("delete {session_id}"), &error);
+        }
+    }
+
+    /// The session's rows and backfill stamp dropped, after its pending writes: the next backfill derives them again from
+    /// its record. The failure is the caller's (a session rewritten for a sensitive mark is not answered before this holds).
+    pub async fn invalidate_session(&self, session_id: &str) -> Result<()> {
+        self.enqueue(session_id)
             .run(|_| async {
                 self.last_ingested.lock().expect("last ingested").remove(session_id);
                 self.db.delete_session(session_id).await
             })
-            .await;
-        if let Err(error) = result {
-            log_failure(&format!("delete {session_id}"), &error);
+            .await
+    }
+
+    /// The session indexed again from its record, as a scoped operation of the database's owner after its pending writes
+    /// (a session whose rows were dropped after the once-a-run backfill passed it is not left unindexed until the next run).
+    /// `Ok(true)` once that is done (its rows written, or its stamp for a session not indexed, or its record gone);
+    /// `Ok(false)` when its record could not be read now (a fork whose base still owes its sensitive rewrite) or the owner
+    /// admits no more work: the caller tries it again.
+    pub async fn reindex_session_owned(self: &Arc<Self>, stored: Arc<dyn StoredSessions>, session_id: &str) -> Result<bool> {
+        let (this, id) = (self.clone(), session_id.to_owned());
+        let Some(owned) = self.db.scope().spawn("services.memory.session-search-reindex", async move { this.backfill_one(stored.as_ref(), &id, None).await })
+        else {
+            return Ok(false);
+        };
+        match owned.await {
+            Some(outcome) => outcome.map(|outcome| !matches!(outcome, Backfilled::Unread)),
+            None => Ok(false),
         }
     }
 
@@ -270,8 +306,8 @@ impl SessionSearchIngest {
         let mut ingested = 0;
         for session_id in &session_ids {
             match self.backfill_one(stored, session_id, stamps.get(session_id).map(String::as_str)).await {
-                Ok(None) => continue,
-                Ok(Some(indexed)) => ingested += usize::from(indexed),
+                Ok(Backfilled::Indexed) => ingested += 1,
+                Ok(_) => continue,
                 Err(error) => log_failure(&format!("backfill {session_id}"), &error),
             }
             tokio::task::yield_now().await;
@@ -290,22 +326,34 @@ impl SessionSearchIngest {
         stored: &dyn StoredSessions,
         session_id: &str,
         recorded: Option<&str>,
-    ) -> Result<Option<bool>> {
+    ) -> Result<Backfilled> {
         self.enqueue(session_id).run(|_| async {
-            let Some(mut stamp) = stored.record_stamp(session_id).await? else { return Ok(None) };
+            // A busy record is left unstamped to be read again, never taken as gone.
+            let observe = |stamp: SessionStamp| match stamp {
+                SessionStamp::At(stamp) => Ok(stamp),
+                SessionStamp::Busy => Err(Backfilled::Unread),
+                SessionStamp::Gone => Err(Backfilled::Gone),
+            };
+            let mut stamp = match observe(stored.stamp(session_id).await?) {
+                Ok(stamp) => stamp,
+                Err(outcome) => return Ok(outcome),
+            };
             for _ in 0..2 {
                 if recorded == Some(stamp.as_str()) {
-                    return Ok(None);
+                    return Ok(Backfilled::Unchanged);
                 }
                 let session = stored.read(session_id).await.filter(|s| s.id == session_id);
-                let Some(after) = stored.record_stamp(session_id).await? else { return Ok(Some(false)) };
+                let after = match observe(stored.stamp(session_id).await?) {
+                    Ok(after) => after,
+                    Err(outcome) => return Ok(outcome),
+                };
                 if stamp != after {
                     // Retry once from the newly observed identity, never attach it to
                     // an earlier read. A busier session remains unstamped for later recovery.
                     stamp = after;
                     continue;
                 }
-                let Some(IngestSession { messages, agent_only, .. }) = session else { return Ok(Some(false)) };
+                let Some(IngestSession { messages, agent_only, .. }) = session else { return Ok(Backfilled::Unread) };
                 let indexed = !agent_only;
                 let rows = if indexed {
                     // A redacted message is only needed until its search row has been derived.
@@ -323,12 +371,26 @@ impl SessionSearchIngest {
                     Vec::new()
                 };
                 self.db.store_backfill(session_id, &rows, &stamp).await?;
-                return Ok(Some(indexed));
+                return Ok(if indexed { Backfilled::Indexed } else { Backfilled::Stamped });
             }
-            Ok(Some(false))
+            Ok(Backfilled::Unread)
         })
         .await
     }
+}
+
+/// What a backfill of one session did.
+enum Backfilled {
+    /// Its stamp is the one recorded: nothing to do.
+    Unchanged,
+    /// Its record is gone.
+    Gone,
+    /// Its rows written with its stamp.
+    Indexed,
+    /// Stamped as a session not indexed (agent-only).
+    Stamped,
+    /// Its record could not be read (refused, or written again during each read): left unstamped.
+    Unread,
 }
 
 type TranscriptDigest = [u8; 32];

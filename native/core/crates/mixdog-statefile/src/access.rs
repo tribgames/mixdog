@@ -99,18 +99,18 @@ fn create_private_dir<P: WriteProof>(proof: &P, path: &Path) -> io::Result<()> {
 /// Makes the existing directory `path` private (Node's `enforceOwnerOnlyDirectoryWin32Async` on Windows, `chmod 0o700` elsewhere):
 /// Unix mode 0700; Windows its whole DACL replaced by the one protected, inheritable owner-only entry
 /// [`create_private_dir_all`] gives a new directory, and the files directly in it reset to inherit only that entry.
-pub fn secure_private_dir<P: WriteProof>(_lane: &P, path: &Path) -> io::Result<()> {
-    secure_private_dir_platform(path)
+pub fn secure_private_dir<P: WriteProof>(lane: &P, path: &Path) -> io::Result<()> {
+    secure_private_dir_platform(lane, path)
 }
 
 #[cfg(unix)]
-fn secure_private_dir_platform(path: &Path) -> io::Result<()> {
+fn secure_private_dir_platform<P: WriteProof>(proof: &P, path: &Path) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+    mixdog_fsio::set_permissions(proof, path, std::fs::Permissions::from_mode(0o700))
 }
 
 #[cfg(windows)]
-fn secure_private_dir_platform(path: &Path) -> io::Result<()> {
+fn secure_private_dir_platform<P: WriteProof>(_proof: &P, path: &Path) -> io::Result<()> {
     owner_only::secure_dir(path)
 }
 

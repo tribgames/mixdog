@@ -141,10 +141,18 @@ fn id_of(row: &Map<String, Value>) -> String {
     row.get("id").and_then(Value::as_str).unwrap_or_default().to_owned()
 }
 
+/// `row` without its content when its session owes a sensitive rewrite: `withheld` is read in the statement that read the
+/// row ([`super::withheld`]).
+pub(super) fn withhold(withheld: bool, row: &mut Map<String, Value>) {
+    if withheld {
+        super::withheld::blank_row(row);
+    }
+}
+
 /// Rows read from the table per round trip while looking for lead-visible ones.
 const SCAN_BATCH: usize = 256;
 
-const SCAN_SQL: &str = "SELECT summary, activity, id, archived FROM sessions
+const SCAN_SQL: &str = "SELECT summary, activity, id, archived, EXISTS (SELECT 1 FROM withheld_sessions w WHERE w.id = sessions.id) FROM sessions
      WHERE deleted = 0 AND (?1 IS NULL OR activity < ?1 OR (activity = ?1 AND id > ?2))
      ORDER BY activity DESC, id ASC LIMIT ?3";
 
@@ -155,15 +163,16 @@ impl SqliteStore {
         let session = session.to_owned();
         let archive = self.archive_snapshot();
         self.read(move |c| {
-            let found: Option<(String, bool)> = c
-                .prepare_cached("SELECT summary, archived FROM sessions WHERE id = ?1 AND deleted = 0")?
-                .query_row(params![session], |r| Ok((r.get(0)?, r.get(1)?)))
+            let found: Option<(String, bool, bool)> = c
+                .prepare_cached(&format!("SELECT summary, archived, {} FROM sessions WHERE id = ?1 AND deleted = 0", super::WITHHELD_COL))?
+                .query_row(params![session], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
                 .optional()?;
-            let Some((summary, archived)) = found else { return Ok(None) };
+            let Some((summary, archived, withheld)) = found else { return Ok(None) };
             let archived = resolved_archived(archive.as_deref(), &session, archived);
-            let Ok(Value::Object(row)) = serde_json::from_str::<Value>(&summary) else {
+            let Ok(Value::Object(mut row)) = serde_json::from_str::<Value>(&summary) else {
                 return Err(DbError::Sqlite(rusqlite::Error::InvalidColumnType(0, "summary".into(), rusqlite::types::Type::Text)));
             };
+            withhold(withheld, &mut row);
             Ok(is_lead_visible_row(&row).then_some(LeadRow { row, archived }))
         })
         .await
@@ -174,12 +183,14 @@ impl SqliteStore {
     pub async fn marked_rows(&self) -> Result<Vec<LeadRow>, DbError> {
         let archive = self.archive_snapshot();
         self.read(move |c| {
-            let mut stmt = c.prepare_cached("SELECT summary, archived FROM sessions WHERE deleted = 0")?;
-            let found: Vec<(String, bool)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
+            let mut stmt = c.prepare_cached(&format!("SELECT summary, archived, {} FROM sessions WHERE deleted = 0", super::WITHHELD_COL))?;
+            let found: Vec<(String, bool, bool)> =
+                stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
             found
                 .into_iter()
-                .map(|(summary, archived)| match serde_json::from_str::<Value>(&summary) {
-                    Ok(Value::Object(row)) => {
+                .map(|(summary, archived, withheld)| match serde_json::from_str::<Value>(&summary) {
+                    Ok(Value::Object(mut row)) => {
+                        withhold(withheld, &mut row);
                         let archived = resolved_archived(archive.as_deref(), &id_of(&row), archived);
                         Ok(LeadRow { row, archived })
                     }
@@ -201,17 +212,21 @@ impl SqliteStore {
             let mut position = after;
             let mut rows = Vec::new();
             loop {
-                let batch: Vec<(String, f64, String, bool)> = stmt
+                let batch: Vec<(String, f64, String, bool, bool)> = stmt
                     .query_map(
                         params![position.as_ref().map(|p| p.activity), position.as_ref().map(|p| p.id.clone()), SCAN_BATCH as i64],
-                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
                     )?
                     .collect::<Result<_, _>>()?;
                 let scanned = batch.len();
-                for (summary, activity, id, archived) in batch {
+                for (summary, activity, id, archived, withheld) in batch {
                     position = Some(CatalogCursor { activity, id });
+                    // Withheld before the filter: a session owing its sensitive rewrite is never matched by its content.
                     let row = match serde_json::from_str::<Value>(&summary) {
-                        Ok(Value::Object(row)) => row,
+                        Ok(Value::Object(mut row)) => {
+                            withhold(withheld, &mut row);
+                            row
+                        }
                         _ => {
                             return Err(DbError::Sqlite(rusqlite::Error::InvalidColumnType(
                                 0,

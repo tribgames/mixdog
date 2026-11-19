@@ -263,7 +263,8 @@ fn cover_start(text: &str, mut start: usize, strings: &[&str]) -> usize {
 /// How much of the redacted `out` is settled: no later text can change it.
 fn settled_end(out: &str, spellings: &[String]) -> usize {
     let spans = marker_spans(out);
-    let longest = spellings[0].len();
+    // The order is by UTF-16 length, which is not the order in bytes (a CJK character is one unit and three bytes).
+    let longest = spellings.iter().map(String::len).max().unwrap_or_default();
     let all: Vec<&str> = spellings.iter().map(String::as_str).chain(MARKERS).collect();
     let mut end = pending_start(out, &all);
     let mut moved = true;
@@ -721,5 +722,23 @@ impl SensitiveValues for SensitiveStore {
 
     fn redact_text(&self, session_id: &str, text: &str) -> String {
         SensitiveStore::redact_text(self, session_id, text)
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::*;
+
+    /// The look-back is as long as the longest spelling in bytes, not the first one's: the spellings run longest first
+    /// in UTF-16 units, where a spelling of multi-byte characters is shorter than its bytes.
+    #[test]
+    fn the_settled_end_looks_back_over_the_longest_spelling_in_bytes() {
+        let wide = format!("{}{MARKER}Z", "\u{5bc6}".repeat(6));
+        let ascii = format!("abcdefg{MARKER}Z");
+        assert!(wide.encode_utf16().count() < ascii.encode_utf16().count() && wide.len() > ascii.len());
+        let spellings = vec![ascii, wide];
+        // What a later `[redacted]` would join, with the tail that starts one still open.
+        let out = format!("{}[red", "\u{5bc6}".repeat(6));
+        assert_eq!(settled_end(&out, &spellings), 0);
     }
 }

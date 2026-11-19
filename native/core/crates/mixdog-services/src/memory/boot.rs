@@ -778,6 +778,11 @@ impl MemoryStack {
             PgRuntimeSource::Dir(dir) => dir.clone(),
             PgRuntimeSource::Install(install) => install(cancel.clone()).await?,
         };
+        // An install that finished after the stop began starts nothing: Node's acquisition throws the abort reason once it resolves
+        // (`signal.throwIfAborted()`, `memory-service-lifecycle.mjs:33`).
+        if cancel.is_cancelled() {
+            return Err(MemoryError::Rejected(self.refusal().to_owned()));
+        }
         let runtime = PgRuntime::new(runtime_dir);
         // The start reports to the stop record synchronously where each fact becomes true: its admission before the spawn, the attach or the
         // readiness before `ensure` returns (`StackLaunch`). No await separates an established cluster from its record.
@@ -974,6 +979,17 @@ impl MemoryStack {
     /// `SessionDeps.search`: the per-turn search copy's writer (also `forgetSessionSearch`'s).
     pub fn search(&self) -> Arc<SessionSearchIngest> {
         self.search.clone()
+    }
+
+    /// `session`'s search copy dropped, once it is confirmed gone: `Ok(false)` when the cluster is confirmed absent (nothing
+    /// is opened or installed for it, and nothing is to be indexed again), `Ok(true)` when its rows were deleted. A cluster
+    /// whose presence cannot be told is an error.
+    pub async fn invalidate_search_copy(&self, session: &str) -> Result<bool, String> {
+        match fsio::exists_confirmed(self.lane, &self.data_dir.join("pgdata").join("PG_VERSION")).await {
+            Ok(false) => Ok(false),
+            Ok(true) => self.search.invalidate_session(session).await.map(|()| true).map_err(|error| error.to_string()),
+            Err(error) => Err(error.to_string()),
+        }
     }
 
     pub fn sensitive(&self) -> Arc<SensitiveStore> {

@@ -689,7 +689,7 @@ async fn loaded_rig(config: ModelConfig) -> Rig {
     rig
 }
 
-/// The model is unloaded after `KEEP_WARM` (the embedder's three minutes) without a judgment, to the
+/// The model is unloaded after `KEEP_WARM` without a judgment, to the
 /// millisecond on the judge's clock.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_model_nobody_judges_with_is_unloaded_after_six_minutes() {

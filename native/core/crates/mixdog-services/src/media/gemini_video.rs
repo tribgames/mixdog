@@ -198,7 +198,16 @@ async fn via_veo(
         let seconds = parameters.get("durationSeconds").and_then(Value::as_i64).unwrap_or(VEO_DEFAULT_SECONDS);
         let usage = json!({ "seconds": seconds, "resolution": parameters.get("resolution").cloned().unwrap_or_else(|| json!("720p")) });
         let limits = Limits { label: "Veo video", ..Limits::default() };
-        return match download_gemini_media(public, &value_to_string(uri), key, &limits, cancel).await {
+        // The download is part of the generation budget: unbounded, it held the job slot and the upstream connection
+        // open after the poll loop finished (`boundedSignal(signal, deadline, TOTAL_TIMEOUT_MS)`).
+        let remaining = (deadline - pacer.now()).clamp(1, TOTAL_TIMEOUT_MS) as u64;
+        let media_uri = value_to_string(uri);
+        let downloaded = tokio::select! {
+            biased;
+            downloaded = download_gemini_media(public, &media_uri, key, &limits, cancel) => downloaded,
+            () = pacer.sleep(remaining) => Err(AdapterError::plain("The operation was aborted due to timeout")),
+        };
+        return match downloaded {
             Ok(bytes) => Ok(GeminiVideo { bytes, mime: "video/mp4".to_owned(), usage: Some(usage) }),
             Err(mut error) => {
                 error.usage = reported_usage(Some(usage));

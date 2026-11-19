@@ -212,17 +212,6 @@ impl SessionSearchDb {
         Ok(())
     }
 
-    /// One statement on `session_search.messages` that waits out a scrub's `VACUUM FULL` (an exclusive lock held for
-    /// seconds on a large table) instead of failing at the cluster's 5 s `lock_timeout`, as Node's session-search
-    /// connection, which sets no lock timeout, waits.
-    async fn waiting(&self, sql: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<tokio_postgres::Row>> {
-        transaction(&self.db, async |tx| {
-            tx.batch_execute("SET LOCAL lock_timeout = 0").await?;
-            Ok(tx.query(sql, params).await?)
-        })
-        .await
-    }
-
     /// Over a handle whose schema was created by whoever opened it (a deferred handle creates it when it opens).
     pub fn over(db: Db) -> Self {
         Self { db }
@@ -348,10 +337,30 @@ impl SessionSearchDb {
         .await
     }
 
+    /// One statement on `session_search.messages` that waits out a scrub's `VACUUM FULL` (an exclusive lock held for
+    /// seconds on a large table) instead of failing at the cluster's 5 s `lock_timeout`, as Node's session-search
+    /// connection, which sets no lock timeout, waits.
+    async fn waiting(&self, sql: &str, params: &[&(dyn tokio_postgres::types::ToSql + Sync)]) -> Result<Vec<tokio_postgres::Row>> {
+        transaction(&self.db, async |tx| {
+            tx.batch_execute("SET LOCAL lock_timeout = 0").await?;
+            Ok(tx.query(sql, params).await?)
+        })
+        .await
+    }
+
+    /// The session's rows and its backfill stamp, in one transaction flushed before it is answered: the cluster otherwise
+    /// commits asynchronously (`synchronous_commit = off`), and a caller that drops its own record of the delete once this
+    /// returns (a sensitive rewrite's search-copy debt) would have the old rows back after a crash. It waits out a scrub's
+    /// `VACUUM FULL` (an exclusive lock held for seconds on a large table) instead of failing at the cluster's 5 s
+    /// `lock_timeout`, as Node's session-search connection, which sets no lock timeout, waits.
     pub async fn delete_session(&self, session_id: &str) -> Result<()> {
-        self.waiting("DELETE FROM session_search.messages WHERE session_id = $1", &[&session_id]).await?;
-        self.db.execute("DELETE FROM session_search.backfill WHERE session_id = $1", &[&session_id]).await?;
-        Ok(())
+        transaction(&self.db, async |tx| {
+            tx.batch_execute("SET LOCAL synchronous_commit = on; SET LOCAL lock_timeout = 0").await?;
+            tx.execute("DELETE FROM session_search.messages WHERE session_id = $1", &[&session_id]).await?;
+            tx.execute("DELETE FROM session_search.backfill WHERE session_id = $1", &[&session_id]).await?;
+            Ok(())
+        })
+        .await
     }
 
     /// Every session id that still has search rows or a backfill stamp.
@@ -389,9 +398,15 @@ impl SessionSearchDb {
     /// The best-matching message of each session, strongest sessions first.
     /// An empty or unsearchable query returns nothing.
     pub async fn search(&self, query: &str, limit: i64) -> Result<Vec<SessionHit>> {
+        self.search_excluding(query, limit, &[]).await
+    }
+
+    /// [`Self::search`] that never answers the sessions of `excluded`, left out before the limit.
+    pub async fn search_excluding(&self, query: &str, limit: i64, excluded: &[String]) -> Result<Vec<SessionHit>> {
         let Some(fts) = build_fts_prefix_query(query) else {
             return Ok(Vec::new());
         };
+        let excluded = excluded.to_vec();
         let rows = self
             .waiting(
                 &format!(
@@ -403,7 +418,7 @@ impl SessionSearchDb {
                                 ORDER BY ts_rank_cd(m.tsv, q.query) DESC, m.ordinal DESC
                               ) AS pick
                        FROM session_search.messages m, q
-                       WHERE m.tsv @@ q.query
+                       WHERE m.tsv @@ q.query AND NOT (m.session_id = ANY($3))
                      )
                      SELECT hits.session_id, hits.rank::float8 AS rank,
                             ts_headline('simple', hits.content, q.query,
@@ -413,7 +428,7 @@ impl SessionSearchDb {
                      ORDER BY hits.rank DESC
                      LIMIT $2"
                 ),
-                &[&fts, &limit],
+                &[&fts, &limit, &excluded],
             )
             .await?;
         Ok(rows

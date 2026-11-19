@@ -1,0 +1,44 @@
+{
+  "note": "Node's detectSession at b6f10295a2f698afc85332467192de28500bd146",
+  "test": "src/runtime/computer-bridge/linux-readiness.test.mjs",
+  "cases": [
+    {
+      "name": "session detection matches native wayland_session()",
+      "checks": [
+        {
+          "env": {
+            "WAYLAND_DISPLAY": "wayland-0"
+          },
+          "session": "wayland"
+        },
+        {
+          "env": {
+            "WAYLAND_DISPLAY": "wayland-0",
+            "XDG_SESSION_TYPE": "wayland"
+          },
+          "session": "wayland"
+        },
+        {
+          "env": {
+            "WAYLAND_DISPLAY": "wayland-0",
+            "XDG_SESSION_TYPE": "x11"
+          },
+          "session": "x11"
+        },
+        {
+          "env": {
+            "XDG_SESSION_TYPE": "wayland",
+            "DISPLAY": ":0"
+          },
+          "session": "x11"
+        },
+        {
+          "env": {
+            "DISPLAY": ":0"
+          },
+          "session": "x11"
+        }
+      ]
+    }
+  ]
+}

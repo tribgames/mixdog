@@ -701,6 +701,26 @@ async fn a_veo_operation_that_never_completes_runs_out_of_budget() {
     assert_eq!(failure_of(&error), ("Veo poll budget exceeded", Some("MEDIA_TIMEOUT"), Some(504)));
 }
 
+/// A public fetch that never answers.
+struct Hang;
+
+#[async_trait]
+impl PublicFetch for Hang {
+    async fn get(&self, _: &str, _: &[(String, String)], _: &CancellationToken) -> Result<Box<dyn PublicResponse>, AdapterError> {
+        std::future::pending().await
+    }
+}
+
+#[tokio::test]
+async fn a_veo_download_that_hangs_runs_out_of_the_generation_budget_and_bills_the_seconds() {
+    let http = Http::with(vec![answer(200, json!({"name": "op"})), veo_done(VEO_URI)]);
+    let pacer = Wait::new(1);
+    let error = gemini_video::generate_video(&http, &Hang, &pacer, "gk", "veo-3", "p", &json!({}), &none(), &cancel(), NOP).await.unwrap_err();
+    assert_eq!(error.message, "The operation was aborted due to timeout");
+    assert_eq!(error.usage, Some(json!({"seconds": 8, "resolution": "720p"})));
+    assert_eq!(pacer.waits.lock().unwrap().last(), Some(&899_999));
+}
+
 // ---- ChatGPT (Codex) image ----
 
 struct Codex {

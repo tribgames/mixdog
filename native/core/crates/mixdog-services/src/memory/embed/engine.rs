@@ -15,7 +15,7 @@ use ort::value::Tensor;
 
 use crate::memory::embed::config::{self, InputType, Pooling};
 use crate::memory::embed::install;
-use crate::memory::embed::tokenizer::UnigramTokenizer;
+use crate::memory::embed::tokenizer::Tokenizer;
 use crate::memory::error::{MemoryError, Result};
 use crate::model_install::{fsio, run_on_lane};
 
@@ -112,7 +112,7 @@ struct Inner {
     model_id: String,
     dtype: String,
     pooling: Pooling,
-    tokenizer: UnigramTokenizer,
+    tokenizer: Tokenizer,
     sessions: Vec<Mutex<Session>>,
     with_type_ids: bool,
     device: &'static str,
@@ -151,8 +151,8 @@ impl Embedder {
         let gpu = config::prefers_gpu(&model_id, std::env::var("MIXDOG_MEMORY_EMBED_DEVICE").ok().as_deref(), cfg!(windows));
         let count = config.sessions.max(1);
         let library = config.ort_library.clone();
-        let (tokenizer, sessions) = run_on_lane(config.lane, move || -> Result<(UnigramTokenizer, Vec<Session>)> {
-            let tokenizer = UnigramTokenizer::load(&tokenizer_path, max_length)?;
+        let (tokenizer, sessions) = run_on_lane(config.lane, move || -> Result<(Tokenizer, Vec<Session>)> {
+            let tokenizer = Tokenizer::load(&tokenizer_path, max_length)?;
             let environment = ort_environment(&library)?;
             let mut sessions = Vec::new();
             for _ in 0..count {

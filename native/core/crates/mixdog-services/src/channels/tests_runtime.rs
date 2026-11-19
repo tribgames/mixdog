@@ -1585,3 +1585,63 @@ async fn a_save_between_the_config_load_and_the_start_is_armed_as_in_node() {
     rig.runtime.scheduled_start_settled().await;
     rig.runtime.stop_owned_runtime("test").await.unwrap();
 }
+
+/// The event rules as the pipeline holds them: a stored change reaches it only through `reload_events`.
+struct RuleSettings {
+    stored_rule_enabled: std::sync::atomic::AtomicBool,
+    pipeline_rule_enabled: std::sync::atomic::AtomicBool,
+}
+
+#[async_trait]
+impl ChannelSettings for RuleSettings {
+    async fn webhook(&self) -> Result<WebhookSettings, String> {
+        Ok(WebhookSettings { enabled: Some(false), ..WebhookSettings::default() })
+    }
+    async fn update_webhook(&self, _: &WebhookPatch) -> Result<WebhookSettings, String> {
+        unreachable!("the lifecycle never writes the webhook settings")
+    }
+    async fn webhook_config(&self) -> Result<WebhookConfig, String> {
+        Ok(WebhookConfig::default())
+    }
+    async fn reload_events(&self) {
+        self.pipeline_rule_enabled.store(self.stored_rule_enabled.load(Ordering::SeqCst), Ordering::SeqCst);
+    }
+}
+
+struct NoListener;
+
+#[async_trait]
+impl WebhookListener for NoListener {
+    async fn start(&self, _: &WebhookSettings) -> Result<(), String> {
+        Ok(())
+    }
+    async fn stop(&self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// A rule disabled while the automation is stopped is not live after the next activation.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn event_rules_changed_while_stopped_are_loaded_on_activation() {
+    let e = env().await;
+    let settings = Arc::new(RuleSettings { stored_rule_enabled: true.into(), pipeline_rule_enabled: true.into() });
+    let service = Arc::new(WebhookService::new(
+        e.webhooks.clone(),
+        Arc::new(HomeWebhookDispatch::new(e.routines.clone(), e.webhooks.clone(), None, e.work.clone())),
+        WebhookConfig::default(),
+        e.work.clone(),
+        Arc::new(|| 0),
+    ));
+    let automation = Arc::new(WebhookAutomation::new(settings.clone(), service, Arc::new(NoListener)));
+    let scheduler = Scheduler::new(e.schedules.clone(), Arc::new(HomeScheduleRunner::new(e.routines.clone())), Arc::new(SystemClock), e.work.clone(), Tz::UTC, Vec::new());
+    let runtime = ChannelRuntime::new(scheduler, e.schedules.clone(), automation, e.agent.clone());
+    let tools = ToolDispatch::new(runtime.clone(), e.work.clone(), Box::new(|| false));
+
+    tools.handle_tool_call(ACTIVATE_TOOL, &json!({"active": true})).await;
+    tools.handle_tool_call(ACTIVATE_TOOL, &json!({"active": false})).await;
+    settings.stored_rule_enabled.store(false, Ordering::SeqCst);
+    assert!(settings.pipeline_rule_enabled.load(Ordering::SeqCst), "nothing runs while stopped");
+    tools.handle_tool_call(ACTIVATE_TOOL, &json!({"active": true})).await;
+    assert!(!settings.pipeline_rule_enabled.load(Ordering::SeqCst), "the activation loads the stored rules");
+    runtime.stop_owned_runtime("test").await.unwrap();
+}

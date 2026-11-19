@@ -93,6 +93,13 @@ pub async fn exists<L: LaneToken>(lane: L, path: &Path) -> io::Result<bool> {
     on_lane(lane, move || path.exists()).await
 }
 
+/// Whether `path` exists, `false` only when it is confirmed absent: a metadata failure other than "not found" is an error.
+#[allow(clippy::disallowed_methods, reason = "the call is a lane job")]
+pub async fn exists_confirmed<L: LaneToken>(lane: L, path: &Path) -> io::Result<bool> {
+    let path = path.to_owned();
+    io_on_lane(lane, move || path.try_exists()).await
+}
+
 /// A file being written in lane-sized batches: created, written and synced on `lane`.
 #[allow(clippy::disallowed_types, reason = "opened, written and synced only inside lane jobs")]
 pub struct LaneWriter<L: LaneToken> {

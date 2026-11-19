@@ -1276,6 +1276,7 @@ fn every_interactive_query_is_index_backed() {
     let dir = tempfile::tempdir().unwrap();
     let conn = rusqlite::Connection::open(dir.path().join("i.sqlite")).unwrap();
     conn.execute_batch(crate::schema::sql::INDEX_DDL).unwrap();
+    conn.execute_batch(crate::sqlite::WITHHELD_DDL).unwrap();
     let plan = |sql: &str| -> Vec<String> {
         let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
         let n = stmt.parameter_count();
@@ -2445,7 +2446,11 @@ async fn worker_rows_are_indexed_by_tag_owner_and_host_pid() {
             (0..stmt.parameter_count()).map(|_| rusqlite::types::Value::Integer(1)).collect();
         let plan: Vec<String> =
             stmt.query_map(rusqlite::params_from_iter(args), |r| r.get::<_, String>(3)).unwrap().collect::<Result<_, _>>().unwrap();
-        assert!(plan.iter().all(|p| p.contains("USING INDEX") || p.contains("TEMP B-TREE")), "{sql}: {plan:?}");
+        // The withheld state is a subquery seeking its table's key.
+        assert!(
+            plan.iter().all(|p| p.contains("USING INDEX") || p.contains("TEMP B-TREE") || p.contains("USING PRIMARY KEY") || p.contains("SUBQUERY")),
+            "{sql}: {plan:?}"
+        );
     }
 }
 

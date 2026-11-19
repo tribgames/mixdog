@@ -71,6 +71,8 @@ fn listed_model(w: &Writer) -> serde_json::Value {
 /// A writer whose session has its row (`model` "zero") and its first frame in, taking `append_rows` rows per append
 /// transaction from then on.
 fn writer(dir: &tempfile::TempDir, append_rows: usize) -> Writer {
+    // The writer opens only a built index (an empty file is rebuilt from the logs): build the empty one first.
+    drop(open_writer(&dir.path().join("i.sqlite"), Some(&runtime_ddl())).expect("index"));
     let mut w = Writer::start(&dir.path().join("i.sqlite")).expect("writer");
     w.conn.pragma_update(None, "synchronous", "OFF").expect("pragma");
     w.take(Command::Upsert { head: Box::new(head("zero")), dirty: DirtyMark::Set, ack: None });

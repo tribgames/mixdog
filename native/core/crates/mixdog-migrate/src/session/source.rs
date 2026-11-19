@@ -1408,17 +1408,23 @@ pub fn shared_session_ids(name: &str, bytes: &[u8]) -> Option<(Vec<String>, Vec<
 /// Every migrating session as a `Candidate`; one whose header does not read is none.
 pub fn session_candidates<'a>(
     sessions: impl IntoIterator<Item = (&'a str, &'a [SourceFile])>,
-    mut read: impl FnMut(&SourceFile) -> crate::error::Result<Vec<u8>>,
-    mut open: impl FnMut(&SourceFile) -> crate::error::Result<durable::OpenFile>,
+    // A session whose header the caller already read: its record is not read again.
+    known: impl Fn(&str) -> Option<Header>,
+    mut read: impl FnMut(&str, &SourceFile) -> crate::error::Result<Vec<u8>>,
+    mut open: impl FnMut(&str, &SourceFile) -> crate::error::Result<durable::OpenFile>,
 ) -> crate::error::Result<Vec<Candidate>> {
     let mut out = Vec::new();
     for (id, sources) in sessions {
+        if let Some(header) = known(id) {
+            out.push(Candidate::of(id, &header));
+            continue;
+        }
         let find = |suffix: &str| {
             let rel = format!("sessions/{id}{suffix}");
             sources.iter().find(|s| s.path == rel)
         };
-        let json = find(JSON_SUFFIX).map(&mut read).transpose()?;
-        let log = find(LOG_SUFFIX).map(&mut open).transpose()?;
+        let json = find(JSON_SUFFIX).map(|f| read(id, f)).transpose()?;
+        let log = find(LOG_SUFFIX).map(|f| open(id, f)).transpose()?;
         if let Ok((header, _)) = header_and_messages(id, json.as_deref(), log, &mut 0) {
             out.push(Candidate::of(id, &header));
         }
@@ -1492,8 +1498,9 @@ fn worker(cx: &ItemContext<'_>, id: &str, header: &Header, shared: &[&SourceFile
                     let sessions = cx.manifest.items.iter().filter(|i| i.kind == ItemKind::Session);
                     all = Some(session_candidates(
                         sessions.filter_map(|i| Some((i.key.as_str().strip_prefix("session/")?, i.sources.as_slice()))),
-                        |file| cx.read_source(file),
-                        |file| cx.open_source(file),
+                        |_| None,
+                        |_, file| cx.read_source(file),
+                        |_, file| cx.open_source(file),
                     )?);
                 }
                 let Some(owner) = recover_owner(&entry, all.as_deref().unwrap_or_default()) else { continue };

@@ -228,8 +228,12 @@ struct MirrorWork {
     view: ArchiveView,
     owed: Arc<Mutex<HashMap<String, u64>>>,
     #[cfg(any(test, feature = "test-support"))]
-    hold: Arc<Mutex<Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>>>,
+    hold: MirrorHold,
 }
+
+/// The pair of channels a test uses to pause the next mirror pass: it signals arrival, then waits to be released.
+#[cfg(any(test, feature = "test-support"))]
+type MirrorHold = Arc<Mutex<Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>>>;
 
 impl MirrorWork {
     /// One pass: every owed session written as the authority holds it now. A session a commit owed again during the write (a newer
@@ -321,11 +325,14 @@ pub struct ArchiveStates {
     index: OnceLock<SqliteStore>,
     claims: Arc<Mutex<Claims>>,
     mirror: OnceLock<DesktopMirror>,
+    /// The background projection of the entries owed at start ([`Self::start_projection`]) and the token that ends it.
+    projection: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    projection_stop: mixdog_rt::CancellationToken,
     /// The sessions owed to the mirror, each with the ask that owed it last: written (or a failure carried) by its task.
     mirror_owed: Arc<Mutex<HashMap<String, u64>>>,
     /// The next mirror pass a test holds before it reads what is owed.
     #[cfg(any(test, feature = "test-support"))]
-    mirror_hold: Arc<Mutex<Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>>>,
+    mirror_hold: MirrorHold,
 }
 
 impl std::fmt::Debug for ArchiveStates {
@@ -360,6 +367,8 @@ impl ArchiveStates {
             index: OnceLock::new(),
             claims: Arc::default(),
             mirror: OnceLock::new(),
+            projection: Mutex::new(None),
+            projection_stop: mixdog_rt::CancellationToken::new(),
             mirror_owed: Arc::default(),
             #[cfg(any(test, feature = "test-support"))]
             mirror_hold: Arc::default(),
@@ -485,6 +494,43 @@ impl ArchiveStates {
         let _ = self.index.set(index.clone());
         let ids: Vec<String> = self.snapshot().ids().cloned().collect();
         index.project_archive(ids).await
+    }
+
+    /// [`Self::bind_index`] without waiting for the writer: the binding is in place and every entry is owed to the index, so the
+    /// recent search settles them before it reads, and the caller's `index.project_archive(Vec::new())` settles them in the background.
+    pub fn bind_index_deferred(&self, index: &SqliteStore) -> Result<(), DbError> {
+        index.bind_archive(self.view.clone()).map_err(|why| DbError::Write(why.to_owned()))?;
+        let _ = self.index.set(index.clone());
+        index.owe_archive(self.snapshot().ids().cloned().collect());
+        Ok(())
+    }
+
+    /// Starts the bulk projection of the entries owed by [`Self::bind_index_deferred`] in the background; the caller does it once
+    /// the core serves, so the catalog writer's queue is not held by it before then. Once only; [`Self::close_projection`] ends it.
+    pub fn start_projection(&self) {
+        let Some(index) = self.index.get().cloned() else { return };
+        let mut slot = self.projection.lock().unwrap_or_else(PoisonError::into_inner);
+        if slot.is_some() || self.projection_stop.is_cancelled() {
+            return;
+        }
+        let stop = self.projection_stop.clone();
+        *slot = Some(mixdog_rt::spawn("session.archive-project", mixdog_rt::TaskClass::Work, async move {
+            // Cancelling only keeps it from starting: once the command is sent the writer runs it whatever happens to this future,
+            // so the stop waits for its acknowledgement. A failed projection stays owed: the search and the next projection settle it.
+            if !stop.is_cancelled() {
+                let _ = index.project_archive(Vec::new()).await;
+            }
+        }));
+    }
+
+    /// Ends the background projection with the store: one not yet sent never starts, one sent is awaited to the writer's answer.
+    /// What it left owed is projected again by the next start, which owes every entry.
+    pub async fn close_projection(&self) {
+        self.projection_stop.cancel();
+        let task = self.projection.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(task) = task {
+            let _ = task.await;
+        }
     }
 
     /// The committed outcome of the tree operation `op_id`, if it committed.
