@@ -856,7 +856,64 @@ async fn output_past_what_memory_holds_reads_as_its_log_does_in_node() {
     let resumed = body(rig.task.call(&ctx(&rig, "r3"), serde_json::json!({"action": "read", "task_id": "task-r1"})).await);
     assert!(resumed.contains("[stdout]\nline 1000 x") && resumed.contains(&omitted("198959", "12135.2")), "{resumed:.600}");
 }
-/// A tail replay leaves a task's read cursor where the last read stopped (`readShellTaskOutput`: an explicit tail read never
+/// A runtime whose job clock and task registry share one movable clock, with a finished background job `task-x1` of owner `t`.
+async fn finished_background_job() -> (Rig, Arc<ExecRuntime>, Arc<std::sync::atomic::AtomicU64>, Arc<Job>) {
+    let rig = rig();
+    let now = Arc::new(std::sync::atomic::AtomicU64::new(golden_ms()));
+    let mut config = rig.runtime.config.clone_for_test();
+    let clock = now.clone();
+    config.now_ms = Arc::new({
+        let clock = clock.clone();
+        move || clock.load(std::sync::atomic::Ordering::SeqCst)
+    });
+    config.tasks = Arc::new(mixdog_spawn::tasks::TaskRegistry::new(Arc::new(Strips(tokio::sync::watch::channel(0u64).0)), move || clock.load(std::sync::atomic::Ordering::SeqCst)));
+    let runtime = ExecRuntime::new(config);
+    let shell = ShellTool::new(runtime.clone());
+    shell.call(&ctx(&rig, "x1"), serde_json::json!({"command": "echo done-out", "background": true})).await.unwrap();
+    let job = runtime.get(&ThreadId::from("t"), "task-x1").unwrap();
+    {
+        let mut senders = rig.processes.senders.lock().unwrap();
+        let (tx, seq) = senders.get_mut(&job.handle).unwrap();
+        send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } });
+    }
+    job.settled().await;
+    (rig, runtime, now, job)
+}
+/// A finished background job that left the runtime after its retention takes its row in the task registry with it: nothing else
+/// would ever release it.
+#[tokio::test]
+async fn an_expired_job_takes_its_registry_row_with_it() {
+    let (_rig, runtime, now, _job) = finished_background_job().await;
+    let owner = ThreadId::from("t");
+    assert_eq!(runtime.config.tasks.list().len(), 1);
+    now.store(golden_ms() + 31 * 60 * 1000, std::sync::atomic::Ordering::SeqCst);
+    assert!(runtime.get(&owner, "task-x1").is_none());
+    assert!(runtime.config.tasks.list().is_empty());
+}
+/// A cancelled job whose descendants survive is held with its termination unconfirmed: its job and row stay past the retention, so it
+/// can still be listed and stopped.
+#[tokio::test]
+async fn a_job_with_unconfirmed_termination_outlives_its_retention() {
+    let (_rig, runtime, now, _job) = finished_background_job().await;
+    let owner = ThreadId::from("t");
+    runtime.config.tasks.set_termination_unconfirmed("task-x1", true).unwrap();
+    now.store(golden_ms() + 31 * 60 * 1000, std::sync::atomic::Ordering::SeqCst);
+    assert!(runtime.get(&owner, "task-x1").is_some());
+    assert!(runtime.config.tasks.get("task-x1").is_some());
+}
+/// The row goes when the strip stops listing it (its own deadline, one millisecond past the retention), not a millisecond before.
+#[tokio::test]
+async fn a_row_the_strip_still_lists_is_not_released() {
+    let (_rig, runtime, now, _job) = finished_background_job().await;
+    let owner = ThreadId::from("t");
+    let finished = runtime.config.tasks.get("task-x1").unwrap().finished_at_ms.unwrap();
+    now.store(finished + mixdog_spawn::tasks::FINISHED_RETENTION_MS, std::sync::atomic::Ordering::SeqCst);
+    assert!(runtime.get(&owner, "task-x1").is_some());
+    assert!(runtime.config.tasks.get("task-x1").is_some());
+    now.store(finished + mixdog_spawn::tasks::FINISHED_RETENTION_MS + 1, std::sync::atomic::Ordering::SeqCst);
+    assert!(runtime.get(&owner, "task-x1").is_none());
+    assert!(runtime.config.tasks.get("task-x1").is_none());
+}/// A tail replay leaves a task's read cursor where the last read stopped (`readShellTaskOutput`: an explicit tail read never
 /// changes the incremental cursor), so the next `new` read still shows what no earlier one delivered.
 #[tokio::test]
 async fn a_tail_replay_leaves_the_next_read_where_the_last_one_stopped() {

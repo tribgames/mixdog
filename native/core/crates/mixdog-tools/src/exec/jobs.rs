@@ -1895,10 +1895,21 @@ impl ExecRuntime {
     }
 
     fn purge_expired(&self, now: u64) {
-        lock(&self.jobs).retain(|_, job| {
-            let state = job.state();
-            !state.finished || state.finished_ms.is_none_or(|f| now.saturating_sub(f) < RETENTION_MS)
-        });
+        let aged: Vec<String> = lock(&self.jobs)
+            .iter()
+            .filter(|(_, job)| {
+                let state = job.state();
+                state.finished && state.finished_ms.is_some_and(|f| now.saturating_sub(f) >= RETENTION_MS)
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        // The task row of a job that left this map is unreachable from here; with no `clean` or `release` from a client it would
+        // stay for the life of the process, one per background shell ever run. The registry decides when its row may go (a row
+        // whose termination is unconfirmed, or that its strip still lists, stays, and so does the job), and the job goes with it.
+        let gone: Vec<String> = aged.into_iter().filter(|id| self.config.tasks.release_expired(id)).collect();
+        if !gone.is_empty() {
+            lock(&self.jobs).retain(|id, _| !gone.contains(id));
+        }
     }
 
     pub fn get(&self, owner: &ThreadId, id: &str) -> Option<Arc<Job>> {

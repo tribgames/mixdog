@@ -321,6 +321,24 @@ impl TaskRegistry {
         Ok(())
     }
 
+    /// Drops the row of a finished task once nothing shows it any more: its termination is confirmed and the strip's own deadline
+    /// ([`Self::expires_at`], on its own finish stamp) has passed. `true` when the row is gone, also when there never was one;
+    /// `false` while it must stay.
+    pub fn release_expired(&self, task_id: &str) -> bool {
+        let now = (self.now_ms)();
+        let mut inner = self.lock();
+        let Some(row) = inner.tasks.get(task_id) else { return true };
+        if row.status == TaskStatus::Running || row.termination_unconfirmed || Self::expires_at(row).is_none_or(|at| now < at) {
+            return false;
+        }
+        let owner = row.owner.clone();
+        inner.tasks.remove(task_id);
+        inner.processes.remove(task_id);
+        inner.order.retain(|id| id != task_id);
+        self.publish(&mut inner, owner.as_deref());
+        true
+    }
+
     /// `thread/backgroundTerminals/clean`: drops the finished rows of `thread`.
     pub fn clean(&self, thread: &str) {
         let mut inner = self.lock();
