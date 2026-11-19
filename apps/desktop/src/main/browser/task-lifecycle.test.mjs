@@ -150,3 +150,19 @@ test('failed-close recovery preserves newer ownership and handles a page destroy
     }
   }
 });
+
+test('forgetting an unloaded session keeps its turn state; forgetting a deleted one drops it', () => {
+  const forgotten = [];
+  const owner = createBrowserTaskLifecycle({
+    close() {},
+    canClose: () => true,
+    turnForgotten: (sessionId) => forgotten.push(sessionId),
+  });
+  owner.finish('s', 4);
+  owner.forget('s', { keepTurn: true });
+  assert.deepEqual(forgotten, []);
+  assert.throws(() => owner.begin('s', 4), /already finished/);
+  owner.forget('s');
+  assert.deepEqual(forgotten, ['s']);
+  assert.equal(owner.begin('s', 4), true);
+});

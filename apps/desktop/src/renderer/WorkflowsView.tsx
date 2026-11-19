@@ -255,7 +255,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
                 type="button"
                 className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
                 style={{ order: defaultAgentOrder.orderedIds.indexOf('web-search') }}
-                title={t('Use when Mixdog runs the web_search tool.')}
+                title={t('Use when running the web_search tool.')}
                 disabled={busy}
                 aria-label={t('Edit Web Search')}
                 onClick={() =>
@@ -265,7 +265,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
                     route: webSearchRoute,
                     capability: 'setWebSearchRoute',
                     modelKind: 'webSearch',
-                    description: t('Use when Mixdog runs the web_search tool.'),
+                    description: t('Use when running the web_search tool.'),
                     readOnlyDefinition: true,
                   })
                 }

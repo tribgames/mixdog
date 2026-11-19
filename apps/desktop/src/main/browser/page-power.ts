@@ -1,13 +1,13 @@
 /**
  * Power state of browser pages. A page runs at full speed only while a Browser
  * panel displays it or an agent command drives it; any other page is throttled
- * and stops producing frames. A user page that stays unused past the idle
+ * and stops producing frames. A session whose pages stay unused past the idle
  * threshold is unloaded through the session's unload-and-restore path.
  */
 import type { WebContents } from 'electron';
 
 import type { BrowserSessionRegistry } from './session-registry';
-import { BACKGROUND_PAGE_IDLE_MS, backgroundPageIdle, USER_PAGE_IDLE_MS } from './tab-policy';
+import { BACKGROUND_PAGE_IDLE_MS, backgroundPageIdle, FINISHED_TURN_PAGE_IDLE_MS } from './tab-policy';
 
 type PowerGuest = Pick<
   WebContents,
@@ -42,6 +42,8 @@ export function createBrowserPagePower<T extends PowerGuest>(host: { isDisplayed
   return {
     refresh,
     isActive,
+    /** Whether an agent command is driving the page, shown or not. */
+    isDriven: (guest: T) => (driving.get(guest) ?? 0) > 0,
     /** A new page counts as used now; it settles once nothing uses it. */
     track(guest: T): void {
       stoppedAt.set(guest, Date.now());
@@ -68,37 +70,41 @@ export function createBrowserPagePower<T extends PowerGuest>(host: { isDisplayed
   };
 }
 
-/** Unload every session whose pages are all undisplayed, undriven, not kept
- *  alive, free of anything a person entered, and idle past their threshold:
- *  user pages after USER_PAGE_IDLE_MS, agent pages after
- *  BACKGROUND_PAGE_IDLE_MS. The unload keeps each page's URL so the panel
- *  restores it on the next show; it cannot restore what was typed. */
+/** Unload every session whose pages are all undisplayed, undriven, free of
+ *  anything only the live document holds, and idle past the session's
+ *  threshold: BACKGROUND_PAGE_IDLE_MS while a turn of it is live,
+ *  FINISHED_TURN_PAGE_IDLE_MS otherwise, for every page alike. The unload
+ *  keeps each tab and its URL (a kept page too), so the panel restores them on
+ *  the next show; it cannot restore what was typed, a dialog, a download in
+ *  progress, playing audio, a stored secret or a popup's link to its opener,
+ *  so a session holding one stays loaded. */
 export function reclaimIdleUserSessions<T extends PowerGuest>(host: {
   sessions: BrowserSessionRegistry;
   power: Pick<ReturnType<typeof createBrowserPagePower<T>>, 'isActive' | 'lastActiveAt'>;
   isBackgroundBusy(sessionId: string, name: string): boolean;
-  /** A person clicked or typed into the page's current document. */
-  holdsUserInput(guest: T): boolean;
+  /** The page holds state a reload loses: typing, a pending dialog or file
+   *  chooser, audible media, a stored sensitive value. */
+  holdsPage(guest: T): boolean;
+  /** The session has a download in progress. */
+  downloading(sessionId: string): boolean;
   unload(sessionId: string): void;
   now?: number;
 }): void {
   const { sessions, power, now = Date.now() } = host;
   for (const sessionId of sessions.sessionIds()) {
-    const background = [...sessions.backgroundPages(sessionId)];
-    const pages = [
-      ...sessions.visibleGuests(sessionId).map((guest) => [guest, USER_PAGE_IDLE_MS] as const),
-      ...background
-        .filter(([, page]) => !page.guest.isDestroyed())
-        .map(([, page]) => [page.guest, page.kind === 'agent' ? BACKGROUND_PAGE_IDLE_MS : USER_PAGE_IDLE_MS] as const),
-    ] as unknown as Array<readonly [T, number]>;
+    const background = [...sessions.backgroundPages(sessionId)].filter(([, page]) => !page.guest.isDestroyed());
+    const pages = [...sessions.visibleGuests(sessionId), ...background.map(([, page]) => page.guest)] as unknown as T[];
     if (!pages.length) continue;
-    if (background.some(([name, page]) => page.keepAlive || host.isBackgroundBusy(sessionId, name))) continue;
+    // A turn that ended moments ago is usually continued by the next message.
+    const finishedAt = sessions.turnFinishedAt(sessionId);
+    if (finishedAt !== undefined && !backgroundPageIdle(finishedAt, now, FINISHED_TURN_PAGE_IDLE_MS)) continue;
+    if (background.some(([name]) => host.isBackgroundBusy(sessionId, name))) continue;
+    if (background.some(([, page]) => page.opener && !page.opener.isDestroyed())) continue;
+    if (host.downloading(sessionId)) continue;
+    const idleMs = sessions.turnLive(sessionId) ? BACKGROUND_PAGE_IDLE_MS : FINISHED_TURN_PAGE_IDLE_MS;
     if (
       pages.some(
-        ([guest, idleMs]) =>
-          power.isActive(guest) ||
-          host.holdsUserInput(guest) ||
-          !backgroundPageIdle(power.lastActiveAt(guest), now, idleMs)
+        (guest) => power.isActive(guest) || host.holdsPage(guest) || !backgroundPageIdle(power.lastActiveAt(guest), now, idleMs)
       )
     ) {
       continue;

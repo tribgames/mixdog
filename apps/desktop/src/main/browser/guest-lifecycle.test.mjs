@@ -127,6 +127,7 @@ registerHooks({
 const { createBrowserGuestLifecycle, offscreenWindowOptions } = await import('./guest-lifecycle.ts');
 
 const { BrowserGuestStateStore } = await import('./guest-state.ts');
+const { browserDocumentId } = await import('./host-state.ts');
 const { BrowserSessionRegistry } = await import('./session-registry.ts');
 const { DESKTOP_IPC } = await import('../../shared/contract.ts');
 
@@ -340,6 +341,7 @@ test('an unloaded session restores its pages: address, zoom, size, and selection
   const h = harness();
   const primary = await h.lifecycle.ensureGuest('s1', { reveal: false });
   primary.url = 'https://example.com/primary';
+  h.lifecycle.claimPage('s1', primary); // navigating a page makes it the user's, not a stand-in
   primary.zoom = 1.5;
   h.lifecycle.ensureOffscreen('s1', 'research');
   const research = h.sessions.backgroundPages('s1').get('research');
@@ -351,6 +353,9 @@ test('an unloaded session restores its pages: address, zoom, size, and selection
   openPopup(primary, 'https://example.com/popup');
   h.sessions.backgroundPages('s1').get('popup-1').guest.url = 'https://example.com/popup';
 
+  const ids = [primary, research.guest, h.sessions.backgroundPages('s1').get('popup-1').guest].map((guest) =>
+    h.state.pageId(guest)
+  );
   log.length = 0;
   h.lifecycle.releaseSession('s1', true);
   // Primary first, then the background pages in their registry order.
@@ -373,8 +378,17 @@ test('an unloaded session restores its pages: address, zoom, size, and selection
   const restoredPrimary = h.sessions.visibleGuests('s1')[0];
   assert.deepEqual(restoredPrimary.loads, ['about:blank', 'https://example.com/primary']);
   assert.equal(restoredPrimary.zoom, 1.5);
-  // The blank page had nothing to come back to.
+  // The blank scratch page had nothing to come back to.
   assert.deepEqual([...h.sessions.backgroundPages('s1').keys()], ['research', 'popup-1']);
+  // Every page comes back under the id it had.
+  assert.deepEqual(
+    [
+      restoredPrimary,
+      h.sessions.backgroundPages('s1').get('research').guest,
+      h.sessions.backgroundPages('s1').get('popup-1').guest,
+    ].map((guest) => h.state.pageId(guest)),
+    ids
+  );
   const restoredResearch = h.sessions.backgroundPages('s1').get('research');
   assert.deepEqual(restoredResearch.guest.loads, ['about:blank', 'https://example.com/research']);
   assert.deepEqual(restoredResearch.window.getContentSize(), [800, 600]);
@@ -398,6 +412,7 @@ test('deleting a session forgets what it would restore', async () => {
   const h = harness();
   const primary = await h.lifecycle.ensureGuest('s1', { reveal: false });
   primary.url = 'https://example.com/primary';
+  h.lifecycle.claimPage('s1', primary); // navigating a page makes it the user's, not a stand-in
   h.lifecycle.releaseSession('s1', true);
   h.lifecycle.releaseSession('s1');
   await h.lifecycle.restoreSession('s1');
@@ -408,6 +423,7 @@ test('a restore overtaken by a release fails without tearing anything else down'
   const h = harness();
   const primary = await h.lifecycle.ensureGuest('s1', { reveal: false });
   primary.url = 'https://example.com/primary';
+  h.lifecycle.claimPage('s1', primary); // navigating a page makes it the user's, not a stand-in
   h.lifecycle.releaseSession('s1', true);
   const restoring = h.lifecycle.restoreSession('s1');
   h.lifecycle.releaseSession('s1');
@@ -418,14 +434,18 @@ test('a restore whose page creation fails releases the partial set and keeps des
   const h = harness();
   const primary = await h.lifecycle.ensureGuest('s1', { reveal: false });
   primary.url = 'https://example.com/primary';
+  h.lifecycle.claimPage('s1', primary); // navigating a page makes it the user's, not a stand-in
   h.lifecycle.ensureOffscreen('s1', 'research').guest.url = 'https://example.com/research';
   h.lifecycle.releaseSession('s1', true);
   const originalLoad = FakeGuest.prototype.loadURL;
   let failed = false;
+  const usedDocuments = [];
   FakeGuest.prototype.loadURL = function (url) {
     // The first background page's blank commit fails once.
     if (!failed && url === 'about:blank' && h.sessions.backgroundPageForGuest('s1', this)) {
       failed = true;
+      // The primary already made by this attempt holds a document id for good.
+      usedDocuments.push(browserDocumentId(h.state, h.sessions.visibleGuests('s1')[0]));
       return Promise.reject(new Error('load aborted'));
     }
     return originalLoad.call(this, url);
@@ -439,8 +459,47 @@ test('a restore whose page creation fails releases the partial set and keeps des
   assert.equal(h.sessions.backgroundPages('s1').size, 0);
   await h.lifecycle.restoreSession('s1');
   assert.equal(h.sessions.backgroundPages('s1').get('research').guest.url, 'https://example.com/research');
+  assert.equal(usedDocuments.length, 1);
+  const retried = browserDocumentId(h.state, h.sessions.visibleGuests('s1')[0]);
+  assert.equal(retried.split(':')[0], usedDocuments[0].split(':')[0], 'the tab keeps its id');
+  assert.notEqual(retried, usedDocuments[0], 'the retry never reuses a document id');
 });
 
+test('an unload during a restore does not let the retry reissue a document id', async () => {
+  const h = harness();
+  const primary = await h.lifecycle.ensureGuest('s1', { reveal: false });
+  primary.url = 'https://example.com/primary';
+  h.lifecycle.claimPage('s1', primary);
+  h.lifecycle.ensureOffscreen('s1', 'research').guest.url = 'https://example.com/research';
+  h.lifecycle.releaseSession('s1', true);
+  const originalLoad = FakeGuest.prototype.loadURL;
+  let release;
+  let held = false;
+  FakeGuest.prototype.loadURL = function (url) {
+    if (!held && url === 'about:blank' && h.sessions.backgroundPageForGuest('s1', this)) {
+      held = true;
+      return new Promise((resolve) => (release = resolve));
+    }
+    return originalLoad.call(this, url);
+  };
+  try {
+    const restoring = h.lifecycle.restoreSession('s1');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(held, true);
+    const used = browserDocumentId(h.state, h.sessions.visibleGuests('s1')[0]);
+    // The unload closes the partial pages before the restore can record anything.
+    h.lifecycle.releaseSession('s1', true);
+    release();
+    await assert.rejects(restoring);
+    FakeGuest.prototype.loadURL = originalLoad;
+    await h.lifecycle.restoreSession('s1');
+    const retried = browserDocumentId(h.state, h.sessions.visibleGuests('s1')[0]);
+    assert.equal(retried.split(':')[0], used.split(':')[0]);
+    assert.notEqual(retried, used);
+  } finally {
+    FakeGuest.prototype.loadURL = originalLoad;
+  }
+});
 test('surface requests need a live shell window; a failed open is reported quietly', async () => {
   const h = harness();
   h.lifecycle.requestBrowserSurface('s1', 'hide');

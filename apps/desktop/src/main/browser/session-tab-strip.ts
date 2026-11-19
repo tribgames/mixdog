@@ -20,6 +20,7 @@ export function createBrowserSessionTabStrip(options: {
   };
   currentGuest: BrowserSessionRegistry['currentGuest'];
   lifecycle: {
+    restoreSession(sessionId: string): Promise<void>;
     claimPage(sessionId: string, guest: WebContents): void;
     replacementPage(sessionId: string): WebContents | null;
   };
@@ -32,6 +33,7 @@ export function createBrowserSessionTabStrip(options: {
   const { tabs, currentGuest, lifecycle } = options;
   return {
     list: (sessionId) => tabs.displayTabs(sessionId),
+    restore: (sessionId) => lifecycle.restoreSession(sessionId),
     select: (sessionId, tabId, follow) => {
       const { agentFollow } = options;
       // "브라우저 · 보기" on one page: that exact tab is shown and panes stop

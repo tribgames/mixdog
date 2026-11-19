@@ -9,6 +9,7 @@
 // when one exists), and `activityAt` is the core's (`lastUsedAt || updatedAt`, which the projection would recompute from `updatedAt`).
 import { desktopSessionSummaries } from '../desktop-state';
 import type { DesktopSessionSummary } from '../contract';
+import { cleanIncomingTail } from '../incoming-tail';
 
 type ThreadRow = Record<string, unknown>;
 
@@ -34,10 +35,8 @@ export function summariesOfThreadRows(
     const activityAt = finite(core.activityAt);
     const readMessageCount = finite(core.readMessageCount);
     const readRevision = finite(core.readRevision);
+    const incomingTail = cleanIncomingTail(core.incomingTail);
     // The core's row says compactCount: 0 for a thread never compacted; Node's summary has no such field until the first compaction (>= 1).
-    // Node's roster row of a bot home or room carries no `incomingTail` either: its daemon lists the live session, and only the summary
-    // index row has the tail (remote-protocol-chat-roster.recorded.json: the home row after "hello Bot One" has none, while the same run's
-    // session-summaries.log holds [2]).
     const { working: _w, leadWorking: _l, agentWorking: _a, compactCount, incomingTail: _t, ...rest } = summary as DesktopSessionSummary & Record<string, unknown>;
     return {
       ...rest,
@@ -53,6 +52,8 @@ export function summariesOfThreadRows(
       ...(core.archived === true ? { archived: true } : {}),
       ...(core.favorite === true ? { favorite: true } : {}),
       ...(core.agentDeleted === true ? { agentDeleted: true } : {}),
+      // The places of the incoming messages past which an unread pill counts: without them a bot's or room's pill reads 1.
+      ...(incomingTail ? { incomingTail } : {}),
       ...(readMessageCount === undefined ? {} : { readMessageCount }),
       ...(readRevision === undefined ? {} : { readRevision }),
       ...(core.agentRoom && typeof core.agentRoom === 'object' ? { agentRoom: core.agentRoom } : {}),

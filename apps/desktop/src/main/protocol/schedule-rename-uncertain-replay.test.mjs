@@ -17,7 +17,7 @@ const options = JSON.parse(readFileSync(new URL('../../../../../packages/protoco
 const korean = JSON.parse(readFileSync(new URL('../../renderer/locales/ko.json', import.meta.url), 'utf8'));
 const CONTROL = 'thr_control';
 const TRANSLATION_KEY = 'The rename may or may not have applied because the scheduler did not answer. Check the schedule list.';
-const KOREAN_WARNING = '스케줄러가 응답하지 않아 이름 바꾸기가 적용되었는지 알 수 없습니다. 스케줄 목록을 확인해 주세요.';
+const KOREAN_WARNING = '스케줄러가 응답하지 않아 이름 변경이 적용되었는지 확인할 수 없습니다. 스케줄 목록을 확인하세요.';
 /** How long a frame of the scripted core, or the call's settlement, may take. */
 const DEADLINE_MS = 10_000;
 

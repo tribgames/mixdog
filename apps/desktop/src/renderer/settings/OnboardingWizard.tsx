@@ -54,12 +54,12 @@ const STEPS = [
     id: 'profile',
     label: () => t('Profile'),
     title: () => t('Make it yours'),
-    subtitle: () => t('Tell Mixdog what to call you, your development experience, and which language to answer in.'),
+    subtitle: () => t('Set what to call you, your development experience, and which language to answer in.'),
   },
   {
     id: 'appearance',
     label: () => t('Theme'),
-    title: () => t('Pick how Mixdog looks'),
+    title: () => t('Pick how the app looks'),
     subtitle: () =>
       t('Follow your system, choose dark or light, or pick a picture skin. You can change it later in Settings.'),
   },
@@ -248,7 +248,7 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
           </div>
         </header>
         <div className="onboarding-body">
-          <PaneSurfaceGate ready={!loading} label={t('Loading your Mixdog configuration…')}>
+          <PaneSurfaceGate ready={!loading} label={t('Loading your configuration…')}>
             <div className="onboarding-ready-content">
               <div className="onboarding-step-view" key={meta.id}>
                 {meta.id === 'profile' && (
@@ -625,8 +625,8 @@ function GitStep({ api }: { api: DesktopApi }) {
   const showAvatar = authenticated && Boolean(login) && !avatarFailed;
   const connectHint =
     !status?.installed && !loading
-      ? t('Mixdog installs the GitHub CLI and signs you in — one click, no terminal needed.')
-      : t('Sign in opens github.com with a one-time code — Mixdog links your commits automatically.');
+      ? t('Installs the GitHub CLI and signs you in — one click, no terminal needed.')
+      : t('Sign in opens github.com with a one-time code — your commits are linked automatically.');
   // In-card actions stay plated, not primary: the footer's Next is the one
   // primary action on every step.
   return (
@@ -806,7 +806,7 @@ function StarStep({ api }: { api: DesktopApi }) {
       <p className="onboarding-card-text">
         {t('Standalone coding agent — multi-provider agent workflows across CLI, desktop, and phone.')}{' '}
         {starred
-          ? t('Thank you for the star — it genuinely helps mixdog grow!')
+          ? t('Thank you for the star — it genuinely helps Mixdog grow!')
           : t('Built in the open; a star helps other developers find it.')}
       </p>
       <div className="onboarding-repo-meta">
@@ -884,7 +884,7 @@ function ProfileStep({
         <label>
           <span>
             <b>{t('Title')}</b>
-            <small>{t('How Mixdog addresses you.')}</small>
+            <small>{t('How you are addressed.')}</small>
           </span>
           <input
             name="title"

@@ -28,6 +28,9 @@ const TAKEOVER_INPUT = new Set<string>([
   'touchStart',
 ]);
 
+/** The key events among them: what a person types. */
+const TYPING_INPUT = new Set<string>(['rawKeyDown', 'keyDown']);
+
 export interface BrowserNativeRect {
   x: number;
   y: number;
@@ -39,7 +42,7 @@ interface BrowserNativeViewHost {
   shell: BrowserWindow;
   currentGuest(sessionId: string): WebContents | null;
   /** A person pressed, dragged, scrolled or typed on a presented page. */
-  humanInput(guest: WebContents): void;
+  humanInput(guest: WebContents, typing: boolean): void;
 }
 
 export function createBrowserNativeViews(host: BrowserNativeViewHost) {
@@ -152,7 +155,9 @@ export function createBrowserNativeViews(host: BrowserNativeViewHost) {
       guest.on('input-event', (_event, input) => {
         if (agentInputInFlight(guest)) return;
         const pressed = input.modifiers?.some((modifier) => modifier.endsWith('buttondown'));
-        if (TAKEOVER_INPUT.has(input.type) || (input.type === 'mouseMove' && pressed)) host.humanInput(guest);
+        if (TAKEOVER_INPUT.has(input.type) || (input.type === 'mouseMove' && pressed)) {
+          host.humanInput(guest, TYPING_INPUT.has(input.type));
+        }
       });
     },
     parkAll,

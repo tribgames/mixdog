@@ -187,7 +187,7 @@ export function CommandSurface({
               "/usage — Read-only …" restatement only pushed the content down
               (user decision). Keep the sentence for screen readers only. */}
                 <p id="command-surface-description" className="sr-only">
-                  {t('{{title}} for the active Mixdog session.', { title })}
+                  {t('{{title}} for the active session.', { title })}
                 </p>
                 {surface === 'stats' && error && <ErrorNotice error={error} className="stats-error" />}
                 {!showStatsErrorOnly && showLoadingPlaceholder && (

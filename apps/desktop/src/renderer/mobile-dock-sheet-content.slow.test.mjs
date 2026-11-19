@@ -140,6 +140,8 @@ function buildBundles() {
       write: false,
       format: 'iife',
       platform: 'browser',
+      // The dock's import graph reaches main/remote-access-window.ts, whose electron import is dynamic and never runs here.
+      external: ['electron'],
       jsx: 'automatic',
       define: { 'process.env.NODE_ENV': '"production"' },
       logLevel: 'error',

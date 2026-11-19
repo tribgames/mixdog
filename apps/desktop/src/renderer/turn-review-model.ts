@@ -400,7 +400,9 @@ export function summarizeSessionTranscriptReview(items: TranscriptItem[], cwd = 
     // the call changed nothing.
     const digest = uiDiffDigest(item);
     if (digest) {
-      patches.push({ row: { id: String(item.id ?? ''), revision: toolRowRevision(item) }, summary: digest });
+      // A grouped card's digest is of one member's diff (`uiDiffMemberId`), and is read back by that member's id, not the card's.
+      const id = typeof item.uiDiffMemberId === 'string' ? item.uiDiffMemberId : String(item.id ?? '');
+      patches.push({ row: { id, revision: toolRowRevision(item) }, summary: digest });
       continue;
     }
     const uiDiff = typeof item.uiDiff === 'string' ? item.uiDiff : null;

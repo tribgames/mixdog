@@ -183,3 +183,37 @@ test('the discovery file is rejected when incomplete or malformed', () => {
   // A 1.4.5 daemon's file has no core block: it is not a 1.4.6 discovery document.
   assert.equal(parseDaemonDiscovery(JSON.stringify({ pid: 9, endpoints: { session: { port: 4100, token: 't' } } })), null);
 });
+
+test('a live core that does not answer, or an unreadable record, is unknown, not idle', async () => {
+  const dir = makeTempDirSync('updater-core-unreachable');
+  const discoveryPath = join(dir, 'daemon.json');
+  writeFileSync(
+    discoveryPath,
+    JSON.stringify({
+      pid: process.pid,
+      endpoints: { session: { token: 'secret' } },
+      core: { processStartTime: 't', control: { port: 1 } },
+    })
+  );
+  const gate = createCoreUpdateGate({ control: createCoreControl({ discoveryPath }), waitExit: async () => {} });
+  await assert.rejects(gate.running());
+  await assert.rejects(gate.stop({ abort: false }));
+  writeFileSync(discoveryPath, '{not json');
+  await assert.rejects(gate.running());
+});
+
+test('a valid legacy record whose process is gone is no core; a live, unjudgeable or malformed one is unknown', async () => {
+  const path = join(makeTempDirSync('updater-core-legacy'), 'daemon.json');
+  const control = createCoreControl({ discoveryPath: path });
+  const legacy = (pid) => JSON.stringify({ protocol: 1, pid, endpoints: { session: { port: 7, token: 't' } } });
+  writeFileSync(path, legacy(2147483646));
+  assert.equal(await control.status(), null);
+  writeFileSync(path, legacy(process.pid));
+  await assert.rejects(control.status());
+  writeFileSync(path, legacy(4294967296));
+  await assert.rejects(control.status());
+  writeFileSync(path, JSON.stringify({ pid: 2147483646 }));
+  await assert.rejects(control.status());
+  writeFileSync(path, '{nope');
+  await assert.rejects(control.status());
+});

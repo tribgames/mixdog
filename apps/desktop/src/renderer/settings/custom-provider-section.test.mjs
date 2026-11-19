@@ -595,7 +595,7 @@ test('environment variable mode: control, hints, contract-shaped input and inval
   found = false;
   await type(field('API key environment variable'), 'GROQ_KEY');
   await settle();
-  assert.equal(hint().textContent, 'GROQ_KEY was not found yet. If you just set it, restart Mixdog to apply it.');
+  assert.equal(hint().textContent, 'GROQ_KEY was not found yet. If you just set it, restart the app to apply it.');
   assert.ok(hint().classList.contains('warn'));
 
   await click(button('Test connection'));

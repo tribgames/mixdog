@@ -64,7 +64,7 @@ export const SETTINGS_ITEMS = [
   // decision — automatic platform selection is the only sensible desktop
   // default; the shared config key remains editable from the TUI).
   { value: 'developer', label: 'Developer options', description: 'Developer-only options.', kind: 'open' },
-  { value: 'update', label: 'Update', description: 'Check version and update mixdog.', kind: 'open' },
+  { value: 'update', label: 'Update', description: 'Check version and update Mixdog.', kind: 'open' },
   // Desktop-only: lets the getting-started guide deep-link to remote pairing.
   {
     value: 'connection',

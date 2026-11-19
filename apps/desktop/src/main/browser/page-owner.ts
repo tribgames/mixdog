@@ -7,6 +7,7 @@ export function createBrowserPageOwner(host: {
   sessions: BrowserSessionRegistry;
   create(): { window: BaseWindow; guest: WebContents };
   initialize(guest: WebContents): void;
+  adoptPage(guest: WebContents, pageId: string): void;
   /** Work still running against the page; tidying it away waits for it. */
   busy?(sessionId: string, guest: WebContents): boolean;
 }) {
@@ -19,11 +20,13 @@ export function createBrowserPageOwner(host: {
   // agent command needed one) that no person has taken since.
   const implicitBlanks = new Map<string, WebContents>();
 
-  async function ensure(sessionId: string): Promise<WebContents> {
+  /** `pageId`: the tab id the page takes, when it recreates an unloaded one. */
+  async function ensure(sessionId: string, pageId?: string): Promise<WebContents> {
     let entry = pages.get(sessionId);
     if (!entry || entry.window.isDestroyed()) {
       const replacing = vacated.delete(sessionId) || entry !== undefined;
       const { window, guest } = host.create();
+      if (pageId) host.adoptPage(guest, pageId);
       if (replacing) replacements.set(sessionId, guest);
       host.sessions.registerVisibleGuest(guest);
       host.sessions.bindVisibleGuest(sessionId, guest.id, true);
@@ -113,10 +116,16 @@ export function createBrowserPageOwner(host: {
     return true;
   }
 
+  /** Whether `guest` is the initial blank page the host made on its own and no
+   *  person has taken: nothing of the user's is lost when it is not restored. */
+  function isStandIn(sessionId: string, guest: WebContents): boolean {
+    return implicitBlanks.get(sessionId) === guest;
+  }
+
   /** The page the host made to stand in for a closed one, if it is still there. */
   function replacement(sessionId: string): WebContents | null {
     return replacements.get(sessionId) ?? null;
   }
 
-  return { ensure, settled, release, dispose, replacement, claim, discardUntouchedBlank };
+  return { ensure, settled, release, dispose, replacement, claim, discardUntouchedBlank, isStandIn };
 }

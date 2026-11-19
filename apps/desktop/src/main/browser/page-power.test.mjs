@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { createBrowserPagePower, reclaimIdleUserSessions } from './page-power.ts';
 import { BrowserSessionRegistry } from './session-registry.ts';
-import { BACKGROUND_PAGE_IDLE_MS, USER_PAGE_IDLE_MS } from './tab-policy.ts';
+import { BACKGROUND_PAGE_IDLE_MS, IDLE_RELEASE_MS } from './tab-policy.ts';
 
 function guest(id) {
   return {
@@ -63,73 +63,113 @@ test('an agent command unthrottles a hidden page for its duration only', () => {
   assert.deepEqual(page.log.slice(5), ['throttle:true', 'stop']);
 });
 
-test('idle user sessions unload; displayed, driven, busy, kept-alive and edited ones do not', () => {
+
+function harness(options = {}) {
   const sessions = new BrowserSessionRegistry();
   const displayed = new Set();
   const power = createBrowserPagePower({ isDisplayed: (g) => displayed.has(g) });
   const origin = Date.now();
-  const make = (sessionId, id) => {
-    const page = guest(id);
-    sessions.registerVisibleGuest(page);
-    sessions.bindVisibleGuest(sessionId, id, true);
-    power.track(page);
-    return page;
-  };
-  make('idle', 1);
-  const shown = make('shown', 2);
-  const driven = make('driven', 3);
-  make('kept', 4);
-  make('busy', 5);
-  const edited = make('edited', 8);
-  displayed.add(shown);
-  power.drive(driven);
-  sessions.setBackgroundPage('kept', 'tab', {
-    window: {},
-    guest: guest(6),
-    lastUsedAt: origin,
-    kind: 'user',
-    keepAlive: true,
-  });
-  sessions.setBackgroundPage('busy', 'work', { window: {}, guest: guest(7), lastUsedAt: origin, kind: 'agent' });
   const unloaded = [];
+  const held = new Set();
+  const downloading = new Set();
+  const page = (sessionId, id) => {
+    const g = guest(id);
+    sessions.registerVisibleGuest(g);
+    sessions.bindVisibleGuest(sessionId, id, true);
+    power.track(g);
+    return g;
+  };
+  const background = (sessionId, name, id, extra = {}) => {
+    const g = guest(id);
+    power.track(g);
+    sessions.setBackgroundPage(sessionId, name, { window: {}, guest: g, lastUsedAt: origin, kind: 'agent', ...extra });
+    return g;
+  };
   const run = (now) =>
     reclaimIdleUserSessions({
       sessions,
       power,
-      isBackgroundBusy: (sessionId, name) => sessionId === 'busy' && name === 'work',
-      holdsUserInput: (page) => page === edited,
+      isBackgroundBusy: options.busy ?? (() => false),
+      holdsPage: (g) => held.has(g),
+      downloading: (sessionId) => downloading.has(sessionId),
       unload: (sessionId) => unloaded.push(sessionId),
       now,
     });
-  run(origin + USER_PAGE_IDLE_MS - 1_000);
-  assert.deepEqual(unloaded, [], 'not idle long enough');
-  run(origin + USER_PAGE_IDLE_MS + 60_000);
-  assert.deepEqual(unloaded, ['idle']);
+  return { sessions, power, displayed, origin, unloaded, held, downloading, page, background, run };
+}
+
+test('every page of a live turn waits 30 minutes; once the turn ended all wait 5', () => {
+  const h = harness();
+  h.page('live', 1);
+  h.background('live', 'tab', 2, { kind: 'user' });
+  h.page('over', 3);
+  h.background('over', 'tab', 4, { kind: 'popup' });
+  h.sessions.beginTurn('live', 1);
+  h.sessions.beginTurn('over', 1);
+  h.sessions.finishTurn('over', 1, h.origin - 60_000);
+  h.run(h.origin + IDLE_RELEASE_MS + 1_000);
+  assert.deepEqual(h.unloaded, ['over']);
+  h.run(h.origin + BACKGROUND_PAGE_IDLE_MS - 1_000);
+  assert.equal(h.unloaded.includes('live'), false, 'a live turn keeps its pages');
+  h.run(h.origin + BACKGROUND_PAGE_IDLE_MS + 1_000);
+  assert.equal(h.unloaded.includes('live'), true);
 });
 
-test('a session holding an agent page waits for the agent idle threshold', () => {
-  const sessions = new BrowserSessionRegistry();
-  const power = createBrowserPagePower({ isDisplayed: () => false });
-  const origin = Date.now();
+test('a turn that only just ended is counted from its end', () => {
+  const h = harness();
+  h.page('s', 1);
+  h.sessions.beginTurn('s', 1);
+  const finishedAt = h.origin + 10 * 60_000;
+  h.sessions.finishTurn('s', 1, finishedAt);
+  h.run(finishedAt + 60_000);
+  assert.deepEqual(h.unloaded, []);
+  h.run(finishedAt + IDLE_RELEASE_MS + 1_000);
+  assert.deepEqual(h.unloaded, ['s']);
+});
+
+test('a kept page unloads with its session like any other', () => {
+  const h = harness();
+  h.background('s', 'kept', 1, { keepAlive: true });
+  h.run(h.origin + IDLE_RELEASE_MS + 1_000);
+  assert.deepEqual(h.unloaded, ['s']);
+});
+
+test('displayed, driven, busy and held sessions stay loaded; an idle one unloads', () => {
+  const h = harness({ busy: (sessionId, name) => sessionId === 'busy' && name === 'work' });
+  h.page('idle', 1);
+  h.displayed.add(h.page('shown', 2));
+  h.power.drive(h.page('driven', 3));
+  h.page('busy', 5);
+  h.background('busy', 'work', 7);
+  h.held.add(h.page('typed', 8));
+  h.page('download', 9);
+  h.downloading.add('download');
+  h.run(h.origin + IDLE_RELEASE_MS - 1_000);
+  assert.deepEqual(h.unloaded, [], 'not idle long enough');
+  h.run(h.origin + IDLE_RELEASE_MS + 60_000);
+  assert.deepEqual(h.unloaded, ['idle']);
+});
+
+test('a popup that depends on its live opener keeps the session loaded', () => {
+  const h = harness();
+  const opener = h.page('s', 1);
+  const popup = guest(2);
+  h.power.track(popup);
+  h.sessions.setBackgroundPage('s', 'popup-1', { window: {}, guest: popup, lastUsedAt: h.origin, kind: 'popup', opener });
+  h.run(h.origin + IDLE_RELEASE_MS + 60_000);
+  assert.deepEqual(h.unloaded, []);
+  opener.isDestroyed = () => true;
+  h.run(h.origin + IDLE_RELEASE_MS + 60_000);
+  assert.deepEqual(h.unloaded, ['s']);
+});
+
+test('driven is reported apart from display', () => {
+  const power = createBrowserPagePower({ isDisplayed: () => true });
   const page = guest(1);
-  sessions.registerVisibleGuest(page);
-  sessions.bindVisibleGuest('mixed', 1, true);
   power.track(page);
-  const agentPage = guest(2);
-  power.track(agentPage);
-  sessions.setBackgroundPage('mixed', 'research', { window: {}, guest: agentPage, lastUsedAt: origin, kind: 'agent' });
-  const unloaded = [];
-  const run = (now) =>
-    reclaimIdleUserSessions({
-      sessions,
-      power,
-      isBackgroundBusy: () => false,
-      holdsUserInput: () => false,
-      unload: (sessionId) => unloaded.push(sessionId),
-      now,
-    });
-  run(origin + USER_PAGE_IDLE_MS + 60_000);
-  assert.deepEqual(unloaded, [], 'the agent page is still within its idle window');
-  run(origin + BACKGROUND_PAGE_IDLE_MS + 60_000);
-  assert.deepEqual(unloaded, ['mixed']);
+  assert.equal(power.isDriven(page), false);
+  const release = power.drive(page);
+  assert.equal(power.isDriven(page), true);
+  release();
+  assert.equal(power.isDriven(page), false);
 });

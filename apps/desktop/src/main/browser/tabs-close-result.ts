@@ -12,6 +12,8 @@ import type { DesktopBrowserTab, DesktopBrowserTabControlResult } from '../../sh
 export interface SessionTabStrip {
   list(sessionId: string): DesktopBrowserTab[];
   select(sessionId: string, tabId: string, follow?: SessionTabFollow): void;
+  /** Brings back the pages of a session unloaded for being idle (a no-op for any other). */
+  restore?(sessionId: string): Promise<void>;
   /** `requestId`: the request (an agent's URL open) that asked for this tab. */
   create(sessionId: string, requestId?: string): void;
   close(sessionId: string, tabId: string): void;
@@ -43,7 +45,11 @@ export async function controlSessionTab(
 ): Promise<DesktopBrowserTabControlResult | void> {
   if (!tabs) throw new Error('Browser tabs are unavailable.');
   if (control.type === 'new-tab') tabs.create(sessionId, control.requestId);
-  else if (control.type === 'select-tab') tabs.select(sessionId, control.tabId, control.follow);
+  else if (control.type === 'select-tab') {
+    // A tab of an unloaded session is selected under the id it always had.
+    await tabs.restore?.(sessionId);
+    tabs.select(sessionId, control.tabId, control.follow);
+  }
   else return closeSessionTab(tabs, sessionId, control.tabId);
 }
 

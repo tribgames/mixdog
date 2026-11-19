@@ -243,10 +243,10 @@ test('an automatic import with the saved key imports without ever allowing eleva
   const automatic = w.calls().at(-1);
   assert.deepEqual(flagsOf(automatic), ['--v20-key-stdin', '--no-elevation']);
   assert.equal(elevations(w.calls()), 1);
-  const state = await w.service.cookieAutoImportState.read();
-  assert.equal(state.lastCount, 1);
-  assert.equal(typeof state.lastImportAt, 'number');
-  assert.equal(state.needsManualImport, undefined);
+  const status = (await w.service.cookieAutoImportState.read()).profileStatus.Default;
+  assert.equal(status.lastCount, 1);
+  assert.equal(typeof status.lastImportAt, 'number');
+  assert.equal(status.needsManualImport, undefined);
 });
 
 test('an automatic import with no saved key never elevates and records that one manual import is needed', {
@@ -258,11 +258,12 @@ test('an automatic import with no saved key never elevates and records that one 
   const [call] = w.calls();
   assert.deepEqual(flagsOf(call), ['--no-elevation']);
   assert.equal(call.elevated, false);
-  assert.equal((await w.service.cookieAutoImportState.read()).needsManualImport, true);
+  const statusOf = async () => (await w.service.cookieAutoImportState.read()).profileStatus.Default;
+  assert.equal((await statusOf()).needsManualImport, true);
   assert.equal(w.set.length, 0, 'nothing was imported');
   // The manual import the user then does saves the key and clears the flag.
   await w.manual();
-  assert.equal((await w.service.cookieAutoImportState.read()).needsManualImport, undefined);
+  assert.equal((await statusOf()).needsManualImport, undefined);
   assert.deepEqual(await w.service.runAutomaticCookieImport('Default'), { state: 'imported', count: 1 });
 });
 
@@ -294,7 +295,7 @@ test('only an import that left a key saved marks its profile ready; a successful
   const result = await keyless.manual();
   assert.deepEqual(result.errors, {}, 'the import itself worked');
   const state = await keyless.service.cookieAutoImportState.read();
-  assert.equal(typeof state.lastImportAt, 'number');
+  assert.equal(typeof state.profileStatus.Default.lastImportAt, 'number');
   assert.equal(state.readyProfiles, undefined, 'a bare timestamp is no evidence of a key');
 });
 
@@ -350,7 +351,7 @@ test('a saved key the importer rejects is discarded: automatic stops, manual fal
   assert.deepEqual(flagsOf(automatic[0]), ['--v20-key-stdin', '--no-elevation']);
   assert.equal(elevations(w.calls()), 1, 'rejection never prompts');
   assert.equal(existsSync(w.keyFile), false);
-  assert.equal((await w.service.cookieAutoImportState.read()).needsManualImport, true);
+  assert.equal((await w.service.cookieAutoImportState.read()).profileStatus.Default.needsManualImport, true);
 
   // Reinstate a key that will be rejected, then import by hand.
   w.setScenario({ validKey: VALID_KEY });
@@ -459,16 +460,20 @@ test('a failed automatic import is recorded without secrets and does not claim "
   assert.equal(outcome.state, 'failed');
   assert.match(outcome.error, /no longer available/);
   const state = await w.service.cookieAutoImportState.read();
-  assert.equal(state.lastError, outcome.error);
-  assert.equal(state.needsManualImport, undefined);
+  assert.equal(state.profileStatus.Gone.lastError, outcome.error);
+  assert.equal(state.profileStatus.Gone.needsManualImport, undefined);
   assert.equal(w.calls().length, 0, 'the importer is not run for an unknown profile');
 });
 
-test('an automatic run is skipped while a manual import is in progress', { skip: !isWindows }, async (t) => {
+test('an automatic run waits for a manual cookie import in progress, then runs after it', { skip: !isWindows }, async (t) => {
   const w = world(t);
   const running = w.manual();
-  assert.deepEqual(await w.service.runAutomaticCookieImport('Default'), { state: 'skipped', reason: 'busy' });
-  await running;
+  const automatic = w.service.runAutomaticCookieImport('Default');
+  const manualResult = await running;
+  assert.deepEqual(manualResult.errors, {});
+  assert.equal(w.calls().length, 1, 'the automatic run had not started when the manual import finished');
+  assert.deepEqual(await automatic, { state: 'imported', count: 1 });
+  assert.equal(w.calls().length, 2);
 });
 
 test('an importer built before key reuse keeps the old behaviour for manual imports and cannot run unattended', {

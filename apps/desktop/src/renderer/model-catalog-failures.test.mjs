@@ -24,7 +24,7 @@ i18n.addResourceBundle(
 );
 
 const AUTH_FAILED = '프로바이더 인증에 실패했습니다';
-const CHECK_KEY = '로그인 상태나 API 키를 확인한 뒤 다시 시도해 주세요.';
+const CHECK_KEY = '로그인 상태나 API 키를 확인한 뒤 다시 시도하세요.';
 
 const setup = {
   api: [

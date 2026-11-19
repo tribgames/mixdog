@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
 
-import { BrowserGuestStateStore } from '../../browser/host-state.ts';
+import { BrowserGuestStateStore, browserDocumentId } from '../../browser/host-state.ts';
 import { bindGuestState, createPageFacts } from './facts.ts';
 
 const SECRET = 'hunter2hunter2hunter2';
@@ -47,7 +47,7 @@ test('facts describe the page and carry the current seq', () => {
   const facts = publisher.facts(guest);
   assert.equal(facts.pageId, 'p1');
   assert.equal(facts.seq, 0);
-  assert.equal(facts.documentId, 'p1:0');
+  assert.equal(facts.documentId, browserDocumentId(state, guest));
   assert.equal(facts.url, 'https://a.example/');
   assert.deepEqual([facts.alive, facts.crashed, facts.visible, facts.background], [true, false, true, false]);
   assert.deepEqual(facts.openedPopups, ['popup-1']);
@@ -55,29 +55,34 @@ test('facts describe the page and carry the current seq', () => {
 
 test('a document change sends facts after the queued events, with the next seq', () => {
   const { guest, state, log, publisher } = harness();
-  publisher.facts(guest);
+  const before = state.for(guest).documentGeneration;
   state.beginDocument(guest);
   assert.equal(log.length, 2);
   assert.deepEqual(log[0], { flush: 'p1' });
   assert.equal(log[1].method, 'host/browser/page/facts');
   assert.equal(log[1].params.seq, 1);
   assert.equal(log[1].params.facts.seq, 1);
-  assert.equal(log[1].params.facts.documentId, 'p1:1');
+  assert.ok(state.for(guest).documentGeneration > before, 'issued numbers only grow');
+  assert.equal(log[1].params.facts.documentId, browserDocumentId(state, guest));
 });
 
 test('an in-document navigation changes the document id and keeps the load id', () => {
   const { guest, state, log, publisher } = harness();
   publisher.facts(guest);
+  const loadBefore = state.for(guest).loadGeneration;
   state.beginDocument(guest, true);
+  const afterSame = state.for(guest).documentGeneration;
   state.beginDocument(guest, false);
   const sent = log.filter((entry) => entry.method).map((entry) => entry.params.facts);
+  assert.equal(sent.length, 2);
   assert.deepEqual(
     sent.map((facts) => [facts.documentId, facts.loadId]),
     [
-      ['p1:1', 'p1:0'],
-      ['p1:2', 'p1:1'],
+      [`p1:${afterSame}`, `p1:${loadBefore}`],
+      [browserDocumentId(state, guest), `p1:${state.for(guest).loadGeneration}`],
     ]
   );
+  assert.ok(state.for(guest).loadGeneration > loadBefore);
 });
 
 test('load state, dialog, chooser and crash each send facts; an unchanged page sends none', () => {

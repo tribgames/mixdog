@@ -8,6 +8,7 @@ import { join } from 'node:path';
 
 import { app, BrowserWindow, type Display, screen } from 'electron';
 
+import { tagRendererSurface } from '../../process-memory-diagnostics';
 import { overlayHtml, overlayScript } from './content';
 import type { createComputerOverlayController, ComputerUseOverlayControls } from './controls';
 import { recordCursorDiagnostic } from './cursor-diagnostics';
@@ -72,6 +73,7 @@ export function createOverlayWindows(host: OverlayWindowsHost) {
 
   async function createWindow(display: Display): Promise<BrowserWindow> {
     const next = new BrowserWindow(pillWindowOptions(display));
+    tagRendererSurface(next, 'computer-pill');
     const unregisterInternalWindow = registerComputerUseInternalWindow(next);
     next.setAlwaysOnTop(true, 'screen-saver');
     hardenWindowSurface(next);

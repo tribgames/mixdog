@@ -61,3 +61,12 @@ test('a core row with no stored classification falls back to its folder, as a No
     node.map((summary) => [summary.classification, summary.projectPath])
   );
 });
+
+test('a core row keeps its incoming tail, so an unread pill counts the messages past the cursor', () => {
+  const [kept, none] = summariesOfThreadRows([
+    row('t_home', { readMessageCount: 2, incomingTail: [3, 5, 7, 'x', -1] }),
+    row('t_plain', {}),
+  ]);
+  assert.deepEqual(kept.incomingTail, [3, 5, 7]);
+  assert.equal('incomingTail' in none, false);
+});

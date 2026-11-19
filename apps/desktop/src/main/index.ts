@@ -19,6 +19,7 @@ import {
   screen,
   session,
   shell,
+  webContents,
 } from 'electron';
 
 import { isSessionId } from './desktop-state';
@@ -86,7 +87,9 @@ import type { RemoteHostWindows } from './remote-host-windows';
 import { attachWindowIdleReclaim, purgeRendererMemory, type IdleReclaim } from './idle-reclaim';
 import { watchCrashHandler } from './crash-handler-watch';
 import { setPageFaultDiagnosticSink } from './browser/page-fault-diagnostics';
+import { browserPageWindow } from './browser/page-window';
 import { createDesktopDiagnostics, type DesktopDiagnostics } from './desktop-diagnostics';
+import { sampleProcessMemory, tagRendererSurface } from './process-memory-diagnostics';
 import { scheduleDeferredDesktopServices as scheduleAfterServiceQuiet } from './deferred-desktop-services';
 import { installViewportGuard } from './viewport-guard';
 import { computerUseOperates, createUserInputReporter, type UserInputReporter } from './user-input-report';
@@ -1335,22 +1338,14 @@ let gpuFallbackScheduled = softwareRenderingThisLaunch;
 let gpuFallbackPromptOpen = false;
 
 function currentProcessMemory() {
-  try {
-    return app
-      .getAppMetrics()
-      .slice(0, 32)
-      .map((metric) => ({
-        pid: metric.pid,
-        type: metric.type,
-        name: metric.name,
-        serviceName: metric.serviceName,
-        workingSetKb: metric.memory.workingSetSize,
-        peakWorkingSetKb: metric.memory.peakWorkingSetSize,
-        privateKb: metric.memory.privateBytes,
-      }));
-  } catch {
-    return [];
-  }
+  return sampleProcessMemory({
+    getAppMetrics: () => app.getAppMetrics(),
+    getAllWebContents: () => webContents.getAllWebContents(),
+    browserPageWindow,
+    ownerWindow: (contents) => BrowserWindow.fromWebContents(contents),
+    connectionIdFor: (id) => windowRoutes.connectionIdFor(id),
+    localConnectionId: LOCAL_CONNECTION_ID,
+  });
 }
 
 /** Working set of the renderer processes only, for the idle-reclaim record. */
@@ -2026,7 +2021,7 @@ function installRendererCrashRecovery(window: BrowserWindow, reloadRenderer: () 
       exitCode: details.exitCode,
       exitText: displayExitCode(details.exitCode),
       recovery: recovery.action,
-      processes: currentProcessMemory(),
+      ...currentProcessMemory(),
       systemMemory: currentSystemMemory(),
       crashReporterStatus,
     });
@@ -2222,6 +2217,7 @@ function createDesktopPetController(): DesktopPet {
           backgroundThrottling: false,
         },
       });
+      tagRendererSurface(window, 'desktop-pet');
       window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
       window.webContents.on('will-navigate', (event) => event.preventDefault());
       return window as unknown as PetWindow;
@@ -2768,7 +2764,7 @@ function installRendererLoadDiagnostics(
   });
 
   window.on('unresponsive', () => {
-    diagnostics?.write('renderer-unresponsive', { processes: currentProcessMemory() });
+    diagnostics?.write('renderer-unresponsive', currentProcessMemory());
   });
   window.on('responsive', () => {
     diagnostics?.write('renderer-responsive');
@@ -2899,11 +2895,13 @@ function watchPowerAndNetwork(): void {
   diagnosticsMemoryTimer = setInterval(
     () => {
       diagnostics?.write('process-memory', {
-        processes: currentProcessMemory(),
+        ...currentProcessMemory(),
+        browserPages: browserHost?.pageRetention() ?? [],
         systemMemory: currentSystemMemory(),
       });
     },
-    5 * 60 * 1000
+    // MIXDOG_MEMORY_SAMPLE_MS shortens the period for a development run that attributes memory.
+    Math.max(2_000, Number(process.env.MIXDOG_MEMORY_SAMPLE_MS) || 5 * 60 * 1000)
   );
   diagnosticsMemoryTimer.unref();
 }

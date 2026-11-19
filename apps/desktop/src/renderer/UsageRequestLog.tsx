@@ -282,7 +282,7 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
               const background = row.backgroundKind ? internalKindLabel(String(row.backgroundKind)) : '';
               const suffix = [role, background].filter(Boolean).join(' · ');
               const internalHint = t(
-                'Internal session: a background run Mixdog started itself. You cannot open it as a conversation.'
+                'Internal session: a background run the app started itself. You cannot open it as a conversation.'
               );
               const time = requestTime(statsNumber(row.ts), today);
               return (

@@ -326,7 +326,7 @@ test('a request of an internal session shows its kind and an Internal tag, a ses
     assert.equal(session(row).textContent, `${t('Internal')}${t(kind)}`, 'the kind, never the prompt-derived title');
     assert.ok(
       session(row).title.includes(
-        t('Internal session: a background run Mixdog started itself. You cannot open it as a conversation.')
+        t('Internal session: a background run the app started itself. You cannot open it as a conversation.')
       )
     );
   });

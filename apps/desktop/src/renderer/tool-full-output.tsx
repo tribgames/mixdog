@@ -147,8 +147,15 @@ function fullToolOutputSessionPrefix(sessionId: string): string {
 
 /** The key a row's read is held under. */
 function fullToolOutputKey(sessionId: string, item: TranscriptItem): string {
-  const itemId = item.id == null ? '' : String(item.id);
+  const itemId = fullReadId(item);
   return `${fullToolOutputSessionPrefix(sessionId)}${JSON.stringify(itemId)}|${toolRowRevision(item)}|${projectedReplayToken(item) ?? ''}`;
+}
+
+/** The id a row's full read is asked under. A grouped card's diff digest belongs to one member (`uiDiffMemberId`), whose id is the
+ *  card's only for the member the card's own id names. */
+function fullReadId(item: TranscriptItem): string {
+  if (uiDiffDigest(item) !== null && typeof item.uiDiffMemberId === 'string') return item.uiDiffMemberId;
+  return item.id == null ? '' : String(item.id);
 }
 
 function projectedReplayToken(item: TranscriptItem): string | undefined {
@@ -252,7 +259,7 @@ export function prefetchToolOutputs(sessionId: string, items: readonly Transcrip
     if (!toolOutputCut(item) || item.id == null || !sessionId) continue;
     const key = fullToolOutputKey(sessionId, item);
     if (!prefetchDue(key) || queued.some((entry) => entry.key === key)) continue;
-    queued.push({ key, sessionId, id: String(item.id), owner, replayToken: projectedReplayToken(item) });
+    queued.push({ key, sessionId, id: fullReadId(item), owner, replayToken: projectedReplayToken(item) });
   }
   pumpPrefetches();
 }
@@ -290,6 +297,8 @@ export interface FullToolOutput {
   item: TranscriptItem;
   /** The output was cut: the "Show full output" button is offered. */
   outputCut: boolean;
+  /** The row still holds the cut copy: nothing it shows may stand in for the whole text (Copy waits for load). */
+  copyPending: boolean;
   loading: boolean;
   failed: boolean;
   /** Reads the full text from the host; null when nothing is cut or loadable. */
@@ -305,7 +314,9 @@ export interface FullToolOutput {
 export function useFullToolOutput(sessionId: string, item: TranscriptItem, wanted: boolean): FullToolOutput {
   const outputCut = toolOutputCut(item);
   const diffCut = uiDiffDigest(item) !== null;
-  const id = item.id == null ? '' : String(item.id);
+  const id = fullReadId(item);
+  // Read by a member's id, the answer is that member's: only its diff belongs to this card.
+  const memberRead = item.id != null && id !== String(item.id);
   const key = fullToolOutputKey(sessionId, item);
   const subscribe = useCallback((listener: () => void) => subscribeKey(key, listener), [key]);
   const state = useSyncExternalStore(
@@ -327,11 +338,11 @@ export function useFullToolOutput(sessionId: string, item: TranscriptItem, wante
     } = item as TranscriptItem & { remoteOutputFacts?: unknown };
     return {
       ...rest,
-      ...('result' in loaded ? { result: loaded.result } : {}),
-      ...('rawResult' in loaded ? { rawResult: loaded.rawResult } : {}),
+      ...(!memberRead && 'result' in loaded ? { result: loaded.result } : {}),
+      ...(!memberRead && 'rawResult' in loaded ? { rawResult: loaded.rawResult } : {}),
       ...('uiDiff' in loaded ? { uiDiff: loaded.uiDiff } : {}),
     } as TranscriptItem;
-  }, [item, loaded]);
+  }, [item, loaded, memberRead]);
   const load =
     (outputCut || diffCut) && !loaded && read && sessionId && id
       ? () => {
@@ -368,7 +379,7 @@ export function useFullToolOutput(sessionId: string, item: TranscriptItem, wante
   useEffect(() => {
     if (autoLoad) loadRef.current?.();
   }, [autoLoad, key]);
-  return { item: merged, outputCut, loading: status === 'loading', failed: status === 'failed', load };
+  return { item: merged, outputCut, copyPending: outputCut && !loaded, loading: status === 'loading', failed: status === 'failed', load };
 }
 
 /** "Show full output" under a cut row; "Loading…" while it reads; "Retry"

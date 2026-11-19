@@ -8,12 +8,13 @@ const MAX_BACKGROUND_TABS_PER_SESSION = 6;
 /** Safety net across every session (four sessions at the per-session cap);
  *  a session can only free its own tabs. */
 const MAX_BACKGROUND_TABS_GLOBAL = 24;
-/** Fallback for pages of a live turn nobody has used for this long. */
+/** Every page of a session with a live turn (primary, user, popup, agent) is
+ *  unloaded after this long unused; a session whose turn ended uses IDLE_RELEASE_MS. */
 export const BACKGROUND_PAGE_IDLE_MS = 30 * 60_000;
+/** How long anything that can be brought back is kept once its use has ended. */
+export const IDLE_RELEASE_MS = 5 * 60_000;
 /** A session's agent pages are reclaimed this long after its turn finishes. */
-export const FINISHED_TURN_PAGE_IDLE_MS = 5 * 60_000;
-/** A user page no panel shows is unloaded this soon; reopening restores it. */
-export const USER_PAGE_IDLE_MS = 5 * 60_000;
+export const FINISHED_TURN_PAGE_IDLE_MS = IDLE_RELEASE_MS;
 /** A tab name is a short label shown in the strip and quoted in tool output. */
 const MAX_BACKGROUND_TAB_NAME_CHARS = 64;
 

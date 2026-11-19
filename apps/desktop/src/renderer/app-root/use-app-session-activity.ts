@@ -10,6 +10,7 @@ import { currentVisibleSessionIds } from '../use-visible-sessions';
 import { t } from '../i18n';
 import type { WorkspaceTab } from '../navigation';
 import type { DesktopSessionSummary } from '../../shared/contract';
+import { isIncompleteCatalogError } from '../../shared/session-catalog';
 
 /** Tabs showing a catalog session take its current display title. Only the
  *  sessions with a tab are titled: titling the whole catalog on every
@@ -102,15 +103,26 @@ export function useAppSessionActivity({
   }, [subscribeSessionsRemoved, setTabs, closePaneTab]);
   useEffect(() => {
     let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     // Child pane effects commit first, keeping visible reads ahead of this
     // lightweight catalog reconciliation in the worker queue.
-    void refreshSessions()
-      .catch(() => undefined)
-      .finally(() => {
-        if (live) setSessionCatalogReady(true);
-      });
+    const read = (attempt: number): void => {
+      void refreshSessions().then(
+        () => {
+          if (live) setSessionCatalogReady(true);
+        },
+        (error: unknown) => {
+          if (!live) return;
+          // A host that showed its first page and then failed to finish the list leaves the catalog incomplete: not ready, read again.
+          if (isIncompleteCatalogError(error)) timer = setTimeout(() => read(attempt + 1), Math.min(30_000, 1_000 * 2 ** attempt));
+          else setSessionCatalogReady(true);
+        }
+      );
+    };
+    read(0);
     return () => {
       live = false;
+      clearTimeout(timer);
     };
   }, [refreshSessions, setSessionCatalogReady]);
   return { runningAutomationNames };

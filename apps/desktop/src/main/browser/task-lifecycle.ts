@@ -54,9 +54,13 @@ export function createBrowserTaskLifecycle<Page extends { isDestroyed(): boolean
     }
     return closed;
   }
-  function forget(sessionId: string): void {
-    finished.delete(sessionId);
-    host.turnForgotten?.(sessionId);
+  /** `keepTurn`: the session's pages are only unloaded, and come back with
+   *  their turn state, so a restored session is judged by the turn it had. */
+  function forget(sessionId: string, options: { keepTurn?: boolean } = {}): void {
+    if (!options.keepTurn) {
+      finished.delete(sessionId);
+      host.turnForgotten?.(sessionId);
+    }
     for (const [page, owner] of owned) if (owner.sessionId === sessionId) owned.delete(page);
   }
   return { begin, use, retain, inherit, finish, forget };

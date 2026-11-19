@@ -72,7 +72,7 @@ export function ensureCallHierarchyMenu(): void {
     order: 1.31,
     command: {
       id: FORMAT_DOCUMENT_WITH,
-      title: t('Format Document With...'),
+      title: t('Format Document With…'),
       precondition: multipleFormatters,
     },
     when: multipleFormatters,

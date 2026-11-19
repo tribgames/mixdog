@@ -86,7 +86,7 @@ const bootstrap = harnessInstalled
   const queryVisible = (selector) => Array.from(document.querySelectorAll(selector)).find(visible) || null;
   const currentError = () => text(queryVisible('.inline-error[role="alert"], .mixdog-settings__error[role="alert"], .composer-error'));
   const textarea = () => {
-    const element = document.querySelector('textarea[aria-label="Message Mixdog"]');
+    const element = document.querySelector('textarea[aria-label="Write a message"]');
     if (!(element instanceof HTMLTextAreaElement)) throw new Error('Composer textarea is unavailable.');
     return element;
   };
@@ -461,7 +461,7 @@ const bootstrap = harnessInstalled
   const titlebarRect = titlebarReady.rect;
   await waitFor(() => document.querySelector('#session-sidebar'), 'session sidebar');
   await waitFor(() => document.querySelector('nav.workspace-tabs'), 'workspace tabs');
-  await waitFor(() => document.querySelector('textarea[aria-label="Message Mixdog"]'), 'composer');
+  await waitFor(() => document.querySelector('textarea[aria-label="Write a message"]'), 'composer');
   const openCodeShell = {
     // Tabs reorder via pointer capture (aria-grabbed), not HTML draggable.
     workspaceTab: Boolean(document.querySelector('.workspace-tab')),

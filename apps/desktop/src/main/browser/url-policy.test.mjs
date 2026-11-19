@@ -106,6 +106,7 @@ test('session restoration recreates admitted web pages only, without relaxing na
       restorePolicy
     ).map(({ url }) => url);
   assert.deepEqual(restored(['about:blank', 'https://gamerscroll.com/rankings/']), [
+    'about:blank',
     'https://gamerscroll.com/rankings/',
   ]);
   for (const normalize of [normalizeAgentUrl, normalizePageUrl]) {

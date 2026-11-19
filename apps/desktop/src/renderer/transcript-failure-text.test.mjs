@@ -25,7 +25,7 @@ test('fixed runtime failure sentences are localized and keep their diagnostic co
   assert.equal(localizedTurnFailureReason('Context too large.'), '컨텍스트가 너무 큽니다');
   assert.equal(
     localizedTurnFailureReason('Provider is rate-limited (retry in 90s).'),
-    '프로바이더가 요청을 제한 중 (90s 후 재시도)'
+    '프로바이더가 요청을 제한 중 (90s 후 다시 시도)'
   );
   await i18n.changeLanguage('en');
   assert.equal(

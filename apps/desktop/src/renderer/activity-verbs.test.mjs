@@ -98,7 +98,7 @@ test('the verb pool follows the active language and updates on a switch', async 
     // A server-advised wait keeps its remaining time instead of a bare counter.
     assert.equal(
       reconnectActivityVerb('Rate limited by the provider · retry 1/5 in 210s'),
-      '다시 연결하는 중… 1/5 · 3분 30초 후 재시도'
+      '다시 연결하는 중… 1/5 · 3분 30초 후 다시 시도'
     );
     // The status line repaints once a second with the SAME published verb and
     // wait; the wait is anchored to this clock on first sight and recounted on
@@ -119,17 +119,17 @@ test('the verb pool follows the active language and updates on a switch', async 
           now,
           language,
         });
-      assert.equal(paint(start), '다시 연결하는 중… 1/5 · 3분 30초 후 재시도', `skew ${skew}`);
-      assert.equal(paint(start + 1_000), '다시 연결하는 중… 1/5 · 3분 29초 후 재시도', `skew ${skew}`);
-      assert.equal(paint(start + 150_000), '다시 연결하는 중… 1/5 · 1분 후 재시도', `skew ${skew}`);
-      assert.equal(paint(start + 205_500), '다시 연결하는 중… 1/5 · 5초 후 재시도', `skew ${skew}`);
+      assert.equal(paint(start), '다시 연결하는 중… 1/5 · 3분 30초 후 다시 시도', `skew ${skew}`);
+      assert.equal(paint(start + 1_000), '다시 연결하는 중… 1/5 · 3분 29초 후 다시 시도', `skew ${skew}`);
+      assert.equal(paint(start + 150_000), '다시 연결하는 중… 1/5 · 1분 후 다시 시도', `skew ${skew}`);
+      assert.equal(paint(start + 205_500), '다시 연결하는 중… 1/5 · 5초 후 다시 시도', `skew ${skew}`);
       assert.equal(paint(start + 210_001), `${catalog('ko')['Reconnecting…']} 1/5`, `skew ${skew}`);
     }
     // A later publication of the same retry (fresher retryInMs) keeps the anchor.
     const late = (now, retryInMs) =>
       activityVerb({ mode: 'reconnecting', runtimeVerb: published, retryKey: 'late', retryInMs, anchor: 1, now });
-    assert.equal(late(100_000, 60_000), '다시 연결하는 중… 1/5 · 1분 후 재시도');
-    assert.equal(late(101_000, 59_000), '다시 연결하는 중… 1/5 · 59초 후 재시도');
+    assert.equal(late(100_000, 60_000), '다시 연결하는 중… 1/5 · 1분 후 다시 시도');
+    assert.equal(late(101_000, 59_000), '다시 연결하는 중… 1/5 · 59초 후 다시 시도');
     await i18n.changeLanguage('en');
     const english = (now) =>
       activityVerb({

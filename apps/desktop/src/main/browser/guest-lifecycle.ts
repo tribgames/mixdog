@@ -152,6 +152,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     sessions,
     create: createPage,
     initialize: guests.initializeGuest,
+    adoptPage: (guest, pageId) => state.adoptPage(guest, pageId),
     // A pending page dialog or file chooser, or running work, defers tidying.
     busy: (sessionId, guest) => {
       const record = state.peek(guest);
@@ -162,9 +163,19 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
   const sessionRestore = createBrowserSessionRestore({
     sessions,
     urlPolicy,
-    ensurePrimaryPage: (sessionId) => primaryPages.ensure(sessionId),
+    ensurePrimaryPage: (sessionId, pageId) => primaryPages.ensure(sessionId, pageId),
+    claimPage: (sessionId, guest) => primaryPages.claim(sessionId, guest),
+    pageId: (guest) => state.pageId(guest),
+    discardPage: (sessionId, guest) => {
+      for (const [name, entry] of sessions.backgroundPages(sessionId)) {
+        if (entry.guest === guest) backgroundPages.close(sessionId, name, entry);
+      }
+      if (sessions.visibleGuests(sessionId).includes(guest)) primaryPages.release(sessionId);
+    },
+    isStandIn: (sessionId, guest) => primaryPages.isStandIn(sessionId, guest),
     admitBackgroundPages: (sessionId, adding) => backgroundPages.admit(sessionId, adding),
-    restoreBackgroundPage: (sessionId, name, kind) => backgroundPages.restorePage(sessionId, name, kind),
+    restoreBackgroundPage: (sessionId, name, kind, pageId) =>
+      backgroundPages.restorePage(sessionId, name, kind, pageId),
     closeSessionPages: (sessionId) => {
       sessions.clearAgentPage(sessionId);
       // The shell hears of a release on its own (browserSessionReleased); an

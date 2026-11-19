@@ -643,7 +643,7 @@ function ActiveConnectionPanel({ api }: { api: ConnectionPanelApi }) {
     const remoteServer = (window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer;
     const note = renderConnectionNote(
       remoteServer
-        ? t('Connected through {{server}}. To add devices, go to Settings > Connection on your PC.', {
+        ? t('Connected through {{server}}. To add devices, go to Settings → Connection on your PC.', {
             server: remoteServer,
           })
         : t(RELAY_CONNECTING_MESSAGE)

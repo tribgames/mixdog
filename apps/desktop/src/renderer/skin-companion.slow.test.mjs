@@ -2243,8 +2243,13 @@ test('Settings → Bots: a pointer choice of Position does not pull focus to the
 
 test('Settings → Bots: focus that moved elsewhere during the write is left alone', async (t) => {
   const { document, position, release, settle } = await keyboardSelectPosition(t);
-  const other = optionSwitch(document, 'Collapse bubble');
+  // One overlay write in flight disables every overlay control (settings/desktop-pet-toggle), so the user's focus
+  // goes to a control of another group, which stays enabled.
+  assert.equal(optionSwitch(document, 'Collapse bubble').disabled, true, 'the overlay controls wait for the write');
+  const other = document.querySelector('input[type="checkbox"]:not(:disabled)');
+  assert.ok(other, 'a control outside the overlay group stays enabled');
   other.focus();
+  assert.equal(document.activeElement, other);
   await release();
   await settle();
   assert.equal(position().disabled, false);

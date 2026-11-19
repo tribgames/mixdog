@@ -89,6 +89,12 @@ export class BrowserSessionRegistry {
     return this.turnBySession.get(sessionId)?.finishedAt;
   }
 
+  /** Whether a turn of the session has started and not finished. */
+  turnLive(sessionId: string): boolean {
+    const current = this.turnBySession.get(sessionId);
+    return current !== undefined && current.finishedAt === undefined;
+  }
+
   /** `turn` is the turn that finished (older turns of the session are over too). */
   onTurnFinished(listener: (sessionId: string, turn: number) => void): void {
     this.turnFinishedListeners.add(listener);

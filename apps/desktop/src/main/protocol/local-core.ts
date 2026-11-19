@@ -298,7 +298,8 @@ export async function requestCoreStop({
       const ctl = spawnImpl(bin, ['ctl', 'stop', '--force', '--reason', 'userStop', '--json'], {
         stdio: ['ignore', 'ignore', 'pipe'],
         windowsHide: true,
-        ...(env ? { env } : {}),
+        // The ctl finds the core by the same runtime root the app selected.
+        env: { ...(env ?? process.env), MIXDOG_RUNTIME_ROOT: runtimeRoot },
       });
       ctl.stderr?.on('data', (chunk: Buffer | string) => {
         if (stderr.length < 2_000) stderr += String(chunk);
@@ -357,7 +358,8 @@ export function resolveLocalCore({
             bin: typeof bin === 'function' ? bin() : bin,
             detached: false,
             desktopConfirmationPipe,
-            ...(env ? { env: env() } : {}),
+            // The root this app selected and watches (it may be the live legacy tmp/mixdog): the core would otherwise default to tmp/mixdog-<uid>.
+            env: { ...(env ? env() : process.env), MIXDOG_RUNTIME_ROOT: runtimeRoot },
             spawnImpl: ((...args: Parameters<typeof spawn>) => {
               const child = spawnImpl(...args);
               onLaunched?.(child);

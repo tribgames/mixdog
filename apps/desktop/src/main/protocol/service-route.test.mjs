@@ -1268,6 +1268,24 @@ test('searchProjectFiles starts a consumer once per root and only re-queries aft
   );
 });
 
+test('searchProjectFiles stops the consumer session before it starts one on another root, and starts again when the core dropped it', async () => {
+  let dropped = false;
+  const { calls, service } = lane(async (method) => {
+    if (method === 'search/update' && dropped) {
+      dropped = false;
+      throw new Error('Search session is not open.');
+    }
+    return {};
+  });
+  await service.call('searchProjectFiles', ['/p', 'a', 50, false, false, 'mention']);
+  await service.call('searchProjectFiles', ['/q', 'a', 50, false, false, 'mention']);
+  dropped = true;
+  await service.call('searchProjectFiles', ['/q', 'ab', 50, false, false, 'mention']);
+  assert.deepEqual(
+    calls.map(({ method }) => method),
+    ['search/start', 'search/update', 'search/stop', 'search/start', 'search/update', 'search/update', 'search/stop', 'search/start', 'search/update']
+  );
+});
 // The core answers `search/update` with nothing: the files come on the search's feed (`search/updated`), and `search/completed`
 // ends the query. Node's method answered the paths, a folder's ending with a slash.
 test('searchProjectFiles answers the files the feed carried for its query when the core completes it', async () => {
@@ -1505,4 +1523,43 @@ test('a thread the client follows without the lane wanting it is released once i
     service.dispose();
   }
   assert.equal(sweeps.length, 0, 'dispose cancels the sweep');
+});
+
+test('two keystrokes on another root start the consumer session once, after the stop', async () => {
+  const { calls, service } = lane();
+  await service.call('searchProjectFiles', ['/p', 'a', 50, false, false, 'mention']);
+  calls.length = 0;
+  await Promise.all([
+    service.call('searchProjectFiles', ['/q', 'a', 50, false, false, 'mention']),
+    service.call('searchProjectFiles', ['/q', 'ab', 50, false, false, 'mention']),
+  ]);
+  assert.deepEqual(
+    calls.map(({ method }) => method).filter((method) => method !== 'search/update'),
+    ['search/stop', 'search/start']
+  );
+});
+
+test('a delayed rejection of an older query does not restart the session or take the answer of the newest query', async () => {
+  let rejectOld;
+  let updates = 0;
+  let emit;
+  const { calls, service, emit: emitter } = lane(async (method, params) => {
+    if (method === 'search/update' && params.query === 'a') {
+      updates += 1;
+      if (updates === 1) return new Promise((_, reject) => (rejectOld = reject));
+    }
+    if (method === 'search/update' && params.query === 'ab') {
+      emit('search/updated', { sessionId: 'search:mention', query: 'ab', files: [{ path: 'ab.ts', matchType: 'file' }] });
+    }
+    return {};
+  });
+  emit = emitter;
+  const older = service.call('searchProjectFiles', ['/p', 'a', 50, false, false, 'mention']);
+  await new Promise((resolve) => setImmediate(resolve));
+  const newer = service.call('searchProjectFiles', ['/p', 'ab', 50, false, false, 'mention']);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(await newer, ['ab.ts']);
+  rejectOld(new Error('Search session is not open.'));
+  assert.deepEqual(await older, []);
+  assert.deepEqual(calls.map(({ method }) => method).filter((m) => m !== 'search/update'), ['search/start']);
 });

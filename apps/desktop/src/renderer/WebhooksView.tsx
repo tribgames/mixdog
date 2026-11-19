@@ -373,7 +373,7 @@ function WebhookEditor({
               defaultValue={draft.instructions}
               required
               disabled={busy}
-              placeholder={t('What should Mixdog do when this webhook fires?')}
+              placeholder={t('What should happen when this webhook fires?')}
               aria-label={t('Webhook instructions')}
             />
             <AutomationAttachmentChips attachments={attachments} disabled={busy} onChange={setAttachments} />

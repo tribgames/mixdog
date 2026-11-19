@@ -65,6 +65,7 @@ import {
   ToolCode,
   ToolCommand,
   ToolFileList,
+  ToolCopyGateContext,
   ToolPanel,
   ToolSections,
   toolCodeRowsPlain,
@@ -1174,6 +1175,10 @@ function ToolActivityItem({
       : null;
   const panelOpen = open && presentation.hasDetails;
   const { rendered, expanded } = useToolActivityDisclosure(panelOpen);
+  const copyGate = useMemo(
+    () => (fullOutput.copyPending ? { load: fullOutput.load, failed: fullOutput.failed } : null),
+    [fullOutput.copyPending, fullOutput.load, fullOutput.failed]
+  );
 
   return (
     <article
@@ -1182,9 +1187,11 @@ function ToolActivityItem({
       data-expanded={expanded ? 'true' : 'false'}
     >
       {renderToolActivityHeader({ presentation, open, onToggle, contentId, startedAt: toolItemStartedAt(item) })}
-      {rendered &&
-        presentation.hasDetails &&
-        renderToolActivityDetails(presentation, contentId, chosen ? null : keepOpen, openDiff)}
+      <ToolCopyGateContext.Provider value={copyGate}>
+        {rendered &&
+          presentation.hasDetails &&
+          renderToolActivityDetails(presentation, contentId, chosen ? null : keepOpen, openDiff)}
+      </ToolCopyGateContext.Provider>
       {rendered && presentation.hasDetails && <FullToolOutputButton output={fullOutput} />}
     </article>
   );

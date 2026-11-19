@@ -419,7 +419,7 @@ export function StarterGuide({
     {
       id: 'project',
       label: t('Add a project'),
-      hint: t('Add shared instructions and a project folder for Mixdog to work in.'),
+      hint: t('Add shared instructions and a project folder to work in.'),
       doneWhen: t('Done when a project is added or you finish this tour.'),
       icon: viewIcon('projects', GraduationCap),
       // A folder is optional (tasks run without one): finishing the tour

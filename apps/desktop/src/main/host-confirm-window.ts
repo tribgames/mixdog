@@ -3,6 +3,7 @@
 // so the IPC registration graph stays free of Electron values.
 import { BrowserWindow, nativeTheme } from 'electron';
 import { builtPreloadPath } from './browser/preload-path';
+import { tagRendererSurface } from './process-memory-diagnostics';
 
 export const HOST_CONFIRM_WIDTH = 440;
 
@@ -31,6 +32,7 @@ export function openHostConfirmWindow(parent: BrowserWindow): BrowserWindow {
       spellcheck: false,
     },
   });
+  tagRendererSurface(surface, 'host-confirm');
   surface.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   surface.webContents.on('will-navigate', (event) => event.preventDefault());
   return surface;

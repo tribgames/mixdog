@@ -196,12 +196,9 @@ test('project memory opens from one catalog, survives tabs and refreshes all sco
     true
   );
   assert.equal(await page.$eval('.projects-pane', (panel) => panel.getAttribute('data-surface-active')), 'true');
-  // All rows, including a row clicked during warm-up, share this one read.
-  await page
-    .waitForFunction(() => window.fixture?.reads.length === 1, { timeout: 5000 })
-    .catch((error) => {
-      throw new Error(`${error.message}; page errors: ${pageErrors.join('; ')}`);
-    });
+  // The editor is a lazy chunk (first-screen-deferred): nothing is read before a row first loads it, and from then
+  // on every row shares that one read.
+  assert.equal(await page.evaluate(() => window.fixture.reads.length), 0, JSON.stringify(pageErrors));
   const open = async (name) => {
     await page.evaluate((name) => {
       [...document.querySelectorAll('.projects-row')].find((row) => row.textContent.includes(name)).click();

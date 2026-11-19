@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { t } from './i18n';
+import { MxIcon } from './MxIcon';
+import { copyTextToClipboard } from './text-format';
 import type { MarkdownAstRoot } from './markdown-ast';
 import { parseStreamingMarkdownAst, readCachedStreamingMarkdownAst } from './markdown-worker-client';
 import { LocalPathMention } from './MarkdownLink';
@@ -331,6 +334,47 @@ export function ToolFileList({ entries }: { entries: readonly ToolFileEntry[] })
   );
 }
 
+/** Set around a tool row whose output is still the phone's cut copy: what its panels would copy is the preview, not the result. */
+export interface ToolCopyGate {
+  /** Reads the whole output; null when it cannot be read from here. */
+  load: (() => void) | null;
+  failed: boolean;
+}
+export const ToolCopyGateContext = createContext<ToolCopyGate | null>(null);
+
+/** Copy for a panel: whole text only. While the row's output is cut, pressing it asks for the whole output and copies it once it
+ *  arrives (the value then changes to the whole text); it never copies the cut preview. */
+function ToolCopy({ value }: { value: string }) {
+  const gate = useContext(ToolCopyGateContext);
+  const [armed, setArmed] = useState(false);
+  const failed = gate?.failed === true;
+  useEffect(() => {
+    if (!armed || gate) return;
+    setArmed(false);
+    void copyTextToClipboard(value).catch(() => undefined);
+  }, [armed, gate, value]);
+  useEffect(() => {
+    if (failed) setArmed(false);
+  }, [failed]);
+  if (!gate) return <CopyControl className="tool-detail-copy tool-activity-copy" label="Copy" value={value} />;
+  return (
+    <button
+      type="button"
+      className="tool-detail-copy tool-activity-copy"
+      disabled={!gate.load || armed}
+      aria-busy={armed || undefined}
+      aria-label={t('Copy')}
+      data-tooltip={t('Copy')}
+      onClick={() => {
+        setArmed(true);
+        gate.load?.();
+      }}
+    >
+      <MxIcon name="copy" size={14} />
+    </button>
+  );
+}
+
 /** The one surface every expanded tool body sits on: an optional label row, a
  *  height-capped scroll body, and a copy control. */
 export function ToolPanel({
@@ -364,7 +408,7 @@ export function ToolPanel({
       <div className="tool-panel-body" data-scrollable>
         {children}
       </div>
-      {copyValue && <CopyControl className="tool-detail-copy tool-activity-copy" label="Copy" value={copyValue} />}
+      {copyValue && <ToolCopy value={copyValue} />}
     </section>
   );
 }

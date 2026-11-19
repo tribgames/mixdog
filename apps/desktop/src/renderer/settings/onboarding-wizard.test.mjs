@@ -174,7 +174,7 @@ test('the wizard is profile, appearance, providers, Git, and star, and Finish ma
 
 test('the Theme step follows the profile step and applies the picked tile at once', async (t) => {
   await mount(t, { step: 1 });
-  assert.match(document.querySelector('h1').textContent, /Pick how Mixdog looks/);
+  assert.match(document.querySelector('h1').textContent, /Pick how the app looks/);
   assert.equal(
     document.querySelector('.onboarding-progress-bar[title="Theme"]'),
     document.querySelectorAll('.onboarding-progress-bar')[1]

@@ -97,6 +97,26 @@ export type {
   BrowserSnapshotResultOptions,
 } from './command';
 
+/** One live page and the facts the reclaim rules read about it. */
+export interface BrowserPageRetention {
+  /** The owning session's id tail: enough to tell sessions apart in a log. */
+  session: string;
+  webContentsId: number;
+  kind: 'primary' | 'agent' | 'popup' | 'user';
+  shownBy: 'panel' | 'native' | 'remote' | null;
+  /** An agent command is driving it, whether or not something also displays it. */
+  driven: boolean;
+  keepAlive: boolean;
+  /** A person typed into the current document. */
+  typed: boolean;
+  secret: boolean;
+  dialog: boolean;
+  busy: boolean;
+  idleMs: number;
+  /** Since the session's latest turn finished; null while one is live or none is known. */
+  turnFinishedMs: number | null;
+}
+
 export interface BrowserHost {
   browserPageFrame(
     sessionId: string,
@@ -138,6 +158,8 @@ export interface BrowserHost {
     engine: BrowserEnginePorts;
   };
   releaseSession(sessionId: string, options?: { restore?: boolean }): void;
+  /** Every live page with what keeps it loaded, for the memory diagnostics: no URL or title. */
+  pageRetention(now?: number): BrowserPageRetention[];
   /** Takeover `id` starts: the page it hands over (`tab` of the request, else
    *  the agent's page) is fixed now, whatever tabs move later. */
   captureTakeoverPage(sessionId: string, id: string, tab: string): void;
@@ -343,15 +365,25 @@ export function createBrowserHost(
   });
 
   // Pages nobody displays or drives for long are unloaded (URLs kept) and
-  // restore when the panel or an agent command returns — unless a person
-  // entered something there, which only the live document holds.
+  // restore when the panel or an agent command returns — unless something only
+  // the live document holds is in use (see reclaimIdleUserSessions).
   const userReclaimTimer = setInterval(
     () =>
       reclaimIdleUserSessions({
         sessions,
         power: display.power,
         isBackgroundBusy: base.isBackgroundBusy,
-        holdsUserInput: (guest) => state.peek(guest)?.userInput === true,
+        holdsPage: (guest) => {
+          const record = state.peek(guest);
+          return Boolean(
+            record?.typedInput ||
+              record?.pendingDialog ||
+              record?.pendingFileChooser ||
+              record?.sensitiveValues?.size ||
+              guest.isCurrentlyAudible()
+          );
+        },
+        downloading: (sessionId) => base.partition.downloadLedger.hasActiveDownload(sessionId),
         unload: (sessionId) => browserHost.releaseSession(sessionId, { restore: true }),
       }),
     BACKGROUND_RECLAIM_INTERVAL_MS
@@ -421,6 +453,36 @@ export function createBrowserHost(
       sendToRenderer,
       remoteTabs: shown.remoteTabs,
     }),
+    pageRetention: (now = Date.now()) => {
+      const rows: BrowserPageRetention[] = [];
+      for (const sessionId of sessions.sessionIds()) {
+        const finishedAt = sessions.turnFinishedAt(sessionId);
+        const add = (guest: WebContents, kind: BrowserPageRetention['kind'], keepAlive: boolean, busy: boolean) => {
+          if (guest.isDestroyed()) return;
+          const record = state.peek(guest);
+          const shownBy = display.shownBy(guest);
+          rows.push({
+            session: sessionId.slice(-8),
+            webContentsId: guest.id,
+            kind,
+            shownBy,
+            driven: display.power.isDriven(guest),
+            keepAlive,
+            typed: record?.typedInput === true,
+            secret: Boolean(record?.sensitiveValues?.size),
+            dialog: Boolean(record?.pendingDialog || record?.pendingFileChooser),
+            busy,
+            idleMs: now - display.power.lastActiveAt(guest),
+            turnFinishedMs: finishedAt === undefined ? null : now - finishedAt,
+          });
+        };
+        for (const guest of sessions.visibleGuests(sessionId)) add(guest, 'primary', false, false);
+        for (const [name, page] of sessions.backgroundPages(sessionId)) {
+          add(page.guest, page.kind, page.keepAlive === true, base.isBackgroundBusy(sessionId, name));
+        }
+      }
+      return rows;
+    },
     watchNewTab: newTabs.watch,
     remoteWebrtcSignal: async (clientId, signal, iceServers) => {
       if (!webrtc) throw new Error('Remote WebRTC is unavailable.');

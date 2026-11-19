@@ -502,15 +502,20 @@ test('"보기" shows that exact tab without making, keeping or claiming a page',
   ]);
 });
 
-test('a restore drops pages with nothing to come back to instead of showing blanks', () => {
+test('a restore drops the blank stand-in and unadmitted pages but keeps a blank tab a person made', () => {
   const saved = [
-    { kind: 'primary', url: 'about:blank' },
+    { kind: 'primary', url: 'about:blank', standIn: true },
     { kind: 'agent', name: 'a', url: 'https://example.test/a' },
     { kind: 'user', name: 'b', url: '' },
+    { kind: 'user', name: 'd', url: 'about:blank' },
     { kind: 'agent', name: 'c', url: 'http://169.254.169.254/latest' },
   ];
   assert.deepEqual(
     restorablePages(saved, {}).map(({ page, url }) => [page.name ?? page.kind, url]),
-    [['a', 'https://example.test/a']]
+    [
+      ['a', 'https://example.test/a'],
+      ['b', 'about:blank'],
+      ['d', 'about:blank'],
+    ]
   );
 });

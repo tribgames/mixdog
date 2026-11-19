@@ -188,8 +188,16 @@ export function createBrowserBackgroundPages(
 
   /** Recreate a saved page of an unloaded session; its debugger waits for
    *  the restored page's first document. */
-  function restorePage(sessionId: string, name: string, kind: BackgroundPage['kind']): BackgroundPage {
-    return trackBackgroundPage(sessionId, name, pages.create(), kind, undefined, 'restored');
+  function restorePage(
+    sessionId: string,
+    name: string,
+    kind: BackgroundPage['kind'],
+    pageId: string
+  ): BackgroundPage {
+    const page = pages.create();
+    // Before the page is tracked, so nothing is ever published under another id.
+    state.adoptPage(page.guest, pageId);
+    return trackBackgroundPage(sessionId, name, page, kind, undefined, 'restored');
   }
 
   /** Close every background page of one session. */

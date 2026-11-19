@@ -313,31 +313,31 @@ test('a routine result preview reads in the user language, like its transcript n
   assert.equal(preview('🔗 Webhook · deploy-hook — Deployed v2', hook), '🔗 웹훅 · deploy-hook — Deployed v2');
   assert.equal(
     preview('🔗 Webhook · deploy-hook — Failed: 502', { ...hook, status: 'failed', summary: undefined, error: '502' }),
-    '🔗 웹훅 · deploy-hook — 실행 중 문제가 생겼습니다.'
+    '🔗 웹훅 · deploy-hook — 실행 중 문제가 발생했습니다.'
   );
   const daily = { kind: 'schedule', name: 'daily', status: 'ok', summary: 'All green.' };
   assert.equal(preview('⏱ Schedule · daily — All green.', daily), '⏱ 스케줄 · daily — All green.');
   assert.equal(
     preview('x', { kind: 'schedule', name: 'daily', status: 'failed', error: 'Provider down' }),
-    '⏱ 스케줄 · daily — 실행 중 문제가 생겼습니다.'
+    '⏱ 스케줄 · daily — 실행 중 문제가 발생했습니다.'
   );
   assert.equal(
     preview('x', { kind: 'schedule', name: 'daily', status: 'failed' }),
-    '⏱ 스케줄 · daily — 실행 중 문제가 생겼습니다.'
+    '⏱ 스케줄 · daily — 실행 중 문제가 발생했습니다.'
   );
   // Each failure class reads as its short localized reason, never the raw text.
   const failure = (reason, paused) =>
     routineNoticeText({ kind: 'schedule', name: 'daily', status: 'failed', summary: 'raw English', reason, paused });
   assert.equal(
     failure('provider_unavailable'),
-    '⏱ 스케줄 · daily — 모델 또는 프로바이더를 사용할 수 없습니다. 모델 설정에서 다시 고르세요.'
+    '⏱ 스케줄 · daily — 모델 또는 프로바이더를 사용할 수 없습니다. 모델 설정에서 다른 항목을 선택하세요.'
   );
   assert.match(failure('auth_expired'), /로그인이 만료되었습니다/);
   assert.match(failure('rate_limited'), /사용 한도에 도달했습니다/);
   assert.match(failure('network'), /네트워크 연결이 끊겼거나/);
   assert.match(failure('permission_denied'), /권한이 거부되었습니다/);
   assert.match(failure('cancelled'), /실행이 취소되었습니다\./);
-  assert.match(failure('unheard-of'), /실행 중 문제가 생겼습니다\./);
+  assert.match(failure('unheard-of'), /실행 중 문제가 발생했습니다\./);
   assert.match(failure('network', true), /연속 실패로 이 루틴이 꺼졌습니다/);
   assert.doesNotMatch(failure('network'), /raw English/);
   // An expired sign-in reads as the localized sign-in line, never the raw summary.

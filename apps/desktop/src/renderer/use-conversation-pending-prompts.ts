@@ -47,6 +47,8 @@ export function useConversationPendingPrompts({
     transcriptSessionKey,
     promotedOwnDraft,
     settledItems,
+    optimisticPrompts,
+    queued,
     setOptimisticPrompts,
   });
   return { ...steering, settledUsersRef, reviewItems, goalSubmitScopeRef, goalSubmission, goalSubmissionId };

@@ -1316,7 +1316,7 @@ function BranchMenuRow({
       aria-disabled={row.disabled || busy || (locked && switches) || undefined}
       title={
         row.mark === 'external' && row.path
-          ? t('Checked out in a worktree Mixdog does not manage: {{path}}', { path: row.path })
+          ? t('Checked out in an unmanaged worktree: {{path}}', { path: row.path })
           : undefined
       }
       onClick={() => onPick(row)}

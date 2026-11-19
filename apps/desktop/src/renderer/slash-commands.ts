@@ -222,7 +222,13 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
     description: 'Set your title, development experience, and response language',
     settingsRow: 'profile',
   },
-  { name: 'update', usage: '/update', description: 'Check version and update mixdog', settingsRow: 'update' },
+  {
+    name: 'update',
+    usage: '/update',
+    description: 'Check version and update mixdog',
+    desktopDescription: 'Check version and update Mixdog',
+    settingsRow: 'update',
+  },
   {
     name: 'connect',
     usage: '/connect',

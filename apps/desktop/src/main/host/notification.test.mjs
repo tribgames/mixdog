@@ -124,6 +124,7 @@ test('a toast whose show fails is reported and plays no sound; a failing sound l
 
   const mute = build({ playSound: async () => { throw new Error('no audio device'); } });
   mute.show({ title: 'T', body: 'B', threadId: 'a', sound: 'soft-rise' });
+  mute.fire(mute.calls.toasts[0], 'show');
   await new Promise((resolve) => setImmediate(resolve));
   mute.fire(mute.calls.toasts[0], 'click');
   assert.deepEqual(mute.calls.activations, ['a']);
@@ -140,4 +141,15 @@ test('closing a banner reports it and opens nothing; quitting closes the toasts 
   assert.deepEqual(sent, []);
   closeAll();
   assert.equal(calls.toasts[1].closed, 1, 'the toast still showing is closed');
+});
+
+test('the sound plays when the OS shows the toast, once, not when show() returns', async () => {
+  const { show, calls, fire } = build();
+  show({ title: 'T', body: 'B', threadId: 'a', sound: 'soft-rise', volume: 40 });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls.sounds, []);
+  fire(calls.toasts[0], 'show');
+  fire(calls.toasts[0], 'show');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls.sounds, [40]);
 });

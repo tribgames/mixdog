@@ -466,7 +466,7 @@ test('occupancy: shared worktrees move this session; an unmanaged worktree branc
   // Its pick would be refused (WORKTREE_BRANCH_OCCUPIED): disabled, with where it is checked out.
   assert.equal(external.dataset.branch, 'ext-branch');
   assert.equal(external.getAttribute('aria-disabled'), 'true');
-  assert.equal(external.title, 'Checked out in a worktree Mixdog does not manage: /elsewhere/ext');
+  assert.equal(external.title, 'Checked out in an unmanaged worktree: /elsewhere/ext');
   calls.length = 0;
   await act(async () => external.click());
   assert.equal(calls.filter((call) => call.capability === 'selectBranch').length, 0);

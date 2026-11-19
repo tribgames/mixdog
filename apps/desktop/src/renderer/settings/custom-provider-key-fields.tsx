@@ -147,7 +147,7 @@ export function CustomProviderKeyFields({
   const keyPlaceholder = keepsSavedKey ? t('Leave blank to keep the saved key') : t('API key');
   const envHint = envFound
     ? t('Environment variable found. The key is read each time and is not stored.')
-    : t('{{name}} was not found yet. If you just set it, restart Mixdog to apply it.', { name: envName.trim() });
+    : t('{{name}} was not found yet. If you just set it, restart the app to apply it.', { name: envName.trim() });
   return (
     <>
       <div className="settings-custom-provider-key-row">

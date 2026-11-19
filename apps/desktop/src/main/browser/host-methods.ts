@@ -172,13 +172,11 @@ export function createBrowserSessionRelease(options: {
     options.releaseLocal({ action: 'remote_control', session_id: ownerSessionId });
     options.pageSurface.release(ownerSessionId);
     options.lifecycle.releaseSession(ownerSessionId, releaseOptions.restore === true);
-    options.taskLifecycle.forget(ownerSessionId);
-    options.downloadLedger.release(ownerSessionId);
-    options.sendToRenderer(
-      DESKTOP_IPC.browserSessionReleased,
-      ownerSessionId,
-      releaseOptions.restore === true ? 'unloaded' : 'gone'
-    );
+    const unloaded = releaseOptions.restore === true;
+    options.taskLifecycle.forget(ownerSessionId, { keepTurn: unloaded });
+    // An unloaded session's finished downloads are still listed for the user.
+    if (!unloaded) options.downloadLedger.release(ownerSessionId);
+    options.sendToRenderer(DESKTOP_IPC.browserSessionReleased, ownerSessionId, unloaded ? 'unloaded' : 'gone');
     options.remoteTabs.changed();
   };
 }

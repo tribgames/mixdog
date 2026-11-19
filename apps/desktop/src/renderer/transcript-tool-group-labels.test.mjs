@@ -56,7 +56,7 @@ const CASES = [
     'git and shell commands',
     [finished('git', { command: ['git status', 'git diff'] }), finished('shell', { command: 'npm test' })],
     ['Run 2 Git commands, Run 1 command', 'Ran 2 Git commands, Ran 1 command'],
-    ['Git 커맨드 2회 실행, 커맨드 1회 실행', 'Git 커맨드 2회 실행함, 커맨드 1회 실행함'],
+    ['Git 명령 2회 실행, 명령 1회 실행', 'Git 명령 2회 실행함, 명령 1회 실행함'],
   ],
   [
     'a viewed image and a read resource are files read, one phrase',

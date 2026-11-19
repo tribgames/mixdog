@@ -69,7 +69,7 @@ test('the Korean UI picks the particle; other languages stay as they are', async
       onBody() {},
     })
   );
-  assert.match(html, /placeholder="대표 봇이 일하는 방식을 적어 주세요/);
+  assert.match(html, /placeholder="대표 봇의 동작 방식을 입력하세요/);
   assert.doesNotMatch(html, /나비|\(가\)/);
   await i18n.changeLanguage('en');
   assert.equal(translate('Saved agent "{{name}}".', { name: '나비' }), 'Saved agent "나비".');

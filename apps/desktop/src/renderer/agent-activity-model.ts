@@ -208,23 +208,32 @@ export function agentRoleLabel(value: unknown): string {
     .join(' ');
 }
 
-// A CONFIRMED cancel is the last word about that identity. Worker and job
+function agentTaskId(entry: RecordValue): string {
+  return String(entry.task_id || entry.taskId || '').trim();
+}
+
+// A CONFIRMED cancel is the last word about that attempt. Worker and job
 // rows for one agent settle at different moments, so a cancelled job
 // routinely arrives beside a worker row that still says `running` (and vice
 // versa); taking the active row would keep the stopped agent on the live
 // surfaces forever. Collected BEFORE the active filter and the merge, so
 // neither the entry order nor the status preference in the merge can
 // resurrect it.
+// The same tag can be started again after a cancel: an ACTIVE row carrying a
+// task id other than the cancelled ones is that new attempt (the job board
+// keeps completed and failed jobs, which prove nothing), so only the
+// cancelled task ids stay hidden (map value); without one the whole identity
+// is hidden (null).
 // An UNCONFIRMED cancel (`cancelling`, `cancel-unconfirmed`) is the opposite
 // case: the process is not proven gone — on Windows a git-bash background
 // survivor is unreachable from JS and answers with
 // SURVIVING_DESCENDANTS_UNREACHABLE_WARNING — so dropping it would hide a
 // possibly still-live agent. Those rows stay, carrying their own state.
 function agentCancelSignals(entries: ReadonlyArray<{ entry: RecordValue }>): {
-  cancelled: Set<string>;
+  cancelled: Map<string, ReadonlySet<string> | null>;
   unconfirmedCancels: Map<string, string>;
 } {
-  const cancelled = new Set<string>();
+  const cancelledTasks = new Map<string, Set<string>>();
   const unconfirmedCancels = new Map<string, string>();
   for (const { entry } of entries) {
     if (!isCancelledDesktopAgentEntry(entry)) continue;
@@ -232,10 +241,25 @@ function agentCancelSignals(entries: ReadonlyArray<{ entry: RecordValue }>): {
     if (!identity) continue;
     if (isCancelUnconfirmedDesktopAgentEntry(entry)) {
       unconfirmedCancels.set(identity, desktopAgentCancelStatus(entry) || 'cancel-unconfirmed');
-    } else cancelled.add(identity);
+    } else cancelledTasks.set(identity, (cancelledTasks.get(identity) ?? new Set()).add(agentTaskId(entry)));
   }
   // One unproven signal outranks a confirmed twin: nothing is proven gone.
-  for (const identity of unconfirmedCancels.keys()) cancelled.delete(identity);
+  for (const identity of unconfirmedCancels.keys()) cancelledTasks.delete(identity);
+  const cancelled = new Map<string, ReadonlySet<string> | null>();
+  for (const [identity, tasks] of cancelledTasks) {
+    const restarted =
+      [...tasks].some(Boolean) &&
+      entries.some(({ entry }) => {
+        const taskId = agentTaskId(entry);
+        return (
+          Boolean(taskId) &&
+          !tasks.has(taskId) &&
+          desktopAgentIdentity(entry) === identity &&
+          isActiveDesktopAgentEntry(entry)
+        );
+      });
+    cancelled.set(identity, restarted ? tasks : null);
+  }
   return { cancelled, unconfirmedCancels };
 }
 
@@ -254,7 +278,7 @@ function liveAgentSummary(
   }
 ): LiveAgentSummary {
   const tag = String(entry.tag || '').trim();
-  const taskId = String(entry.task_id || entry.taskId || '').trim();
+  const taskId = agentTaskId(entry);
   const roleValue = String(entry.agent || entry.name || entry.type || '').trim();
   const state: DesktopAgentActivityState = unconfirmed ? 'cancel-unconfirmed' : desktopAgentActivityState(entry);
   return {
@@ -344,16 +368,26 @@ export function liveAgentRows(snapshot: unknown, fallbackOwnerSessionId = ''): L
     ...jobs.map((entry, index) => ({ entry, index: workers.length + index, worker: false })),
   ];
   const { cancelled, unconfirmedCancels } = agentCancelSignals(entries);
+  const cancelledAttempt = (entry: RecordValue, identity: string) => {
+    if (!identity || !cancelled.has(identity)) return false;
+    const tasks = cancelled.get(identity);
+    return !tasks || tasks.has(agentTaskId(entry));
+  };
   entries.forEach(({ entry, index, worker }) => {
     const identity = desktopAgentIdentity(entry);
-    if (identity && cancelled.has(identity)) return;
+    if (cancelledAttempt(entry, identity)) return;
     const unconfirmed =
       (identity ? unconfirmedCancels.get(identity) : '') ||
       (isCancelUnconfirmedDesktopAgentEntry(entry) ? desktopAgentCancelStatus(entry) : '');
     if (!unconfirmed && !isActiveDesktopAgentEntry(entry)) return;
     if (!worker && identity) {
       const workerEntry = workerByIdentity.get(identity);
-      if (workerEntry && (isActiveDesktopAgentEntry(workerEntry) || !isQueuedDesktopAgentEntry(entry))) return;
+      if (
+        workerEntry &&
+        !cancelledAttempt(workerEntry, identity) &&
+        (isActiveDesktopAgentEntry(workerEntry) || !isQueuedDesktopAgentEntry(entry))
+      )
+        return;
     }
     const next = liveAgentSummary(entry, { identity, index, unconfirmed, fallbackOwnerSessionId });
     const current = mapped.get(next.key);

@@ -322,8 +322,9 @@ test('Agent groups can be hidden, stay hidden through pool pushes and remounts, 
     assert.equal(document.querySelectorAll('[data-agent-owner-session-id]').length, 2);
     assert.deepEqual(JSON.parse(window.localStorage.getItem('mixdog.agent-hidden-groups')), []);
     // The contacts read the agent catalog (a read capability), the pool section
-    // and the notification overrides their menu words; nothing else.
+    // and the connection identity and notification overrides their menu words; nothing else.
     assert.deepEqual([...new Set(touched)].filter((key) => key !== 'perfLog').sort(), [
+      'connection',
       'invokeCapability',
       'listAgentPool',
       'listConversationNotifications',
@@ -1889,6 +1890,31 @@ test('a cancelled agent leaves the live surfaces whatever its twin row still cla
   );
 });
 
+test('a tag started again after a cancel shows its new job, not the cancelled one (#342)', () => {
+  const jobs = [
+    { task_id: 'task-1', tag: 'review', agent: 'reviewer', status: 'cancelled', startedAt: 1_000 },
+    { task_id: 'task-2', tag: 'review', agent: 'reviewer', status: 'running', startedAt: 2_000 },
+  ];
+  const states = (snapshot) => liveAgentRows(snapshot).map((row) => [row.tag, row.state]);
+  assert.deepEqual(states({ agentJobs: jobs }), [['review', 'running']]);
+  assert.deepEqual(
+    states({ agentWorkers: [{ tag: 'review', agent: 'reviewer', status: 'running' }], agentJobs: jobs }),
+    [['review', 'running']]
+  );
+  // A finished earlier job is no restart: the cancelled tag stays hidden even
+  // while its worker row still says running.
+  assert.deepEqual(
+    states({
+      agentWorkers: [{ tag: 'review', agent: 'reviewer', status: 'running' }],
+      agentJobs: [
+        { task_id: 'task-0', tag: 'review', agent: 'reviewer', status: 'completed', startedAt: 500 },
+        { task_id: 'task-1', tag: 'review', agent: 'reviewer', status: 'cancelled', startedAt: 1_000 },
+      ],
+    }),
+    []
+  );
+});
+
 test('the cancellation ledger holds a stopped row against a later running snapshot', () => {
   const ledger = createDesktopCancellationLedger();
   const row = (status, turnStartedAt) => ({
@@ -2697,8 +2723,9 @@ test('a nested Agent row opens its exact child session without touching session 
       []
     );
     // The contacts read the agent catalog (a read capability) and the
-    // notification overrides their menu words; nothing else.
+    // connection identity and notification overrides their menu words; nothing else.
     assert.deepEqual([...new Set(touched)].sort(), [
+      'connection',
       'invokeCapability',
       'listAgentPool',
       'listConversationNotifications',

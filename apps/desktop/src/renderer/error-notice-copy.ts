@@ -213,7 +213,7 @@ export function localizeRouteFallbackNotice(text: string): string | null {
 }
 
 const HEARTBEAT_BREAKER_NOTICE_RE =
-  /^Heartbeat: the Maintainer model gave (\d+) (unusable replies|failed calls) in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes\. Only failing routines wake Mixy meanwhile\.$/;
+  /^Heartbeat: the Maintainer model gave (\d+) (unusable replies|failed calls) in a row, so heartbeat checks no longer ask it until (?:Mixdog|the app) restarts or its model changes\. Only failing routines wake Mixy meanwhile\.$/;
 
 /** The heartbeat's circuit-breaker warning (session-runtime/mixy-heartbeat.mjs,
  *  a notice in Mixy's chat) in the UI language; null for any other notice. */
@@ -223,11 +223,11 @@ export function localizeHeartbeatBreakerNotice(text: string): string | null {
   const failures = match[1];
   return match[2] === 'unusable replies'
     ? t(
-        'Heartbeat: the Maintainer model gave {{failures}} unusable replies in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.',
+        'Heartbeat: the Maintainer model gave {{failures}} unusable replies in a row, so heartbeat checks no longer ask it until the app restarts or its model changes. Only failing routines wake Mixy meanwhile.',
         { failures }
       )
     : t(
-        'Heartbeat: the Maintainer model gave {{failures}} failed calls in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.',
+        'Heartbeat: the Maintainer model gave {{failures}} failed calls in a row, so heartbeat checks no longer ask it until the app restarts or its model changes. Only failing routines wake Mixy meanwhile.',
         { failures }
       );
 }

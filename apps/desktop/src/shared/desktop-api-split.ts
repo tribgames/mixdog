@@ -63,7 +63,7 @@ export const DIRECT_KEYS = {
   settings: [
     'readSettings', 'updateSetting', 'subscribeSettingsChanged', 'readActivityRailPins',
     'updateActivityRailPins', 'subscribeActivityRailPins', 'notifyProviderModelsChanged',
-    'subscribeProviderModelsChanged', 'setNotificationVolume', 'setSessionRetention',
+    'subscribeProviderModelsChanged', 'setNotificationVolume', 'setBotHandoffLimit', 'setSessionRetention',
     'setBrowserPermissions', 'setNotificationPreferences', 'listConversationNotifications',
     'setConversationNotification', 'subscribeTurnReviewChanged', 'subscribeOrchestrationModeChanged',
     'readMarkdownDefaultView', 'writeMarkdownDefaultView', 'getNotificationPreferences', 'sendTestNotification', 'listSystemFonts', 'rotateRemoteAccess', 'revokeRemoteAccessClient',
