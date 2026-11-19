@@ -30,6 +30,7 @@ use serde_json::Value;
 
 use super::host::BrowserCommandClock;
 use super::host::BrowserTimingLog;
+use super::host::BrowserToolReply;
 use super::host::ChannelHostCommands;
 use super::host::HOST_COMMAND_FAILED;
 use super::host::HostCommandError;
@@ -78,13 +79,10 @@ impl EngineHostCommands {
     }
 }
 
-/// The reply as the host's `host/browser/command` result value the `browser` tool renders (`browser_output`): text, image, outcome.
-fn reply_value(reply: ToolReply) -> Value {
+/// Keep the engine's screenshot in bytes for the local tool, leaving other media on its existing path.
+fn tool_reply(reply: ToolReply) -> BrowserToolReply {
     let mut value = Map::new();
     value.insert("text".to_owned(), Value::String(reply.text));
-    if let Some(image) = reply.image {
-        value.insert("image".to_owned(), serde_json::json!({ "mimeType": image.mime_type, "data": STANDARD.encode(&image.bytes) }));
-    }
     // A completed download the command attached (`downloads` with `attach`): the old path's `result.file`.
     if let Some(file) = reply.file {
         value.insert("file".to_owned(), serde_json::json!({ "mimeType": file.mime_type, "name": file.name, "data": STANDARD.encode(&file.bytes) }));
@@ -95,14 +93,22 @@ fn reply_value(reply: ToolReply) -> Value {
     if let Some(timing) = reply.timing.and_then(|timing| serde_json::to_value(timing).ok()) {
         value.insert("timing".to_owned(), timing);
     }
-    Value::Object(value)
+    BrowserToolReply { value: Value::Object(value), screenshot: reply.image }
+}
+
+/// The JSON API (including `browser/bridge/run`) retains its existing image shape.
+fn reply_value(mut reply: BrowserToolReply) -> Value {
+    if let Some(image) = reply.screenshot {
+        reply.value["image"] = serde_json::json!({ "mimeType": image.mime_type, "data": STANDARD.encode(&image.bytes) });
+    }
+    reply.value
 }
 
 /// What the `browser_timing` row reads of an answer, in the shape the host channel gives one: a result's `timing`, a refusal's
 /// `data.timing`, and a cancelled command with no body.
-fn row_answer(answer: &Result<JsonValue, HostCommandError>) -> Result<&JsonValue, HostError> {
+fn row_answer(answer: &Result<BrowserToolReply, HostCommandError>) -> Result<&JsonValue, HostError> {
     match answer {
-        Ok(value) => Ok(value),
+        Ok(reply) => Ok(&reply.value),
         Err(HostCommandError::Rpc { code, message, timing }) => Err(HostError::Rpc { code: *code, message: message.clone(), data: timing.as_ref().map(|timing| serde_json::json!({ "timing": timing })) }),
         Err(HostCommandError::Cancelled | HostCommandError::NoHost) => Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "cancelled".into() })),
     }
@@ -111,6 +117,10 @@ fn row_answer(answer: &Result<JsonValue, HostCommandError>) -> Result<&JsonValue
 #[async_trait]
 impl HostCommands for EngineHostCommands {
     async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
+        self.browser_for_tool(thread, action, input, cancel).await.map(reply_value)
+    }
+
+    async fn browser_for_tool(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<BrowserToolReply, HostCommandError> {
         let Some(switch) = &self.switch else {
             return self.browser_command(thread, action, input, cancel).await;
         };
@@ -453,14 +463,16 @@ mod tests {
             outcome: Some(ReplyOutcome::Blocked),
             ..ToolReply::default()
         };
-        let value = reply_value(reply);
+        let local = tool_reply(reply.clone());
+        let output = crate::desktop::host::render_browser_output(&local.value, local.screenshot).expect_err("blocked carries a partial result");
+        let value = reply_value(tool_reply(reply));
         assert_eq!(value["text"], "Clicked");
         assert_eq!(value["image"], json!({"mimeType": "image/png", "data": "cG5n"}));
         assert_eq!(value["outcome"], "blocked");
         let error = crate::desktop::host::browser_output(&value).expect_err("blocked is a failure");
         assert_eq!(error.message_for_model, "Clicked");
-        assert!(error.partial.is_some());
-        assert_eq!(reply_value(ToolReply::text("")), json!({"text": ""}));
+        assert_eq!(output.partial, error.partial);
+        assert_eq!(reply_value(tool_reply(ToolReply::text(""))), json!({"text": ""}));
     }
 }
 
@@ -481,16 +493,16 @@ fn command_failure(failure: CommandFailure, cancel: &CancellationToken, action: 
     HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: failure.error.message_for_model, timing }
 }
 impl EngineHostCommands {
-    async fn browser_command(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
+    async fn browser_command(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<BrowserToolReply, HostCommandError> {
         if !self.runs_in_engine(action) {
-            return self.forward.browser(thread, action, input, cancel).await;
+            return self.forward.browser_for_tool(thread, action, input, cancel).await;
         }
         let empty = Map::new();
         let fields = input.as_object().unwrap_or(&empty);
         let turn_id = self.timing.as_ref().and_then(|_| fields.get("turn_id").cloned());
         let clock = BrowserCommandClock::start(self.timing.as_ref());
         let answer = match self.engine.run(thread, action, fields, cancel).await {
-            Ok(reply) => Ok(reply_value(reply)),
+            Ok(reply) => Ok(tool_reply(reply)),
             Err(failure) => Err(command_failure(failure, cancel, action)),
         };
         if let Some(clock) = clock {

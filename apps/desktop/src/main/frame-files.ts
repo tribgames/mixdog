@@ -155,15 +155,14 @@ async function writeFrameFile(directory: string, name: string, bytes: Buffer): P
   return { path, bytes: bytes.length };
 }
 
-async function persistBoundedFrame(
+function persistFrameBytes(
   directory: string,
   sessionId: string,
   frameId: string,
-  image: { mimeType: string; data: string }
-): Promise<PersistedFrame | undefined> {
-  const bytes = decodeFrameImage(image.data);
-  if (!bytes) return undefined;
-  const name = frameFileName(sessionId, frameId, frameFileExtension(image.mimeType));
+  mimeType: string,
+  bytes: Buffer
+): Promise<PersistedFrame> {
+  const name = frameFileName(sessionId, frameId, frameFileExtension(mimeType));
   return serializeByDirectory(directory, () => writeFrameFile(directory, name, bytes));
 }
 
@@ -180,7 +179,24 @@ export async function persistFrameImage(
   image: { mimeType: string; data: string }
 ): Promise<PersistedFrame | undefined> {
   try {
-    return await persistBoundedFrame(await ensureFrameDirectory(scope), sessionId, frameId, image);
+    const directory = await ensureFrameDirectory(scope);
+    const bytes = decodeFrameImage(image.data);
+    if (!bytes) return undefined;
+    return await persistFrameBytes(directory, sessionId, frameId, image.mimeType, bytes);
+  } catch {
+    return undefined;
+  }
+}
+
+export async function persistBrowserScreenshot(
+  sessionId: string,
+  frameId: string,
+  image: { mimeType: string; bytes: Buffer }
+): Promise<PersistedFrame | undefined> {
+  if (!image.bytes.length || image.bytes.length > FRAME_MAX_BYTES) return undefined;
+  try {
+    const directory = await ensureFrameDirectory('browser');
+    return await persistFrameBytes(directory, sessionId, frameId, image.mimeType, image.bytes);
   } catch {
     return undefined;
   }

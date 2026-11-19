@@ -202,6 +202,7 @@ const ROOTED_SERVICE_METHODS: ReadonlySet<string> = new Set([
 
 export interface ServiceLane {
   call<T = unknown>(method: string, args: unknown[], signal?: AbortSignal): Promise<T>;
+  isReleasingThread(threadId: string): boolean;
   /** Stops following the visible threads' convergence: no request or retry starts after it. */
   dispose(): void;
 }
@@ -284,6 +285,7 @@ const sameClient = (a: Generation, b: Generation): boolean => a.replaced === b.r
 interface Follow {
   attempt: number;
   running: number;
+  releasing?: boolean;
   /** The lane's own subscription: on this client the thread was followed while wanted, and the lane has not unsubscribed it
    *  since. Also what a client that cannot say what it follows is judged by. */
   mine?: Generation;
@@ -325,12 +327,15 @@ export type ServiceProtocolEvent =
 export function createServiceLane({
   protocol,
   snapshot,
+  onAttached,
   schedule = scheduleTimer,
   sweep = scheduleSweep,
   report = (line) => console.error(line),
 }: {
   protocol: ServiceProtocol;
   snapshot(): SessionSnapshot;
+  /** A wanted thread has converged, including adoption of a subscription restored at its current cursor. */
+  onAttached?(threadId: string): void;
   schedule?: ScheduleRetry;
   /** The stray follows' sweep timer, apart from the retries' (`STRAY_FOLLOW_RELEASE_MS`). */
   sweep?: ScheduleRetry;
@@ -448,6 +453,7 @@ export function createServiceLane({
       if (wanted && seen === 'attached') {
         follow.mine = now;
         follow.failures = 0;
+        onAttached?.(threadId);
         return;
       }
       // Not wanted, and neither the lane's subscription nor its owed cleanup is on this client: nothing here is the lane's.
@@ -459,6 +465,7 @@ export function createServiceLane({
       if (seen === 'restoring') return;
       const attempt = ++follow.attempt;
       follow.running = attempt;
+      follow.releasing = !wanted;
       let failure: { error: unknown } | undefined;
       // Read before the request can go out (the connection may hand it to the client later), compared after its answer.
       const restoreBefore = now.client?.threadSubscription?.(threadId);
@@ -474,6 +481,7 @@ export function createServiceLane({
       }
       if (disposed || follow.attempt !== attempt || follows.get(threadId) !== follow) return;
       follow.running = 0;
+      follow.releasing = false;
       const after = generationNow(threadId);
       // An unsubscribe that a restore of the thread overlapped (in flight at any point from before the request could go out
       // until now, however it ended) confirms nothing: the core may have attached the restore after removing the thread, and
@@ -548,6 +556,7 @@ export function createServiceLane({
     for (const follow of follows.values()) {
       follow.attempt += 1;
       follow.running = 0;
+      follow.releasing = false;
     }
     wakeAll();
   });
@@ -604,6 +613,7 @@ export function createServiceLane({
   };
   cancelSweep = sweep(sweepStrays, STRAY_FOLLOW_RELEASE_MS / 2);
   return {
+    isReleasingThread: (threadId) => follows.get(threadId)?.releasing === true,
     dispose() {
       if (disposed) return;
       disposed = true;

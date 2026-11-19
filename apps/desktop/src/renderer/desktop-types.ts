@@ -155,6 +155,8 @@ export type Snapshot = RecordValue & {
   items?: TranscriptItem[];
   /** `items` is a tail window with older history available on demand. */
   transcriptHasOlder?: boolean;
+  /** A provisional stored tail, not a live lane or a completed recovery. */
+  transcriptPreview?: true;
   streamingTail?: TranscriptItem | null;
   busy?: boolean;
   commandBusy?: boolean;

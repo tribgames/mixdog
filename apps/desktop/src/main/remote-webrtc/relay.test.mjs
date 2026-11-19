@@ -288,7 +288,7 @@ test('a take-over joining an unfitted stream is promoted only on media-ready for
   const signals = [];
   let emit = () => {};
   const host = createRemoteWebrtcHost({
-    sender: { send: (command) => commands.push(command), onEvent: (listener) => (emit = listener) },
+    sender: { send: (command) => commands.push(command), release() {}, onEvent: (listener) => (emit = listener) },
     sendSignal: async (_clientId, signal) => {
       signals.push(signal);
     },

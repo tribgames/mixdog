@@ -89,12 +89,15 @@ pub fn call(id: u32, method: &str, params: &Value, paths: &[String], thread: &st
         paths,
         thread,
     };
-    // A `Value` and plain strings always serialize.
-    encode(
-        kind::CALL,
-        id,
-        &serde_json::to_vec(&body).unwrap_or_default(),
-    )
+    let data_len = params.get("data").and_then(Value::as_str).map_or(0, str::len);
+    let mut out = Vec::with_capacity(HEADER_BYTES + data_len + 128);
+    out.extend_from_slice(&[0; 4]);
+    out.push(kind::CALL);
+    out.extend_from_slice(&id.to_be_bytes());
+    serde_json::to_writer(&mut out, &body).expect("a JSON value and plain strings serialize into a Vec");
+    let len = (out.len() - 4) as u32;
+    out[..4].copy_from_slice(&len.to_be_bytes());
+    Bytes::from(out)
 }
 
 pub fn cancel(id: u32) -> Bytes {

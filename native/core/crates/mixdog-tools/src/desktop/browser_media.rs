@@ -19,6 +19,7 @@ use mixdog_ai::providers::file_text::FileKind;
 use mixdog_ai::providers::file_text::base64_byte_length;
 use mixdog_ai::providers::file_text::inline_file_kind;
 use mixdog_browser_engine::limits::DOWNLOAD_ATTACH_MAX_BYTES;
+use mixdog_browser_engine::reply::reply::ReplyImage;
 use mixdog_browser_engine::reply::screenshot::MAX_INLINE_IMAGE_BYTES;
 use mixdog_core_api::domain::tool::ImageData;
 use mixdog_core_api::domain::tool::ToolError;
@@ -49,11 +50,33 @@ pub fn image_part(image: &Map<String, Value>) -> Result<Option<ToolPart>, ToolEr
     if data.is_empty() || mime.is_empty() {
         return Ok(None);
     }
-    let bytes = (mime == "image/jpeg" || mime == "image/png").then(|| STANDARD.decode(data).ok()).flatten().filter(|b| b.len() <= MAX_INLINE_IMAGE_BYTES);
-    match bytes {
-        Some(bytes) => Ok(Some(ToolPart::Image { mime: mime.to_owned(), data: ImageData::Bytes(bytes), width: None, height: None })),
-        None => Err(invalid_image()),
+    // STANDARD requires complete, padded quanta. Anything this bound rejects
+    // would either fail that decoder or already exceed the decoded limit.
+    let padding = if data.ends_with("==") { 2 } else { usize::from(data.ends_with('=')) };
+    if !screenshot_fits(mime, (data.len() / 4 * 3).saturating_sub(padding)) {
+        return Err(invalid_image());
     }
+    let bytes = STANDARD.decode(data).map_err(|_| invalid_image())?;
+    Ok(Some(screenshot_image(mime.to_owned(), bytes)))
+}
+
+fn screenshot_fits(mime: &str, len: usize) -> bool {
+    matches!(mime, "image/jpeg" | "image/png") && len <= MAX_INLINE_IMAGE_BYTES
+}
+
+fn screenshot_image(mime: String, bytes: Vec<u8>) -> ToolPart {
+    ToolPart::Image { mime, data: ImageData::Bytes(bytes), width: None, height: None }
+}
+
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured tool error by value")]
+pub(super) fn screenshot_part(image: ReplyImage) -> Result<Option<ToolPart>, ToolError> {
+    if image.bytes.is_empty() || image.mime_type.is_empty() {
+        return Ok(None);
+    }
+    if !screenshot_fits(&image.mime_type, image.bytes.len()) {
+        return Err(invalid_image());
+    }
+    Ok(Some(screenshot_image(image.mime_type, image.bytes.into())))
 }
 
 /// A mime type of the `type/subtype` form Node accepted for a file (`/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i`).

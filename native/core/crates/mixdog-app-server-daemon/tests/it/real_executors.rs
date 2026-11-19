@@ -77,7 +77,7 @@ impl CorePort for Probe {
     fn final_barriers(&self) {}
     fn close_connections(&self) {}
     fn close_ext_host(&self) {}
-    fn close_data_handles(&self) {}
+    fn close_data_handles(&self, _: &mixdog_app_server_daemon::lifecycle::ManagedDrain) {}
 }
 
 impl Publication for Probe {

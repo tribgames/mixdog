@@ -87,6 +87,22 @@ fn bad_answer(method: &str) -> ExtError {
     ExtError::Failed { code: "bad_answer".to_owned(), message: format!("{method} answered something that is not an image result") }
 }
 
+/// The worker receives a single JSON frame. Account for its actual serialized envelope,
+/// including escaped names, before allocating the base64 payload.
+fn with_image_data(thread: &ThreadId, method: &str, mut params: JsonValue, bytes: &[u8]) -> Result<JsonValue, Failure> {
+    params["data"] = JsonValue::String(String::new());
+    let overhead = crate::frame::call(0, method, &params, &[], thread.as_str()).len() - 4;
+    let encoded_len = bytes.len().div_ceil(3).saturating_mul(4);
+    if overhead.saturating_add(encoded_len) > crate::frame::MAX_FRAME_BYTES {
+        return Err(Failure::Host(ExtError::Failed {
+            code: "too_large".to_owned(),
+            message: format!("{method} image exceeds the extension frame limit"),
+        }));
+    }
+    params["data"] = JsonValue::String(STANDARD.encode(bytes));
+    Ok(params)
+}
+
 /// The error a failure other than a host failure becomes where only the host can fail: the worker
 /// answered something the method never answers.
 fn host_error(failure: Failure) -> ExtError {
@@ -134,18 +150,19 @@ impl ExtImageCodec {
     /// `resizeImageBuffer(bytes, ext, { profile })`; the read tool names no profile.
     async fn resize_with(&self, thread: &ThreadId, bytes: &[u8], ext: &str, profile: Option<ImageProfile>) -> Result<Option<ReadResize>, Failure> {
         let method = "image.resize";
-        let mut params = json!({ "data": STANDARD.encode(bytes), "ext": ext });
+        let mut params = json!({ "ext": ext });
         if let Some(profile) = profile {
             params["profile"] = json!(match profile {
                 ImageProfile::Anthropic => "anthropic",
                 ImageProfile::OpenAi => "openai",
             });
         }
+        let params = with_image_data(thread, method, params, bytes)?;
         match self.ask(thread, method, params).await? {
             JsonValue::Null => Ok(None),
             // `resizeImageBuffer` throws for every decoder failure, so the worker never answers
             // "environment" here; if it did, that is not an answer.
-            ok => read_resized(&ok).map(Some).ok_or_else(|| Failure::Host(bad_answer(method))),
+            ok => read_resized(ok).map(Some).ok_or_else(|| Failure::Host(bad_answer(method))),
         }
     }
 
@@ -163,7 +180,8 @@ impl ExtImageCodec {
             RenditionVariant::Thumb => "thumb",
             RenditionVariant::Display => "display",
         };
-        let ok = match self.ask(thread, method, json!({ "data": STANDARD.encode(bytes), "variant": variant })).await {
+        let params = with_image_data(thread, method, json!({ "variant": variant }), bytes).map_err(host_error)?;
+        let ok = match self.ask(thread, method, params).await {
             Ok(ok) => ok,
             // Node's `encodeStill` has no third outcome: it answers `null` for these.
             Err(Failure::Invalid(_) | Failure::Environment) => return Ok(None),
@@ -186,7 +204,7 @@ impl ExtImageCodec {
             .pool
             .call(ExtCall { thread: thread.clone(), method: method.to_owned(), params, paths: Vec::new() })
             .map_err(Failure::Host)?;
-        let answer = loop {
+        let mut answer = loop {
             match stream.next().await {
                 Some(ExtFrame::Chunk(_)) => {}
                 Some(ExtFrame::Done(outcome)) => break outcome.map_err(Failure::Host)?,
@@ -196,7 +214,7 @@ impl ExtImageCodec {
         match answer.get("error").and_then(JsonValue::as_str) {
             Some("invalid") => Err(Failure::Invalid(answer.get("message").and_then(JsonValue::as_str).unwrap_or_default().to_owned())),
             Some(_) => Err(Failure::Environment),
-            None => answer.get("ok").cloned().ok_or_else(|| Failure::Host(bad_answer(method))),
+            None => answer.get_mut("ok").map(JsonValue::take).ok_or_else(|| Failure::Host(bad_answer(method))),
         }
     }
 
@@ -209,13 +227,15 @@ fn size(value: &JsonValue, width: &str, height: &str) -> Option<ImageSize> {
     Some(ImageSize { width: u32::try_from(value.get(width)?.as_u64()?).ok()?, height: u32::try_from(value.get(height)?.as_u64()?).ok()? })
 }
 
-fn read_resized(ok: &JsonValue) -> Option<ReadResize> {
+fn read_resized(mut ok: JsonValue) -> Option<ReadResize> {
     let dimensions = ok.get("dimensions")?;
     let original = size(dimensions, "originalWidth", "originalHeight")?;
     let display = size(dimensions, "displayWidth", "displayHeight")?;
+    let JsonValue::String(data_base64) = ok.get_mut("data")?.take() else { return None };
+    let JsonValue::String(mime) = ok.get_mut("mimeType")?.take() else { return None };
     Some(ReadResize {
-        data_base64: ok.get("data")?.as_str()?.to_owned(),
-        mime: ok.get("mimeType")?.as_str()?.to_owned(),
+        data_base64,
+        mime,
         original_w: original.width,
         original_h: original.height,
         display_w: display.width,
@@ -258,13 +278,14 @@ impl ProfiledImageResizer for ExtImageCodec {
 impl ImageCodec for ExtImageCodec {
     async fn probe(&self, bytes: &[u8]) -> Result<ImageSize, CodecError> {
         let method = "image.probe";
-        let ok = self.ask(&Self::compact_thread(), method, json!({ "data": STANDARD.encode(bytes) })).await.map_err(codec_error)?;
+        let thread = Self::compact_thread();
+        let params = with_image_data(&thread, method, json!({}), bytes).map_err(codec_error)?;
+        let ok = self.ask(&thread, method, params).await.map_err(codec_error)?;
         size(&ok, "width", "height").ok_or_else(|| codec_error(Failure::Host(bad_answer(method))))
     }
 
     async fn jpeg(&self, bytes: &[u8], width: u32, height: u32, allow_enlargement: bool, quality: u8) -> Result<Encoded, CodecError> {
         let params = json!({
-            "data": STANDARD.encode(bytes),
             "width": width,
             "height": height,
             "allowEnlargement": allow_enlargement,
@@ -272,7 +293,9 @@ impl ImageCodec for ExtImageCodec {
         });
         let method = "image.jpeg";
         let malformed = || codec_error(Failure::Host(bad_answer(method)));
-        let ok = self.ask(&Self::compact_thread(), method, params).await.map_err(codec_error)?;
+        let thread = Self::compact_thread();
+        let params = with_image_data(&thread, method, params, bytes).map_err(codec_error)?;
+        let ok = self.ask(&thread, method, params).await.map_err(codec_error)?;
         let data = ok.get("data").and_then(JsonValue::as_str).ok_or_else(malformed)?;
         Ok(Encoded {
             bytes: STANDARD.decode(data).map_err(|_| malformed())?,
@@ -281,8 +304,10 @@ impl ImageCodec for ExtImageCodec {
     }
 
     async fn validate(&self, bytes: &[u8], format: &str) -> Result<(), CodecError> {
-        let params = json!({ "data": STANDARD.encode(bytes), "format": format });
-        self.ask(&Self::compact_thread(), "image.validate", params).await.map_err(codec_error)?;
+        let thread = Self::compact_thread();
+        let method = "image.validate";
+        let params = with_image_data(&thread, method, json!({ "format": format }), bytes).map_err(codec_error)?;
+        self.ask(&thread, method, params).await.map_err(codec_error)?;
         Ok(())
     }
 }

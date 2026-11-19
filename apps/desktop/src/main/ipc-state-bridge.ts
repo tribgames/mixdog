@@ -35,9 +35,67 @@ interface DesktopStateBridgeOptions {
   handle: Handle;
   powerMonitor?: Pick<PowerMonitor, 'on' | 'removeListener'>;
   updater?: DesktopUpdater;
+  directCore?: boolean;
+}
+
+/** Window events still carried by the host preload, with state IPC for non-direct clients only. */
+export class DesktopStateBridge {
+  private readonly legacyState?: LegacyDesktopStateBridge;
+  private readonly unsubscribeUpdater: () => void;
+  private readonly unsubscribeDesktopEvents: () => void;
+  private readonly unregisterNotices: () => void;
+  private disposed = false;
+
+  constructor({ window, host, ipcMain, handle, powerMonitor, updater, directCore }: DesktopStateBridgeOptions) {
+    const send = (channel: string, value: unknown): boolean => {
+      if (window.isDestroyed() || window.webContents.isDestroyed()) return false;
+      window.webContents.send(channel, value);
+      return true;
+    };
+    handle(DESKTOP_IPC.getUpdaterState, () => updater?.getState() ?? { status: 'disabled' });
+    handle(
+      DESKTOP_IPC.checkForDesktopUpdate,
+      () => updater?.check() ?? Promise.resolve({ status: 'disabled' } as const)
+    );
+    handle(DESKTOP_IPC.showDesktopUpdate, async (_event, confirmed) => {
+      const current = updater?.getState() ?? ({ status: 'disabled' } as const);
+      if (current.status !== 'ready' || !updater) return current;
+      await updater.install(confirmed === true);
+      return updater.getState();
+    });
+
+    if (!directCore) {
+      this.legacyState = new LegacyDesktopStateBridge({ window, host, ipcMain, handle, powerMonitor }, send);
+    }
+    this.unsubscribeUpdater = updater?.subscribe((state) => send(DESKTOP_IPC.updaterState, state)) ?? (() => {});
+    // Other desktop feeds reach direct windows on their own core connection; import progress still uses the host preload.
+    this.unsubscribeDesktopEvents =
+      host.subscribeDesktopEvents?.(({ name, value }) => {
+        if (name === CONVERSATION_IMPORT_PROGRESS_EVENT) send(DESKTOP_IPC.conversationImportProgress, value);
+      }) ?? (() => {});
+    // The service's notices (held by its client until a window listens) and
+    // this process's own (its secure storage).
+    const unsubscribeServiceNotices =
+      host.subscribeDesktopNotices?.((notice) => send(DESKTOP_IPC.desktopNotice, notice)) ?? (() => {});
+    const unregisterOwnNotices = registerDesktopNoticeSink((notice) => send(DESKTOP_IPC.desktopNotice, notice));
+    this.unregisterNotices = () => {
+      unsubscribeServiceNotices();
+      unregisterOwnNotices();
+    };
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.legacyState?.dispose();
+    this.unsubscribeUpdater();
+    this.unsubscribeDesktopEvents();
+    this.unregisterNotices();
+  }
 }
 
 type SessionProvenance = Pick<DesktopSessionStateUpdate, 'frameSource' | 'contentRevision'>;
+type LegacyStateOptions = Pick<DesktopStateBridgeOptions, 'window' | 'host' | 'ipcMain' | 'handle' | 'powerMonitor'>;
 
 // A read's frame travels the daemon's session stream while its reply travels
 // the request channel, so the reply can land first and close the read window.
@@ -46,7 +104,7 @@ const REQUESTED_READ_FRAME_GRACE_MS = 10_000;
 
 const SESSION_RECOVERY_COALESCE_MS = 3_000;
 
-export class DesktopStateBridge {
+class LegacyDesktopStateBridge {
   private readonly stateEncoder = createSnapshotDeltaEncoder();
   private readonly visibleSessionIds = new Set<string>();
   private readonly requestedReads = createSessionReadWindow();
@@ -57,13 +115,11 @@ export class DesktopStateBridge {
   private readonly latestSessionProvenance = new Map<string, SessionProvenance>();
   private readonly unsubscribeState: () => void;
   private readonly unsubscribeSessionStates: () => void;
-  private readonly unsubscribeUpdater: () => void;
-  private readonly unsubscribeDesktopEvents: () => void;
-  private readonly unregisterNotices: () => void;
-  private disposed = false;
-
-  constructor(private readonly options: DesktopStateBridgeOptions) {
-    const { handle, host, updater } = options;
+  constructor(
+    private readonly options: LegacyStateOptions,
+    private readonly send: (channel: string, value: unknown) => void
+  ) {
+    const { handle, host } = options;
     handle(DESKTOP_IPC.setVisibleSessions, (_event, sessionIds) => this.setVisibleSessions(sessionIds));
     // Reads live beside the visibility filter: the frame a read publishes
     // must pass it even when no pane shows the session yet.
@@ -83,46 +139,15 @@ export class DesktopStateBridge {
       return host.readTranscriptHistory(id, history);
     });
     handle(DESKTOP_IPC.getSnapshot, () => host.getSnapshot());
-    handle(DESKTOP_IPC.getUpdaterState, () => updater?.getState() ?? { status: 'disabled' });
-    handle(
-      DESKTOP_IPC.checkForDesktopUpdate,
-      () => updater?.check() ?? Promise.resolve({ status: 'disabled' } as const)
-    );
-    handle(DESKTOP_IPC.showDesktopUpdate, (_event, confirmed) => this.installDesktopUpdate(confirmed === true));
 
     this.unsubscribeState = host.subscribe(this.sendEngineState);
     this.unsubscribeSessionStates = host.subscribeSessionStates(this.sendSessionState);
-    this.unsubscribeUpdater = updater?.subscribe((state) => this.send(DESKTOP_IPC.updaterState, state)) ?? (() => {});
-    // The window's live pushes only: the session list, agent pool, folder, LSP, settings, provider-model, rail-pin, turn-review,
-    // orchestration-mode, relay-refusal, remote-claim and remote-access feeds reach the renderer over its own core connection
-    // (renderer/core-direct subscribe* members), so main forwards none of them.
-    this.unsubscribeDesktopEvents =
-      host.subscribeDesktopEvents?.(({ name, value }) => {
-        if (name === CONVERSATION_IMPORT_PROGRESS_EVENT) this.send(DESKTOP_IPC.conversationImportProgress, value);
-      }) ?? (() => {});
-    // The service's notices (held by its client until a window listens) and
-    // this process's own (its secure storage).
-    const unsubscribeServiceNotices =
-      host.subscribeDesktopNotices?.((notice) => this.send(DESKTOP_IPC.desktopNotice, notice)) ?? (() => {});
-    const unregisterOwnNotices = registerDesktopNoticeSink((notice) => this.send(DESKTOP_IPC.desktopNotice, notice));
-    this.unregisterNotices = () => {
-      unsubscribeServiceNotices();
-      unregisterOwnNotices();
-    };
 
     options.ipcMain.on(DESKTOP_IPC.stateResync, this.onStateResync);
     options.ipcMain.on(DESKTOP_IPC.sessionStateResync, this.onSessionStateResync);
     if (typeof options.powerMonitor?.on === 'function') {
       options.powerMonitor.on('resume', this.onSystemResume);
     }
-  }
-
-  /** Whether the window was there to receive it. */
-  private send(channel: string, value: unknown): boolean {
-    const { window } = this.options;
-    if (window.isDestroyed() || window.webContents.isDestroyed()) return false;
-    window.webContents.send(channel, value);
-    return true;
   }
 
   private readonly sendEngineState = (snapshot: SessionSnapshot): void => {
@@ -243,14 +268,6 @@ export class DesktopStateBridge {
     return (await this.options.host.setVisibleSessions?.(normalized)) === true;
   }
 
-  private async installDesktopUpdate(confirmed: boolean): Promise<DesktopUpdaterState> {
-    const { updater } = this.options;
-    const current = updater?.getState() ?? ({ status: 'disabled' } as const);
-    if (current.status !== 'ready' || !updater) return current;
-    await updater.install(confirmed);
-    return updater.getState();
-  }
-
   private readonly onStateResync = (event: IpcMainEvent): void => {
     const { window, host } = this.options;
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) {
@@ -287,14 +304,9 @@ export class DesktopStateBridge {
   };
 
   dispose(): void {
-    if (this.disposed) return;
-    this.disposed = true;
     const { ipcMain, powerMonitor } = this.options;
     this.unsubscribeState();
     this.unsubscribeSessionStates();
-    this.unsubscribeUpdater();
-    this.unsubscribeDesktopEvents();
-    this.unregisterNotices();
     this.sessionEncoders.clear();
     this.latestSessionStates.clear();
     this.latestSessionProvenance.clear();

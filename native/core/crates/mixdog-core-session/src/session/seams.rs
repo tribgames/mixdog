@@ -208,9 +208,12 @@ pub trait SensitiveMarks: Send + Sync + 'static {
         false
     }
 
-    /// `values` marked for `thread` again (a mark an earlier run journaled), carried as a new mark is.
-    fn restore(&self, _thread: &ThreadId, _values: &[String]) -> bool {
-        false
+    /// Install the durable carry graph at startup, before restoring any pending marks.
+    fn restore_carries(&self, _carries: Vec<(String, String)>) {}
+
+    /// Restore an already journaled mark at startup. Returns the sessions that need to be scanned before exposure.
+    fn restore(&self, _origin: String, _sessions: Vec<String>, _values: Vec<String>) -> std::collections::BTreeSet<String> {
+        std::collections::BTreeSet::new()
     }
 
     /// The journal the marks and carries are written to before they take effect; `false` when one is bound already.
@@ -262,8 +265,8 @@ pub struct ContextRead(pub Box<dyn Any + Send>);
 pub enum ContextStep {
     /// The read continues with another io step.
     More(ContextRead),
-    /// The model context, oldest first: each row's item id and its 1.4.5 message object.
-    Done(Vec<(mixdog_core_api::ids::ItemId, Value)>),
+    /// A decoded page, oldest first. A stale cursor starts again with `first`, even if the replacement is empty.
+    Page { first: bool, rows: Vec<(mixdog_core_api::ids::ItemId, Value)>, next: Option<ContextRead> },
 }
 
 /// Store-private position where appends continue (open-for-append happens at the first write).

@@ -6,6 +6,7 @@ import { t } from './i18n';
 import { ConnectorSwitchList, type ConnectorSwitchApi } from './connector-switches';
 import { ErrorNotice } from './ErrorNotice';
 import { projectIdentity } from './project-catalog-cache';
+import { displayProjectFolder } from './project-folder-label';
 import { ExtensionDetailDialog, ExtensionField, ExtensionSection } from './settings/extension-detail';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import './desktop/extension-dialog.css';
@@ -16,15 +17,6 @@ import {
   type CoreMemoryEntry,
   type ProjectMemoryCatalog,
 } from './project-editor-data';
-
-export function displayProjectFolder(path: string): string {
-  return (
-    path
-      .replace(/[\\/]+$/, '')
-      .split(/[\\/]/)
-      .at(-1) || path
-  );
-}
 
 type ProjectEditTarget = { path: string | null; title: string };
 type MemoryControl = (input: Record<string, unknown>) => Promise<unknown>;

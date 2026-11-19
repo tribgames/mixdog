@@ -14,7 +14,6 @@ import type { StudioPane as StudioPaneComponent } from './StudioView';
 import { studioViewModule } from './studio-loader';
 import { t } from './i18n';
 import { navigationKey } from './text-format';
-import { desktopFeatureEnabled } from './desktop-feature-config';
 import { loadWorktreeSettings } from './settings/worktree-settings-store';
 
 // Deferred module, not React.lazy: once loaded, the dialog renders in the same
@@ -33,11 +32,6 @@ export const loadOnboardingWizardModule = () => import('./settings/OnboardingWiz
 export const OnboardingWizard = lazy(() =>
   loadOnboardingWizardModule().then((module) => ({ default: module.OnboardingWizard }))
 );
-
-export function warmSettingsView() {
-  if (!desktopFeatureEnabled('settings')) return;
-  void loadSettingsViewModule().catch(() => {});
-}
 
 export function StableSessionTitle({
   title,

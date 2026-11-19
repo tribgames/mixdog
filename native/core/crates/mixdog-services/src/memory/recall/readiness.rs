@@ -1,11 +1,11 @@
-//! `embedRecallQuery` (`recall-embedding-readiness.mjs:28-68`): the vector of a recall query. A ready model embeds at once; a cold one
-//! that can warm up is warmed while the recall waits at most `wait` (`MIXDOG_RECALL_COLD_EMBED_WAIT_MS`, 3 s); past that the recall
-//! goes on lexically and the warmup keeps running, its late failure reported. A cancelled request ends the wait at once.
+//! Recall computes the requested vector, including on a cold host. The cold
+//! wait and cancellation bound the caller, not the admitted calculation.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+#[cfg(test)]
 use futures::future::BoxFuture;
 use tokio_util::sync::CancellationToken;
 
@@ -23,6 +23,7 @@ pub fn cold_embed_wait() -> Duration {
 
 /// What `embedRecallQuery` resolves to.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg(test)]
 pub enum RecallEmbedding<E> {
     Ready(Vec<f32>),
     Warmed(Vec<f32>),
@@ -32,6 +33,7 @@ pub enum RecallEmbedding<E> {
     Failed(E),
 }
 
+#[cfg(test)]
 impl<E> RecallEmbedding<E> {
     pub fn into_vector(self) -> Option<Vec<f32>> {
         match self {
@@ -43,15 +45,18 @@ impl<E> RecallEmbedding<E> {
 
 /// The options a recall's embed carries: `{ priority: true, inputType: 'query' }`.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg(test)]
 pub struct EmbedRequest {
     pub priority: bool,
     pub input_type: crate::memory::embed::config::InputType,
 }
 
+#[cfg(test)]
 const QUERY: EmbedRequest = EmbedRequest { priority: true, input_type: crate::memory::embed::config::InputType::Query };
 
 /// The embedder as the recall's wait sees it (Node's `isReady` / `canWarmup` / `warmup` / `embed` / `onWarmupError`).
 #[async_trait]
+#[cfg(test)]
 pub trait ColdEmbed: Send + Sync + 'static {
     type Error: Clone + std::fmt::Debug + Send + 'static;
     fn is_ready(&self) -> bool;
@@ -68,6 +73,7 @@ pub trait ColdEmbed: Send + Sync + 'static {
 }
 
 /// `embedRecallQuery(query, { …, signal, waitMs })`. `cancel` is the request's signal and `abort_reason` its reason (`abortReason`).
+#[cfg(test)]
 pub async fn embed_recall_query<E: ColdEmbed>(
     embedder: &Arc<E>,
     query: Option<&str>,
@@ -150,6 +156,7 @@ pub async fn embed_recall_query<E: ColdEmbed>(
 
 /// The embedding as work the service owns: a stopped request is released at once (`rpc.mjs:74-78`) and the embedding, with the
 /// model load it may wait on, runs on in its own task instead of being dropped with the caller's future.
+#[cfg(test)]
 async fn embed_owned<E: ColdEmbed>(
     embedder: &Arc<E>,
     text: &str,
@@ -178,6 +185,7 @@ async fn embed_owned<E: ColdEmbed>(
 
 /// What a cancelled recall's embedding ends with, as the awaited path surfaces it: an embedding error is silent there (the
 /// recall goes on lexical, `query_vector`) and here; a panic, which the awaited path resumes in its caller, is a warning.
+#[cfg(test)]
 fn report_detached_embedding<E: ColdEmbed, T>(embedder: &E, joined: Result<Result<T, E::Error>, tokio::task::JoinError>) {
     match joined {
         Err(error) if error.is_panic() => {
@@ -191,6 +199,7 @@ fn report_detached_embedding<E: ColdEmbed, T>(embedder: &E, joined: Result<Resul
 
 /// The wait's timer as a replay observes it (Node's recorder wraps `setTimeout` / `clearTimeout`).
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg(test)]
 pub(crate) enum TimerEvent {
     Armed(Duration),
     Cleared,
@@ -203,31 +212,76 @@ thread_local! {
     pub(crate) static TIMER_SEAM: std::cell::RefCell<Option<std::rc::Rc<dyn Fn(TimerEvent)>>> = const { std::cell::RefCell::new(None) };
 }
 
+#[cfg(test)]
 fn timer_event(event: TimerEvent) {
-    #[cfg(test)]
     TIMER_SEAM.with(|seam| {
         if let Some(seam) = seam.borrow().clone() {
             seam(event);
         }
     });
-    let _ = event;
 }
 
-/// The product's embedder for recall: the provider, warmable on demand unless this process is secondary
-/// (`embeddingOnDemandCanStart`, `memory-config-flags.mjs:53`).
+/// The product's embedder for recall. Secondary processes cannot submit model work.
 #[derive(Clone)]
 pub struct RecallEmbedder {
     provider: Arc<EmbeddingProvider>,
-    can_warmup: bool,
+    can_compute: bool,
+    db: Option<crate::memory::pg::db::Db>,
 }
 
 impl RecallEmbedder {
     pub fn new(provider: Arc<EmbeddingProvider>, secondary: bool) -> Self {
-        Self { provider, can_warmup: crate::tool_state::onnx_runtime_supported() && !secondary }
+        Self { provider, can_compute: crate::tool_state::onnx_runtime_supported() && !secondary, db: None }
+    }
+
+    pub(crate) fn with_schema(mut self, db: crate::memory::pg::db::Db) -> Self {
+        self.db = Some(db);
+        self
+    }
+
+    pub(crate) async fn query_vector_with_wait(
+        &self,
+        text: &str,
+        cancel: &CancellationToken,
+        wait: Duration,
+    ) -> crate::memory::error::Result<Option<Vec<f32>>> {
+        if !self.can_compute {
+            return Ok(None);
+        }
+        if cancel.is_cancelled() {
+            return Err(crate::memory::recall::aborted());
+        }
+        let (cold, work) = self.provider.admit_query(text);
+        let vector = tokio::select! {
+            biased;
+            () = cancel.cancelled() => return Err(crate::memory::recall::aborted()),
+            result = work => match result {
+                Ok(vector) => vector,
+                Err(error) => {
+                    tracing::warn!(%error, "recall embedding failed; searching text");
+                    return Ok(None);
+                }
+            },
+            // The provider owns admitted work in a task. Let it compute and
+            // cache this query even when the recall goes on with text only.
+            () = mixdog_rt::time::sleep(wait), if cold => return Ok(None),
+        };
+        if let (Some(vector), Some(db)) = (&vector, &self.db) {
+            tokio::select! {
+                biased;
+                () = cancel.cancelled() => return Err(crate::memory::recall::aborted()),
+                result = async {
+                    let client = db.client().await?;
+                    crate::memory::schema::record_vector_dims(&client, vector.len()).await
+                } => result?,
+            }
+        }
+        Ok(vector)
     }
 }
 
 #[async_trait]
+#[cfg(test)]
 impl ColdEmbed for RecallEmbedder {
     type Error = String;
 
@@ -236,7 +290,7 @@ impl ColdEmbed for RecallEmbedder {
     }
 
     fn can_warmup(&self) -> bool {
-        self.can_warmup
+        self.can_compute
     }
 
     fn warmup(&self) -> BoxFuture<'static, Result<(), String>> {
@@ -340,15 +394,7 @@ mod tests {
 
 #[async_trait]
 impl QueryEmbedder for RecallEmbedder {
-    /// `embedQuery(retrievalQuery, signal, …)` (`query-hybrid-search.mjs:39-52`): the request's signal ends the cold wait at once and the
-    /// recall with it (`abortReason(signal)`); the warmup goes on. An embed failure leaves the recall lexical, as Node's `embedText` answers.
     async fn query_vector(&self, text: &str, cancel: &CancellationToken) -> crate::memory::error::Result<Option<Vec<f32>>> {
-        let embedder = Arc::new(self.clone());
-        let aborted = || crate::memory::recall::aborted().message();
-        match embed_recall_query(&embedder, Some(text), cold_embed_wait(), cancel, aborted).await {
-            Ok(embedding) => Ok(embedding.into_vector().filter(|vector| !vector.is_empty())),
-            Err(_) if cancel.is_cancelled() => Err(crate::memory::recall::aborted()),
-            Err(_) => Ok(None),
-        }
+        self.query_vector_with_wait(text, cancel, cold_embed_wait()).await
     }
 }

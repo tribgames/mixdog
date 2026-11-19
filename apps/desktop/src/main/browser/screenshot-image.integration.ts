@@ -16,14 +16,14 @@ export function measureScreenshotReuse(data: string) {
     start = performance.now();
     const reused = validatedScreenshot(data, options, decode);
     after.push(performance.now() - start);
-    assert.equal(reused?.data, data);
+    assert.equal(reused?.base64, data);
     assert.ok(reused.width > 0 && reused.height > 0);
   }
   const median = (samples: number[]) => samples.sort((a, b) => a - b)[2];
   // PNG and JPEG both keep the exact encoding, and a real decoder rejects
   // corrupt bytes even when their signatures look plausible.
   const png = decode(Buffer.from(data, 'base64')).toPNG().toString('base64');
-  assert.equal(validatedScreenshot(png, normalizeScreenshotOptions({ format: 'png' }), decode)?.data, png);
+  assert.equal(validatedScreenshot(png, normalizeScreenshotOptions({ format: 'png' }), decode)?.base64, png);
   assert.equal(validatedScreenshot(Buffer.from([255, 216, 0, 255, 217]).toString('base64'), options, decode), null);
   return { reencodeMedianMs: median(before), reuseMedianMs: median(after) };
 }

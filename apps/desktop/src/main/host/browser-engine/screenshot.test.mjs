@@ -10,7 +10,7 @@ function jpegOf(bytes) {
   body[1] = 216;
   body[bytes - 2] = 255;
   body[bytes - 1] = 217;
-  return body.toString('base64');
+  return body;
 }
 
 function harness({ size = 1000, withheld = false, snapshotId = 'p1-s2', partialCrop = false } = {}) {
@@ -32,7 +32,7 @@ function harness({ size = 1000, withheld = false, snapshotId = 'p1-s2', partialC
     accessibilityRefs: { snapshotId, refs: new Map() },
   };
   const calls = [];
-  const shot = (extra) => ({ data: jpegOf(size), width: 800, height: 600, mimeType: 'image/jpeg', fullPage: false, ...extra });
+  const shot = (extra) => ({ bytes: jpegOf(size), width: 800, height: 600, mimeType: 'image/jpeg', fullPage: false, ...extra });
   const host = {
     screenshots: {
       capture: async (_guest, background, options) => {
@@ -67,7 +67,7 @@ function harness({ size = 1000, withheld = false, snapshotId = 'p1-s2', partialC
 test('a picture of 128 KiB or less travels inline, one byte more goes to the blob store', async () => {
   const inline = harness({ size: MAX_INLINE_SCREENSHOT_BYTES });
   const small = await inline.call({ format: 'jpeg' });
-  assert.equal(small.data, jpegOf(MAX_INLINE_SCREENSHOT_BYTES));
+  assert.equal(small.data, jpegOf(MAX_INLINE_SCREENSHOT_BYTES).toString('base64'));
   assert.equal(small.blob, undefined);
   assert.deepEqual([small.mimeType, small.width, small.height], ['image/jpeg', 800, 600]);
   assert.deepEqual(small.facts, { pageId: 'p1', seq: 1 });
@@ -75,7 +75,7 @@ test('a picture of 128 KiB or less travels inline, one byte more goes to the blo
 
   const large = harness({ size: MAX_INLINE_SCREENSHOT_BYTES + 1 });
   const big = await large.call({ format: 'jpeg' });
-  const bytes = Buffer.from(jpegOf(MAX_INLINE_SCREENSHOT_BYTES + 1), 'base64');
+  const bytes = jpegOf(MAX_INLINE_SCREENSHOT_BYTES + 1);
   assert.equal(big.data, undefined);
   assert.deepEqual(big.blob, { digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}`, size: bytes.length });
   assert.equal(large.puts.length, 2);

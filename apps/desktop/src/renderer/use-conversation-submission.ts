@@ -37,6 +37,7 @@ export function useConversationSubmission(
     promotedOwnDraft,
     routeSessionIdRef,
     armFollow,
+    resetTranscriptToLive,
     suppressDraftSubmitPaintHandoff,
   }: {
     draftMode: boolean;
@@ -45,6 +46,7 @@ export function useConversationSubmission(
     promotedOwnDraft: { current: boolean };
     routeSessionIdRef: { current: string };
     armFollow: () => void;
+    resetTranscriptToLive: () => void;
     suppressDraftSubmitPaintHandoff: { current: boolean };
   }
 ) {
@@ -84,7 +86,11 @@ export function useConversationSubmission(
   // Submit re-arms follow. The new row is an append, so virtual-core's
   // followOnAppend is the only end write.
   const armFollowOnSubmitRef = useRef(armFollow);
-  armFollowOnSubmitRef.current = armFollow;
+  armFollowOnSubmitRef.current = () => {
+    // A history page still in flight must not replace the tail after this send.
+    resetTranscriptToLive();
+    armFollow();
+  };
   const actions = useConversationComposerActions({
     armFollowOnSubmitRef,
     composerActions,

@@ -4,7 +4,8 @@ import type { Rectangle, WebContents } from 'electron';
 import { nativeImage } from 'electron';
 
 import { screenshotClipForElement } from './screenshot-clip';
-import { encodeImage, type BrowserScreenshotCapture } from './screenshot-engines';
+import { encodeImage } from './screenshot-engines';
+import type { EncodedBrowserScreenshot, ScreenshotCropInput } from './screenshot-image';
 import { normalizeScreenshotOptions } from './screenshot-policy';
 
 export type ScreenshotEncoding = { format?: unknown; quality?: unknown };
@@ -15,7 +16,7 @@ export type ScreenshotCapture = (
   background: boolean,
   rawOptions: ScreenshotEncoding & { fullPage?: unknown },
   signal?: AbortSignal
-) => Promise<BrowserScreenshotCapture>;
+) => Promise<ScreenshotCropInput>;
 
 interface ElementPageGeometry {
   viewport: { width: number; height: number };
@@ -35,7 +36,7 @@ export function createElementCapture(capture: ScreenshotCapture) {
     element: Rectangle,
     page: ElementPageGeometry,
     signal?: AbortSignal
-  ): Promise<BrowserScreenshotCapture & { partial: boolean }> {
+  ): Promise<EncodedBrowserScreenshot & { partial: boolean }> {
     const options = normalizeScreenshotOptions({ format: rawOptions.format, quality: rawOptions.quality });
     // The capture is asked in the caller's own terms: normalized options carry
     // a default quality, which a PNG request is not allowed to name.
@@ -50,7 +51,10 @@ export function createElementCapture(capture: ScreenshotCapture) {
       documentCapture?.shot.pageRect || page.viewport,
       shot
     );
-    const cropped = encodeImage(nativeImage.createFromBuffer(Buffer.from(shot.data, 'base64')).crop(rect), options);
+    // Native and stitched images still crop the encoded source: cropping the
+    // original pixels would skip the first JPEG encoding and change the crop.
+    const source = shot.cropSource ?? nativeImage.createFromBuffer(shot.bytes);
+    const cropped = encodeImage(source.crop(rect), options);
     if (!cropped) throw new Error('the element screenshot exceeded the image limits');
     return { ...cropped, partial };
   };
@@ -68,8 +72,8 @@ async function captureWithinDocument(
   element: Rectangle,
   scroll: { x: number; y: number },
   signal?: AbortSignal
-): Promise<{ shot: BrowserScreenshotCapture; documentRect: Rectangle } | null> {
-  let shot: BrowserScreenshotCapture;
+): Promise<{ shot: ScreenshotCropInput; documentRect: Rectangle } | null> {
+  let shot: ScreenshotCropInput;
   try {
     shot = await capture(guest, background, { ...rawOptions, fullPage: true }, signal);
   } catch (error) {

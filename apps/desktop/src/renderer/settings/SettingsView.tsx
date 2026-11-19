@@ -60,21 +60,11 @@ export type SettingsSection = (typeof SETTINGS_ITEMS)[number]['value'];
 
 type SettingsApi = Partial<DesktopApi>;
 
-export function preloadSettings(api: SettingsApi): Promise<unknown> {
-  return Promise.all([
-    preloadCapabilitySettings(api),
-    preloadGitPanelInfo(api),
-    preloadConnectionInfo(api, undefined, { activate: false }),
-    preloadDesktopStatus(api),
-    preloadProviderPanel(api),
-  ]);
-}
-
 export { preloadConnectionInfo };
 
 interface SettingsViewProps {
   api?: SettingsApi;
-  /** The parent mounts this dialog only while open. */
+  /** After the first open, the parent keeps the dialog mounted for reopening. */
   open?: boolean;
   initialSection?: SettingsSection | null;
   onCompose?: (text: string) => void;

@@ -65,6 +65,8 @@ export const CapabilitySettings = memo(function CapabilitySettings({
   const [confirmation, setConfirmation] = useState<SettingsConfirmation | null>(null);
   const [liveSnapshot, setLiveSnapshot] = useState<SessionSnapshot>(null);
   const [updaterState, setUpdaterState] = useState<DesktopUpdaterState>({ status: 'disabled' });
+  const [hasOpened, setHasOpened] = useState(active);
+  if (active && !hasOpened) setHasOpened(true);
   const activeRef = useRef(active);
   activeRef.current = active;
   const latestSnapshot = useRef(liveSnapshot);
@@ -113,10 +115,10 @@ export const CapabilitySettings = memo(function CapabilitySettings({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: api, refreshNonce and revision are re-read triggers; load itself only reads api.
   useEffect(() => {
-    // A hidden panel adopts the shared cache without another sweep. Every
-    // opening refreshes it: a two-second cache grace period could otherwise
-    // keep a change made while hidden invisible until a later visit.
-    void load(active);
+    // Idle warmup mounts hidden panels even with a cold cache. Only an
+    // active panel requests data; reopening paints cached data then refreshes.
+    if (!active) return;
+    void load(true);
     return () => {
       loadSequence.current += 1;
     };
@@ -138,6 +140,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
     [api]
   );
   useEffect(() => {
+    if (!hasOpened) return;
     let live = true;
     const receive = (snapshot: SessionSnapshot) => {
       if (!live) return;
@@ -155,9 +158,9 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       live = false;
       unsubscribe?.();
     };
-  }, [api]);
+  }, [api, hasOpened]);
   useEffect(() => {
-    if (serverWindow) return;
+    if (!hasOpened || serverWindow) return;
     let live = true;
     const receive = (next: DesktopUpdaterState) => {
       if (!live) return;
@@ -173,7 +176,7 @@ export const CapabilitySettings = memo(function CapabilitySettings({
       live = false;
       unsubscribe?.();
     };
-  }, [api]);
+  }, [api, hasOpened]);
 
   const extensionCategory =
     category === 'plugins' ||

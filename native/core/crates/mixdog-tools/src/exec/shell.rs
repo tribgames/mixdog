@@ -3,6 +3,7 @@
 //! work still running then moves to a tracked background task whose completion is pushed to the
 //! owner. Result texts follow `bash-tool/*.mjs` byte for byte.
 
+use std::borrow::Cow;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -43,14 +44,15 @@ use super::compact::plan;
 use super::compact::recovery_hint;
 use super::compact::still_worthwhile;
 use super::delivery::Piece;
+use super::delivery::ansi_stripped;
 use super::delivery::delivery_full_chars;
 use super::delivery::parse_int_prefix;
 use super::describe_type;
 use super::normalize_string_list_args;
-use super::text::strip_ansi;
 use super::delivery::fit_pieces;
 use super::delivery::render_shell_output_body;
 use super::delivery::shell_text_piece;
+use super::delivery::stripped_shell_piece;
 use super::env::ShellEnv;
 use super::env::env_flag;
 use crate::orch::util::spec_from_def;
@@ -497,33 +499,87 @@ fn exit_class_diagnostic(code: i32) -> String {
     String::new()
 }
 
-/// The streams of a finished foreground command in one delivery within the shared budget; each
-/// stream's marker names its own log unless compaction archived the full capture elsewhere. A
-/// stream memory no longer holds whole is read as its log (`foregroundPiece`: `shellLogPiece`).
-fn foreground_payload(job: &Job, compaction: Option<&Compaction>) -> String {
-    let (stdout, stderr) = job.captured();
-    let [spilled_out, spilled_err] = job.spilled_pieces();
-    let own = |log: &std::path::Path| shown_path(log);
-    let piece = |stream: &str, text: &str, spilled: Option<Piece>, log: &std::path::Path, compacted: Option<&String>| match (compacted, compaction) {
-        (Some(compacted), Some(c)) => {
-            if compacted.is_empty() {
-                Piece::empty()
-            } else {
-                let path = c.recovery.iter().find(|r| r.stream == stream).map_or_else(|| own(log), |r| r.path.clone());
-                shell_text_piece(compacted, &path)
-            }
-        }
-        _ => spilled.unwrap_or_else(|| shell_text_piece(text, &own(log))),
-    };
+fn compacted_payload(job: &Job, compaction: &Compaction) -> String {
     let pieces = [
-        piece("stdout", &stdout, spilled_out, &job.stdout_log, compaction.map(|c| &c.plan.stdout)),
-        piece("stderr", &stderr, spilled_err, &job.stderr_log, compaction.map(|c| &c.plan.stderr)),
-    ];
+        ("stdout", compaction.plan.stdout.as_str(), &job.stdout_log),
+        ("stderr", compaction.plan.stderr.as_str(), &job.stderr_log),
+    ].map(|(stream, compacted, log)| {
+        let path = compaction.recovery.iter().find(|r| r.stream == stream);
+        match path {
+            Some(r) => shell_text_piece(compacted, &r.path),
+            None => shell_text_piece(compacted, &shown_path(log)),
+        }
+    });
     let bodies = fit_pieces(&pieces, delivery_full_chars() - 1.0);
-    match compaction {
-        Some(c) => body_with_hint(&bodies[0], &bodies[1], &recovery_hint(c.plan.kind, &c.recovery)),
-        None => render_shell_output_body(&bodies[0], &bodies[1]),
+    body_with_hint(&bodies[0], &bodies[1], &recovery_hint(compaction.plan.kind, &compaction.recovery))
+}
+
+#[derive(Default)]
+struct ForegroundOutput {
+    payload: String,
+    exit: Option<ProcessExit>,
+    benign_search: bool,
+    hint: String,
+    attach_rescue: bool,
+}
+
+impl ForegroundOutput {
+    fn recheck_exit(
+        &mut self,
+        read_exit: impl FnOnce() -> Option<ProcessExit>,
+        settled_no_match: impl FnOnce() -> bool,
+    ) {
+        if self.exit.is_none() {
+            self.exit = read_exit();
+            self.benign_search = clean_exit_code(self.exit) == Some(1) && settled_no_match();
+        }
     }
+}
+
+fn clean_exit_code(exit: Option<ProcessExit>) -> Option<i32> {
+    match exit {
+        Some(ProcessExit { killed: None, status: ExitStatus::Code(code) }) => Some(code),
+        _ => None,
+    }
+}
+
+/// Share each stream's decoded capture between ordinary delivery and any diagnostics. Spilled
+/// delivery uses its bounded edges; only diagnostics can ask for the retained text of that stream.
+fn foreground_payload(
+    job: &Job,
+    cached: Option<[&str; 2]>,
+    exit: Option<ProcessExit>,
+    analysis_command: &str,
+    windows: bool,
+    rescue: bool,
+) -> ForegroundOutput {
+    job.foreground_streams(|[out, err]| {
+        let clean_exit = clean_exit_code(exit);
+        let check_benign = clean_exit == Some(1);
+        let err_edge = err.spilled_piece();
+        let err_raw = (cached.is_none() && (err_edge.is_none() || check_benign || ((rescue || windows) && clean_exit != Some(0))))
+            .then(|| err.capture());
+        let benign_search = check_benign
+            && is_benign_search_exit_one(analysis_command, 1, false, err_raw.as_deref().unwrap_or(""));
+        let may_have_failed = clean_exit != Some(0) && !benign_search;
+        let err_text = cached.map_or_else(|| ansi_stripped(err_raw.as_deref().unwrap_or("")), |text| text[1].into());
+        let hint = if windows && may_have_failed {
+            powershell_bashism_hint(analysis_command, &err_text)
+        } else {
+            String::new()
+        };
+        let check_stdout = rescue && may_have_failed && mixdog_js::js_trim(&err_text).is_empty();
+        let out_edge = out.spilled_piece();
+        let out_raw = (cached.is_none() && (out_edge.is_none() || check_stdout)).then(|| out.capture());
+        let out_text = cached.map_or_else(|| ansi_stripped(out_raw.as_deref().unwrap_or("")), |text| text[0].into());
+        let attach_rescue = check_stdout && mixdog_js::js_trim(&out_text).is_empty();
+        let pieces: [Piece<'_>; 2] = [
+            out_edge.unwrap_or_else(|| stripped_shell_piece(out_text, &shown_path(out.log))),
+            err_edge.unwrap_or_else(|| stripped_shell_piece(err_text, &shown_path(err.log))),
+        ];
+        let bodies = fit_pieces(&pieces, delivery_full_chars() - 1.0);
+        ForegroundOutput { payload: render_shell_output_body(&bodies[0], &bodies[1]), exit, benign_search, hint, attach_rescue }
+    })
 }
 
 struct Compaction {
@@ -531,41 +587,73 @@ struct Compaction {
     recovery: Vec<Recovery>,
 }
 
-/// `compactShellOutputLosslessly`: a plan that saves enough, with the full captures archived.
-async fn compaction_of(
+/// Keep the prepared memory capture only when the plan was rejected and ordinary
+/// delivery can reuse it. A spilled stream always uses its own edge delivery.
+async fn try_compaction(
     runtime: &ExecRuntime,
     ctx: &ToolContext,
     job: &Job,
     command: &str,
-    exit_code: i32,
-) -> Option<Compaction> {
-    let cap = crate::fs::common::output_max_bytes();
-    // Node spills a capture past the cap to its logs (`hasExistingRecovery`) and reads a smaller one whole. A capture whose
-    // start memory dropped but that the cap still holds (a cap above memory's) is read back whole from its logs, as Node
-    // holds it; one the logs cannot give whole is not compacted.
-    let produced = job.captured_bytes();
-    let (raw_out, raw_err) = if job.spilled() && produced <= cap {
+) -> (Option<Compaction>, Option<[String; 2]>) {
+    let Some((raw, spilled)) = compaction_input(runtime, ctx, job).await else { return (None, None) };
+    let stripped = raw.each_ref().map(|text| ansi_stripped(text));
+    let compacted = compaction_of(runtime, ctx, command, &raw, stripped.each_ref().map(|s| s.as_ref())).await;
+    if compacted.is_some() || spilled {
+        return (compacted, None);
+    }
+    let [out_stripped, err_stripped] = stripped.map(|text| match text {
+        Cow::Borrowed(_) => None,
+        Cow::Owned(text) => Some(text),
+    });
+    let [out, err] = raw;
+    (None, Some([out_stripped.unwrap_or(out), err_stripped.unwrap_or(err)]))
+}
+
+async fn compaction_input(
+    runtime: &ExecRuntime,
+    ctx: &ToolContext,
+    job: &Job,
+) -> Option<([String; 2], bool)> {
+    if job.captured_bytes() > crate::fs::common::output_max_bytes()
+        || runtime.config.data_dir.is_none()
+        || !env_flag("MIXDOG_SHELL_LOSSLESS_COMPACT", true)
+    {
+        return None;
+    }
+    // A configured cap above the memory limit can admit a spilled capture. Only its logs
+    // have the whole output. If either log is incomplete, keep the ordinary delivery instead.
+    let spilled = job.spilled();
+    let (out, err) = if spilled {
         job.captured_from_logs(runtime.config.lanes.interactive, &ctx.cancel).await?
     } else {
         job.captured()
     };
-    let (out, err) = (strip_ansi(&raw_out), strip_ansi(&raw_err));
+    Some(([out, err], spilled))
+}
+
+/// `compactShellOutputLosslessly`: a plan that saves enough, with the full captures archived.
+async fn compaction_of(
+    runtime: &ExecRuntime,
+    ctx: &ToolContext,
+    command: &str,
+    raw: &[String; 2],
+    [out, err]: [&str; 2],
+) -> Option<Compaction> {
     let plan = plan(
         command,
-        &out,
-        &err,
+        out,
+        err,
         &Outcome {
-            exit_code: Some(exit_code),
+            exit_code: Some(0),
             signal: false,
             timed_out: false,
-            // Node: `Boolean(stdoutPath || stderrPath)`, a capture that outgrew the cap and kept its log.
-            has_existing_recovery: produced > cap,
+            has_existing_recovery: false,
         },
     )?;
     let data_dir = runtime.config.data_dir.as_deref()?;
     let lane = runtime.config.lanes.durability;
     let mut recovery = Vec::new();
-    for (stream, raw) in [("stdout", &raw_out), ("stderr", &raw_err)] {
+    for (stream, raw) in ["stdout", "stderr"].into_iter().zip(raw) {
         if raw.is_empty() {
             continue;
         }
@@ -575,7 +663,7 @@ async fn compaction_of(
         return None;
     }
     let hint = recovery_hint(plan.kind, &recovery);
-    still_worthwhile(&out, &err, &plan, &hint).then_some(Compaction { plan, recovery })
+    still_worthwhile(out, err, &plan, &hint).then_some(Compaction { plan, recovery })
 }
 
 /// Result of a finished foreground command (`renderCompletedResult`).
@@ -591,36 +679,22 @@ async fn completed(
     rewrite_note: &str,
     timeout_ms: u64,
 ) -> ToolOutcome {
-    let compaction = match job.exit() {
+    let (compaction, cached) = match job.exit() {
         Some(ProcessExit { killed: None, status: ExitStatus::Code(0) }) => {
-            compaction_of(runtime, ctx, job, command, 0).await
+            try_compaction(runtime, ctx, job, command).await
         }
-        _ => None,
+        _ => (None, None),
     };
-    let mut payload = foreground_payload(job, compaction.as_ref());
-    // The result points at the logs: say when one of them lacks part of the output.
-    if let Some(note) = job.log_note() {
-        payload.push_str(&format!("\n\n{note}"));
-    }
     // The tee file is always consumed (deleted); its tail is attached only when the run failed
     // with an empty visible capture — the `(no output)` shape that cost extra diagnostic turns.
-    if let Some(tee) = tee_path {
+    let tee_tail = if let Some(tee) = tee_path {
         let lanes = runtime.config.lanes;
         let tail = spill::read_tee_tail(lanes.interactive, &ctx.cancel, tee, 16_384).await;
         spill::remove_file(lanes.durability, &ctx.cancel, tee).await;
-        let (raw_out, raw_err) = job.captured();
-        let visible_empty = mixdog_js::js_trim(&strip_ansi(&raw_out)).is_empty()
-            && mixdog_js::js_trim(&strip_ansi(&raw_err)).is_empty();
-        let failed_run = match job.exit() {
-            Some(ProcessExit { killed: None, status: ExitStatus::Code(code) }) => {
-                code != 0 && !is_benign_search_exit_one(analysis_command, code, false, &raw_err)
-            }
-            _ => true,
-        };
-        if let (true, true, Some(tail)) = (failed_run, visible_empty, tail) {
-            payload.push_str(&filter_rescue_note(&tail));
-        }
-    }
+        tail
+    } else {
+        None
+    };
     // The shell is gone but the runner saw live processes in its tree: they become a tracked task
     // so the caller leaves with a task_id that reads, completes on its own and cancels the set.
     let survivor_warning = runtime.track_survivors(job).map_or_else(String::new, |(tracked, survivors)| {
@@ -632,11 +706,47 @@ async fn completed(
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
-    let hint = if runtime.config.windows {
-        powershell_bashism_hint(analysis_command, &strip_ansi(&job.captured().1))
-    } else {
-        String::new()
+    let exit = job.exit();
+    let mut output = match compaction {
+        Some(c) => ForegroundOutput { payload: compacted_payload(job, &c), exit, ..ForegroundOutput::default() },
+        None => foreground_payload(
+            job,
+            cached.as_ref().map(|text| text.each_ref().map(String::as_str)),
+            exit,
+            analysis_command,
+            runtime.config.windows,
+            tee_tail.is_some(),
+        ),
     };
+    // The result points at the logs: say when one of them lacks part of the output.
+    if let Some(note) = job.log_note() {
+        output.payload.push_str(&format!("\n\n{note}"));
+    }
+    output.recheck_exit(
+        || job.exit(),
+        || {
+            // Only read stderr again after the collector has published a clean exit 1.
+            job.foreground_streams(|[_, err]| is_benign_search_exit_one(analysis_command, 1, false, &err.capture()))
+        },
+    );
+    render_foreground_result(output, command, &warning_block, timeout_ms, &ctx.cancel, tee_tail.as_deref())
+}
+
+#[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
+fn render_foreground_result(
+    output: ForegroundOutput,
+    command: &str,
+    warning_block: &str,
+    timeout_ms: u64,
+    cancel: &tokio_util::sync::CancellationToken,
+    tee_tail: Option<&str>,
+) -> ToolOutcome {
+    let ForegroundOutput { mut payload, exit, benign_search, hint, attach_rescue } = output;
+    let clean_exit = clean_exit_code(exit);
+    let benign = clean_exit == Some(1) && benign_search;
+    if attach_rescue && clean_exit != Some(0) && !benign && let Some(tail) = tee_tail {
+        payload.push_str(&filter_rescue_note(tail));
+    }
     // `_composeShellFailure`: the rewrite note rides the status; the PowerShell hint follows the
     // payload of a command that failed.
     let compose = |marker: String, error: bool, failed_command: bool| {
@@ -645,8 +755,8 @@ async fn completed(
         let shown = if (error || failed_command) && !hint.is_empty() { format!("{payload}\n{hint}") } else { payload.clone() };
         place_warnings_after_status(command, format!("{prefix}{marker}{notes}\n\n{shown}"))
     };
-    let Some(exit) = job.exit() else {
-        if ctx.cancel.is_cancelled() {
+    let Some(exit) = exit else {
+        if cancel.is_cancelled() {
             let text = compose("[shell-run-failed] [cause: cancellation; process exit not confirmed]".into(), true, false);
             let mut error = failed(ToolErrorCode::Cancelled, text);
             error.outcome_unknown = true;
@@ -693,8 +803,6 @@ async fn completed(
             ))
         }
         (None, ExitStatus::Code(code)) => {
-            let (_, raw_err) = job.captured();
-            let benign = is_benign_search_exit_one(analysis_command, code, false, &raw_err);
             let marker = format!(
                 "[exit code: {code}]{}{}",
                 if code != 0 { exit_class_diagnostic(code) } else { String::new() },
@@ -751,6 +859,42 @@ impl ShellTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancellation_reports_an_exit_confirmed_during_rendering() {
+        let cancel = tokio_util::sync::CancellationToken::new();
+        cancel.cancel();
+        let mut output = ForegroundOutput { payload: "partial output".into(), ..ForegroundOutput::default() };
+        output.recheck_exit(
+            || Some(ProcessExit { status: ExitStatus::Code(137), killed: Some(KillReason::Requested) }),
+            || false,
+        );
+        let error = render_foreground_result(output, "run", "", 0, &cancel, None).unwrap_err();
+        assert!(matches!(error.code, ToolErrorCode::Cancelled));
+        assert_eq!(
+            error.message_for_model,
+            "Error: [shell-run-failed] [signal: SIGKILL cause: cancellation]\n\npartial output",
+        );
+        assert!(error.partial.is_some());
+    }
+
+    #[test]
+    fn late_search_exit_one_uses_settled_stderr_for_no_match() {
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let command = "grep x f";
+        for (stderr, expected) in [
+            ("", "[exit code: 1]\n[outcome: no-match]\n\n(no output)"),
+            ("grep: read error\n", "[exit code: 1]\n\n(no output)"),
+        ] {
+            let mut output = ForegroundOutput { payload: "(no output)".into(), ..ForegroundOutput::default() };
+            output.recheck_exit(
+                || Some(ProcessExit { status: ExitStatus::Code(1), killed: None }),
+                || is_benign_search_exit_one(command, 1, false, stderr),
+            );
+            let result = render_foreground_result(output, command, "", 0, &cancel, None).unwrap();
+            assert!(matches!(result.parts.as_slice(), [ToolPart::Text(text)] if text == expected), "{stderr:?}");
+        }
+    }
 
     /// An integral number is an integer whatever its spelling (`90000.0`, `9e4`): both integer arguments reach the typed
     /// arguments as integers, and an over-long hold is still cut to the maximum.

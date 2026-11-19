@@ -86,8 +86,8 @@ test('a service recovery frame is delivered even when main encoder holds an iden
   t.after(() => f.bridge.dispose());
   f.handlers.get(DESKTOP_IPC.setVisibleSessions)({}, ['lead']);
   f.publish(f.frame('lead'));
-  // Lose main's cache but keep the encoder baseline.
-  f.bridge.latestSessionStates.delete('lead');
+  // Simulate a lost fallback cache without resetting the encoder baseline.
+  f.bridge.legacyState.latestSessionStates.delete('lead');
   f.resync('lead');
   assert.deepEqual(f.resyncRequests, ['lead']);
   f.publish(f.frame('lead'));

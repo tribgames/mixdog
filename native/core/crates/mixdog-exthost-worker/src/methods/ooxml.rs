@@ -47,9 +47,6 @@ fn text(ctx: CallCtx) -> HandlerResult {
         let options = ExtractOptions { max_output_bytes };
         return Ok(Outcome::value(json!({"text": extract_ooxml_text(&Unlaned, &file, &options)})));
     }
-    let Ok(bytes) = mixdog_fsio::read(&Unlaned, &file) else {
-        return Ok(Outcome::value(json!({"text": null})));
-    };
     let filename = match params.get("filename") {
         None | Some(Value::Null) => file.to_string_lossy().into_owned(),
         other => js_string(other),
@@ -59,6 +56,10 @@ fn text(ctx: CallCtx) -> HandlerResult {
         max_output_bytes,
         max_part_bytes: limit("maxPartBytes"),
         max_container_bytes: limit("maxContainerBytes"),
+    };
+    // The inflation budget applies to extracted parts, not the archive that contains them.
+    let Ok(bytes) = mixdog_fsio::read(&Unlaned, &file) else {
+        return Ok(Outcome::value(json!({"text": null})));
     };
     Ok(Outcome::value(json!({"text": try_extract_ooxml_text_from_buffer(&bytes, &filename, &limits)})))
 }

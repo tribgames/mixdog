@@ -715,6 +715,8 @@ export interface DesktopApi {
   subscribeRemoteClientClaim?(listener: (claim: DesktopRemoteClientClaim) => void): () => void;
   listRemoteClientClaims?(): Promise<DesktopRemoteClientClaim[]>;
   resolveRemoteClientClaim?(claimId: string, approved: boolean): Promise<boolean>;
+  /** A persisted transcript tail for paint only. Does not open or follow the session. */
+  previewSession?(sessionId: string): Promise<SessionSnapshot>;
   prefetchSession?(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean>;
   /** A historical-position read (rows next to one row), outside the session's
    *  shared window: nothing is published. */
@@ -722,8 +724,8 @@ export interface DesktopApi {
     sessionId: string,
     request: DesktopTranscriptHistoryRequest
   ): Promise<DesktopTranscriptHistoryPage>;
-  /** Replay a visible lane after its read ACK arrived without a renderer baseline. */
-  resyncSessionState?(sessionId: string, options?: { fresh?: boolean }): void | Promise<boolean>;
+  /** Replay a visible lane after its renderer baseline was lost. `cachedOnly` only redelivers an already published live frame. */
+  resyncSessionState?(sessionId: string, options?: { fresh?: boolean; cachedOnly?: boolean }): void | Promise<boolean>;
   /** Register every visible session for owner-pipe mirroring. */
   setVisibleSessions?(sessionIds: string[]): Promise<boolean>;
   /** `includeIgnored` also searches gitignored folders (chat file links);
@@ -1079,7 +1081,7 @@ export interface DesktopApi {
   /** Runtime unload frees pixels but retains the session's dock selection. */
   onBrowserSessionReleased?(listener: (sessionId: string, reason?: 'unloaded' | 'gone') => void): () => void;
   /** Bind one persistent guest to its owning conversation session. */
-  browserSetActiveGuest?(sessionId: string, webContentsId: number, active: boolean): Promise<void>;
+  browserSetActiveGuest?(sessionId: string, webContentsId: number, active: boolean, pixels?: boolean, pane?: string): Promise<void>;
   /** Pane `pane` (unique per activation) started (`true`) or stopped reading
    *  the session's pages. */
   browserPanelShown?(sessionId: string, shown: boolean, pane: string): Promise<void>;
@@ -1087,10 +1089,11 @@ export interface DesktopApi {
   browserReleasePage?(pageId: string): Promise<void>;
   browserPageFrame?(
     sessionId: string,
-    previousFrameId?: string
+    previousFrameId?: string,
+    canvasId?: string
   ): Promise<DesktopBrowserPageFrame | DesktopBrowserPageResample>;
   browserPresentTexture?(sessionId: string, textureId: string, canvasId: string): void;
-  browserDiscardTexture?(sessionId: string): void;
+  browserDiscardTexture?(sessionId: string, canvasId: string): void;
   browserPageControl?(
     sessionId: string,
     input: DesktopBrowserPageControl

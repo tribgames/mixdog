@@ -39,6 +39,7 @@ export interface SessionLanes {
   readonly service: ServiceLane;
   readonly session: SessionLane;
   readonly shell: ShellState;
+  onAttached(listener: (sessionId: string) => void): void;
 }
 
 const lanes = new WeakMap<DirectContext, SessionLanes>();
@@ -55,6 +56,7 @@ export function sessionLanesOf(ctx: DirectContext): SessionLanes {
   if (held) return held;
   let snapshot = null as SessionSnapshot;
   const listeners = new Set<(snapshot: SessionSnapshot) => void>();
+  let attached: ((sessionId: string) => void) | undefined;
   const shell: ShellState = {
     get: () => snapshot,
     publish(next) {
@@ -72,9 +74,13 @@ export function sessionLanesOf(ctx: DirectContext): SessionLanes {
     service: createServiceLane({
       protocol: ctx.connection,
       snapshot: () => shell.get() ?? ({ remoteSessionId: remoteSessionIdOfWindow(ctx) } as unknown as SessionSnapshot),
+      onAttached: (id) => attached?.(id),
     }),
     session: createSessionLane({ protocol: ctx.connection }),
     shell,
+    onAttached(listener) {
+      attached = listener;
+    },
   };
   lanes.set(ctx, made);
   return made;
@@ -99,7 +105,7 @@ type SessionsApi = Pick<DesktopApi, DirectKey<'sessions'>>;
 
 export function createSessionsApi(ctx: DirectContext): SessionsApi {
   const { connection } = ctx;
-  const { capability, service, session, shell } = sessionLanesOf(ctx);
+  const { capability, service, session, shell, onAttached } = sessionLanesOf(ctx);
   const svc = <T>(method: string, args: unknown[] = []): Promise<T> => withDirectErrors(service.call<T>(method, args));
 
   // ── the session states a window is shown (ipc-state-bridge.ts) ──
@@ -107,7 +113,7 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
   const reads = createSessionReadWindow();
   const readTraces = new Map<string, { sessionId: string; timer: ReturnType<typeof setTimeout> }>();
   const recoveries = new Map<string, ReturnType<typeof setTimeout>>();
-  const latest = new Map<string, Pick<DesktopSessionStateUpdate, 'snapshot' | 'frameSource' | 'contentRevision'>>();
+  const latest = new Map<string, Omit<DesktopSessionStateUpdate, 'readTraceId'>>();
   const stateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
   let visibleVersion = 0;
 
@@ -150,6 +156,7 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
       reportTranscriptRead(sessionId, update.readTraceId, 'ipc-hidden');
       return;
     }
+    if (update.snapshot && !answersRead && service.isReleasingThread(sessionId)) return;
     if (update.snapshot === null) {
       latest.delete(sessionId);
       emit(update);
@@ -157,15 +164,21 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
     }
     // The lane publishes a thread only when what its state is made of changed (session-lane.ts), so nothing here
     // re-encodes the state to find that out; the lane store keeps every unchanged row and field of a state it is handed.
-    latest.set(sessionId, {
-      snapshot: update.snapshot,
-      frameSource: update.frameSource,
-      ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
-    });
-    reportTranscriptRead(sessionId, update.readTraceId, 'ipc-send');
+    const { readTraceId, ...baseline } = update;
+    latest.set(sessionId, baseline);
+    reportTranscriptRead(sessionId, readTraceId, 'ipc-send');
     emit(update);
   };
   session.subscribeSessionStates(receive);
+  onAttached((id) => {
+    if (!visible.has(id) || latest.get(id)?.frameSource === 'live') return;
+    // Current-cursor restore emits no new fold. The lane defers if a snapshot or missed events still owe a fold.
+    const client = connection.protocolClient();
+    const subscription = client?.threadSubscription(id);
+    if (subscription?.followed) {
+      session.requestSessionStateResync(id);
+    }
+  });
   // A thread nothing in this window shows or reads is not projected at all.
   session.setInterest(
     (sessionId) =>
@@ -266,6 +279,7 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
     },
 
     // ── the transcript ──
+    previewSession: (sessionId) => withDirectErrors(session.previewSession(trimmed(sessionId))),
     prefetchSession(sessionId, transcriptItemLimit, readTraceId) {
       const id = trimmed(sessionId);
       const limit = typeof transcriptItemLimit === 'number' ? Math.min(transcriptItemLimit, TRANSCRIPT_WINDOW_MAX_ITEMS) : undefined;
@@ -309,7 +323,12 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
     sessionStreamPosition: async (sessionId) => connection.protocolClient()?.feedPosition(trimmed(sessionId)) ?? null,
     resyncSessionState(sessionId, options) {
       const id = String(sessionId || '');
-      if (!isSessionId(id)) return;
+      if (!isSessionId(id) || session.transcriptPending(id)) return;
+      const held = latest.get(id);
+      if (options?.cachedOnly) {
+        if (visible.has(id) && held?.frameSource === 'live') receive(held);
+        return;
+      }
       // `fresh`: the existing fold projected anew, with no transcript fetched (the held frame may show a request the client
       // no longer holds). Without a fold nothing is published; one bounded read is attempted, which no caller waits on.
       if (options?.fresh) {
@@ -321,8 +340,7 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
           new Promise<boolean>((resolve) => setTimeout(resolve, SESSION_RECOVERY_COALESCE_MS, false)),
         ]);
       }
-      const held = latest.get(id);
-      if (held) receive({ sessionId: id, ...held });
+      if (held) receive(held);
       else requestRecovery(id);
     },
   };

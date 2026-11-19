@@ -83,25 +83,38 @@ pub(super) fn is_type_face_of(impl_rel: &str, type_rel: &str) -> bool {
     dir_of(impl_rel) == dir_of(type_rel) && module_stem(impl_rel) == module_stem(type_rel)
 }
 
-fn rel_rank(hit: &Hit) -> (bool, bool, usize) {
+fn rel_rank(rel: &str) -> (bool, bool, usize) {
     (
-        is_type_declaration_rel(&hit.rel),
-        hit.rel.starts_with("src/"),
-        hit.rel.split('/').count(),
+        is_type_declaration_rel(rel),
+        rel.starts_with("src/"),
+        rel.split('/').count(),
     )
 }
 
-pub(super) fn compare_hits(a: &Hit, b: &Hit) -> Ordering {
+fn compare_rel_rank(a: &str, b: &str) -> Ordering {
     let (ta, sa, da) = rel_rank(a);
     let (tb, sb, db) = rel_rank(b);
+    ta.cmp(&tb).then(sb.cmp(&sa)).then(da.cmp(&db))
+}
+
+pub(super) fn compare_hits(a: &Hit, b: &Hit) -> Ordering {
     b.declaration_like
         .cmp(&a.declaration_like)
-        .then(ta.cmp(&tb))
-        .then(sb.cmp(&sa))
-        .then(da.cmp(&db))
+        .then_with(|| compare_rel_rank(&a.rel, &b.rel))
         .then(b.match_count.cmp(&a.match_count))
         .then_with(|| name_cmp(&a.rel, &b.rel))
         .then(a.line.cmp(&b.line))
+}
+
+/// A native hit has fixed declaration and occurrence ranks. Rank its location before copying
+/// paths and signatures into rendered hits.
+pub(super) fn compare_native_declarations(
+    (a, a_sym): (&Node, &SymbolInfo),
+    (b, b_sym): (&Node, &SymbolInfo),
+) -> Ordering {
+    compare_rel_rank(&a.rel, &b.rel)
+        .then_with(|| name_cmp(&a.rel, &b.rel))
+        .then(a_sym.start_line.cmp(&b_sym.start_line))
 }
 
 fn sorted(mut hits: Vec<Hit>) -> Vec<Hit> {
@@ -270,13 +283,8 @@ pub(super) fn pick_declaration(hits: &[Hit], prefer_rel: Option<&str>) -> Option
     {
         return Some(h.clone());
     }
-    let mut ranked = hits.to_vec();
-    ranked.sort_by(compare_hits);
-    ranked
-        .iter()
-        .find(|h| h.declaration_like)
-        .or(ranked.first())
-        .cloned()
+    // compare_hits puts declarations first; min_by, like the stable sort, keeps the first tie.
+    hits.iter().min_by(|a, b| compare_hits(a, b)).cloned()
 }
 
 /// Declaration body with line numbers.

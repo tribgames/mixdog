@@ -2,7 +2,6 @@ import { startTransition, useEffect, useRef, useState, type Dispatch, type SetSt
 import { preloadAgentPool } from './AgentActivityPane';
 import {
   loadOnboardingWizardModule,
-  loadSettingsViewModule,
   loadSidebarPanelModule,
   type SidebarPanelKey,
 } from './app-shell-components';
@@ -10,7 +9,6 @@ import {
   preloadSessionGoalIsland,
   preloadUtilityDock,
   prewarmUtilityDockGitState,
-  requestSessionRead,
   utilityDockModule,
 } from './app-snapshot-views';
 import { armBootWarmup, BOOT_WARMUP, BOOT_WARMUP_ARM_DELAY_MS, scheduleBootWarmup } from './boot-warmup';
@@ -36,7 +34,8 @@ import { connectionQuality } from './network-conditions';
 import { paneActiveSessionIds } from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
 import { isMobileDeviceSurface } from './mobile-surface';
-import { isNativeDesktopWindow, isRemoteHostRenderer } from './remote-ui-projection';
+import { isElectronRenderer, isNativeDesktopWindow, isRemoteHostRenderer } from './remote-ui-projection';
+import { previewSessionTranscript, requestSessionRead, usesVisibleSessionActivation } from './session-read-request';
 import { DEFAULT_SIDEBAR_VIEW_ORDER } from './sidebar-view-layout';
 import { loadStudioViewModule } from './studio-loader';
 import { asRecord, navigationKey } from './text-format';
@@ -61,33 +60,10 @@ type ShellPanels = ReturnType<typeof useAppShellPanels>;
 type SidebarModuleTracker = ShellPanels['trackSidebarPanelModule'];
 type WarmupWorkspace = Pick<ReturnType<typeof usePaneWorkspace>, 'leaves' | 'focusedLeafId'>;
 
-/** A phone keeps the panels it does not show at start (Settings and the rail
- *  panels: Workflows, Extensions, Schedules, Webhooks, Projects) cold while
- *  its first screen loads — the rail panels until its idle lane opens after
- *  the first conversation painted, Settings until it opens: their hidden
- *  mounts are capability reads queued on the relay
- *  link and main-thread work on a slow CPU, for surfaces most opens never
- *  visit. Desktop windows keep warming them. */
+/** A phone keeps its secondary rail panels cold until its idle lane opens
+ *  after the first conversation paints. */
 function hiddenPanelsStayCold(): boolean {
   return isMobileDeviceSurface();
-}
-
-export function useAppSettingsMount(settingsOpen: boolean) {
-  const settingsMounted = useRef(false);
-  if (settingsOpen) settingsMounted.current = true;
-  const [settingsPrewarmed, setSettingsPrewarmed] = useState(false);
-  useEffect(() => {
-    if (!desktopFeatureEnabled('settings') || settingsPrewarmed || hiddenPanelsStayCold()) return undefined;
-    return scheduleBootWarmup({
-      id: 'settings:mount',
-      priority: BOOT_WARMUP.settingsMount,
-      run: () =>
-        loadSettingsViewModule()
-          .then(() => setSettingsPrewarmed(true))
-          .catch(() => {}),
-    });
-  }, [settingsPrewarmed]);
-  return { settingsMounted, settingsPrewarmed };
 }
 
 /** The phone's side-sheet panes (Changes' diff view, Terminal, Browser,
@@ -150,11 +126,6 @@ export function useAppModuleWarmup(startupSettled: boolean, trackSidebarPanelMod
     if (!startupSettled) return undefined;
     const nativeWindow = isNativeDesktopWindow();
     const cancels = [
-      scheduleBootWarmup({
-        id: 'module:studio',
-        priority: BOOT_WARMUP.studioModule,
-        run: () => loadStudioViewModule().catch(() => {}),
-      }),
       // Monaco + the Markdown preview. A phone opens no file at start, so it
       // takes them, with the other side-sheet panes, at the lane's tail. A
       // desktop window no longer takes them at boot: Monaco's chunk (about
@@ -162,34 +133,39 @@ export function useAppModuleWarmup(startupSettled: boolean, trackSidebarPanelMod
       // window that never opened a file. The intents that lead to the editor
       // (the file chooser, a file link, editor navigation) prefetch it.
       ...(hiddenPanelsStayCold() ? phoneSheetPaneWarmups() : []),
-      // The /context · /usage dialog chunk. Warmed on a native window too, so
-      // the first open does not pay the whole import; the idle lane still
-      // yields to input.
-      scheduleBootWarmup({
-        id: 'module:command-surface',
-        priority: BOOT_WARMUP.commandSurfaceModule,
-        run: () => loadCommandSurfaceModule().catch(() => {}),
-      }),
       scheduleBootWarmup({
         id: 'module:session-goal',
         priority: BOOT_WARMUP.sessionGoalModule,
         run: () => preloadSessionGoalIsland().catch(() => {}),
       }),
-      // Surfaces kept off the first screen's bundle, one per idle slice, so
-      // their first open renders at once instead of through a placeholder.
-      // Phones never render the starter guide.
-      ...Object.entries(FIRST_SCREEN_DEFERRED_MODULES).flatMap(([name, module]) =>
-        name === 'starter-guide' && hiddenPanelsStayCold()
-          ? []
-          : [
-              scheduleBootWarmup({
-                id: `module:deferred:${name}`,
-                priority: BOOT_WARMUP.surfaceChunk,
-                run: () => module.load().catch(() => {}),
-              }),
-            ]
-      ),
     ];
+    // In Electron these surfaces already load on restore, mount or open.
+    // Keep the browser's idle warmup: its first open otherwise pays the relay
+    // round trip for code as well as data.
+    if (!isElectronRenderer()) {
+      cancels.push(
+        scheduleBootWarmup({
+          id: 'module:studio',
+          priority: BOOT_WARMUP.studioModule,
+          run: () => loadStudioViewModule().catch(() => {}),
+        }),
+        scheduleBootWarmup({
+          id: 'module:command-surface',
+          priority: BOOT_WARMUP.commandSurfaceModule,
+          run: () => loadCommandSurfaceModule().catch(() => {}),
+        })
+      );
+      for (const [name, module] of Object.entries(FIRST_SCREEN_DEFERRED_MODULES)) {
+        if (name === 'starter-guide' && hiddenPanelsStayCold()) continue;
+        cancels.push(
+          scheduleBootWarmup({
+            id: `module:deferred:${name}`,
+            priority: BOOT_WARMUP.surfaceChunk,
+            run: () => module.load().catch(() => {}),
+          })
+        );
+      }
+    }
     // The subscription usage that dialog opens on: its first open after boot
     // waited on a cold ledger read (user: 처음에 유즈에이지 창 눌러서 진입할 때
     // 바로 안 나오네). A remote client reads it when the dialog opens instead.
@@ -258,7 +234,7 @@ export function useStartupCommitMeasurement() {
   }, []);
 }
 
-export function useAppSettingsPreload() {
+export function useAppAgentRailPreload() {
   useEffect(() => {
     // The agents panel is not on a phone's first screen: its catalog read
     // waits in the idle lane, behind the opening conversation.
@@ -283,21 +259,6 @@ export function useAppSettingsPreload() {
     return () => {
       for (const cancel of cancels) cancel();
     };
-  }, []);
-  // The capability sweep remains behind the opening conversation in the idle lane.
-  useEffect(() => {
-    if (!desktopFeatureEnabled('settings') || hiddenPanelsStayCold()) return undefined;
-    return scheduleBootWarmup({
-      id: 'settings:preload',
-      priority: BOOT_WARMUP.settingsPreload,
-      run: () =>
-        loadSettingsViewModule()
-          .then((module) => {
-            const host = window.mixdogDesktop;
-            return host ? module.preloadSettings(host).catch(() => {}) : undefined;
-          })
-          .catch(() => {}),
-    });
   }, []);
 }
 
@@ -358,8 +319,8 @@ export function useAppOnboarding(setSettingsOpen: Dispatch<SetStateAction<boolea
     void invokeOrHeld<RecordValue>(window.mixdogDesktop, { capability: 'getOnboardingStatus' })
       .then(async (result) => {
         if (asRecord(result?.value)?.completed !== false) return;
-        // Load both chunks before mounting the wizard to retain the current frame.
-        await Promise.all([loadSettingsViewModule(), loadOnboardingWizardModule()]).catch(() => undefined);
+        // Keep the current frame while the wizard loads; Settings is not part of it.
+        await loadOnboardingWizardModule().catch(() => undefined);
         if (live) setOnboardingOpen(true);
       })
       .catch(() => {})
@@ -410,9 +371,9 @@ export function useAppWorkspaceWarmup({
   mountSidebarPanel: ShellPanels['mountSidebarPanel'];
   trackSidebarPanelModule: SidebarModuleTracker;
 }) {
-  // Native panes warm active transcripts; a phone keeps background data cold.
+  // The core-direct visible panes already get a live tail from registration.
   useEffect(() => {
-    if (!ready || backgroundWarmupThrottled()) return undefined;
+    if (!ready || usesVisibleSessionActivation() || backgroundWarmupThrottled()) return undefined;
     const sessionIds = paneActiveSessionIds(workspace.leaves, workspace.focusedLeafId);
     if (sessionIds.length === 0) return undefined;
     const cancels = sessionIds.map((sessionId, index) =>
@@ -426,11 +387,10 @@ export function useAppWorkspaceWarmup({
       for (const cancel of cancels) cancel();
     };
   }, [ready, workspace.focusedLeafId, workspace.leaves]);
-  // Once per boot, after the catalog lands: a session opened earlier was
-  // cold again after every restart (0.3-1.5s disk parse on its first click).
+  // Once per boot, preview recent transcripts without opening their runtimes.
   const recentWarmed = useRef(false);
   useEffect(() => {
-    if (!ready || recentWarmed.current || backgroundWarmupThrottled() || sessions.length === 0) return;
+    if (!ready || recentWarmed.current || !usesVisibleSessionActivation() || sessions.length === 0) return;
     recentWarmed.current = true;
     const open = new Set(paneActiveSessionIds(workspace.leaves, workspace.focusedLeafId));
     sessions
@@ -441,7 +401,7 @@ export function useAppWorkspaceWarmup({
         scheduleBootWarmup({
           id: `transcript:${session.id}`,
           priority: BOOT_WARMUP.recentTranscript + index,
-          run: () => requestSessionRead(session.id),
+          run: () => previewSessionTranscript(session.id),
         });
       });
   }, [ready, sessions, workspace.focusedLeafId, workspace.leaves]);

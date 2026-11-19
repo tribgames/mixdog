@@ -151,7 +151,7 @@ export interface BrowserHost {
    *  reloads when it still exists and nothing would be lost
    *  (login-takeover.ts); true when it did. */
   reloadAfterSignIn(sessionId: string, id: string): Promise<boolean>;
-  setGuestActive(sessionId: string, webContentsId: number, active: boolean): void;
+  setGuestActive(sessionId: string, webContentsId: number, active: boolean, pixels?: boolean): void;
   /** Pane `pane` of shell `sender` started (`true`) or stopped reading the
    *  session's pages: opening asks for its page (the blank start page if it
    *  has none), and the last one closing confirms a fold (panel-fold). */
@@ -385,6 +385,7 @@ export function createBrowserHost(
   const browserHost: BrowserHost = {
     ...createBrowserHostDisplayMethods({
       sessions,
+      displayTextures: base.displayTextures,
       presentationReads: shown.presentationReads,
       pageSurface: shown.pageSurface,
       remoteDrive: shown.remoteDrive,

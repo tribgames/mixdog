@@ -13,6 +13,9 @@ const { createRoot } = await import('react-dom/client');
 const { flushSync } = await import('react-dom');
 const { useAppSessionOpen, beginProjectNavigation } = await import('./app-shell-session-open.ts');
 const { defaultSessionLaneStore } = await import('./session-lane-store.ts');
+const { useVisibleSessions } = await import('./use-visible-sessions.ts');
+const { useSessionLaneRead } = await import('./use-session-lane-read.ts');
+const { requestSessionRead } = await import('./session-read-request.ts');
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -20,7 +23,7 @@ const lane = (sessionId) => ({ sessionId, snapshot: { sessionId, items: [{ id: `
 
 /** The state a sidebar click drives: the selected session, its requested id
  *  and every committed pair. */
-function mount(t) {
+function mount(t, register = false, observed = []) {
   const root = createRoot(document.querySelector('main'));
   t.after(async () => act(async () => root.unmount()));
   const commits = [];
@@ -29,6 +32,15 @@ function mount(t) {
     const [selected, setSelected] = React.useState('a');
     const [requested, setRequested] = React.useState('');
     const navigationEpoch = React.useRef(0);
+    useVisibleSessions(register ? [...new Set([...observed, selected])] : []);
+    const { retryRead } = useSessionLaneRead({
+      sessionId: selected,
+      hasLane: false,
+      hidden: !register,
+      reconcileOnMount: true,
+      read: requestSessionRead,
+    });
+    handle.retry = retryRead;
     const { openSession } = useAppSessionOpen({
       navigationEpoch,
       closeSidebarForNavigation() {},
@@ -101,6 +113,37 @@ test('a cold sidebar click selects at once and drops its requested id after the 
   assert.equal(view.read().requested, '');
 });
 
+test('a core-direct cold click selects immediately and asks only the visible subscription for its first state', async (t) => {
+  const registrations = [];
+  const reads = [];
+  window.mixdogDesktop = {
+    previewSession: async () => null,
+    prefetchSession: async (id) => {
+      reads.push(id);
+      defaultSessionLaneStore.apply(lane(id));
+      return true;
+    },
+    setVisibleSessions: async (ids) => {
+      registrations.push(ids);
+      return true;
+    },
+  };
+  t.after(() => delete window.mixdogDesktop);
+  const view = mount(t, true);
+  await act(async () => view.root.render(React.createElement(view.Harness)));
+  registrations.length = 0;
+  await act(async () => {
+    flushSync(() => void view.handle.openSession('direct-cold'));
+    assert.equal(view.read().selected, 'direct-cold');
+  });
+  assert.deepEqual(registrations, [['direct-cold']]);
+  assert.deepEqual(reads, [], 'no parallel activation through a one-shot read');
+  await act(async () => view.handle.retry());
+  assert.deepEqual(reads, ['direct-cold'], 'explicit Retry can still request a frame');
+  await act(async () => flushSync(() => void view.handle.openSession('next-cold')));
+  assert.deepEqual(reads, ['direct-cold'], 'Retry does not carry over to the next session');
+});
+
 test('entering a project while a cold open is in flight drops its requested id; the late read does not restore it', async (t) => {
   const view = mount(t);
   await act(async () => view.root.render(React.createElement(view.Harness)));
@@ -117,4 +160,36 @@ test('entering a project while a cold open is in flight drops its requested id; 
   assert.equal(view.read().requested, '', 'the sidebar identity is no longer pinned to the abandoned open');
   await act(async () => finishRead());
   assert.equal(view.read().requested, '');
+});
+
+test('opening an observed session with evicted paint recovers the delivered frame without a cold read', async (t) => {
+  const calls = [];
+  const id = 'observed-cold';
+  const frame = { ...lane(id), frameSource: 'live' };
+  window.mixdogDesktop = {
+    previewSession: async () => null,
+    prefetchSession: async (id) => calls.push(['read', id]),
+    setVisibleSessions: async (ids) => {
+      calls.push(['register', ids]);
+      return true;
+    },
+    resyncSessionState: (id, options) => {
+      calls.push(['recover', id, options]);
+      if (id === frame.sessionId && options?.cachedOnly) defaultSessionLaneStore.apply(frame);
+    },
+  };
+  defaultSessionLaneStore.apply(frame);
+  const view = mount(t, true, ['a', id]);
+  t.after(() => {
+    delete window.mixdogDesktop;
+    defaultSessionLaneStore.clear();
+  });
+  await act(async () => view.root.render(React.createElement(view.Harness)));
+  defaultSessionLaneStore.evictInactive();
+  assert.equal(defaultSessionLaneStore.get(id), null);
+  calls.length = 0;
+  await act(async () => flushSync(() => void view.handle.openSession(id)));
+  assert.equal(view.read().selected, id);
+  assert.equal(defaultSessionLaneStore.get(id).items[0].id, `${id}-1`);
+  assert.deepEqual(calls, [['recover', id, { cachedOnly: true }]]);
 });

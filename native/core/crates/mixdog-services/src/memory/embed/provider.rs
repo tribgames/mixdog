@@ -1,22 +1,8 @@
-//! The embedding model as recall sees it. Three defined states give a vector or none:
-//!
-//! - ready: the query is embedded; a recall that finds the model cold warms it
-//!   within its bounded wait (`recall/readiness.rs` `RecallEmbedder`, the one
-//!   cold wait), then runs on its text lanes while the load goes on;
-//! - not installed: no vector, so the recall runs on its text lanes. Installing
-//!   is a separate, progress-driven step ([`EmbeddingProvider::install`]) the
-//!   host starts; a recall never waits for a download;
-//! - failed: the load failed and recall runs on its text lanes; the next
-//!   request starts a fresh host.
-//!
-//! A loaded model is released after an idle window (`IDLE_TIMEOUT`, the worker's idle dispose): a
-//! disposed model costs a reload, so the window is long, and a backlog being worked holds it warm
-//! ([`EmbeddingProvider::hold_warm`]).
+//! Explicit installation owns the model files. Only uncached vector work owns a running host.
 
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use std::time::Duration;
 
 use mixdog_js::{js_trim};
@@ -26,29 +12,40 @@ use mixdog_rt::time::Instant;
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 
-use crate::memory::embed::config;
-use crate::memory::embed::engine::EmbedConfig;
+use crate::memory::embed::config::{self, InputType};
+use crate::memory::embed::engine::{EmbedConfig, VectorCache};
 use crate::memory::embed::host::{Embedder, Lifecycle};
 use crate::model_host::WaitError;
 use crate::memory::embed::{compress, install};
 use crate::model_install::{InstallError, ProgressSink};
 use crate::tool_state::{StateTick, onnx_runtime_supported};
 
-/// How long a loaded model may sit unused. Node's worker kept it five minutes (`IDLE_TIMEOUT_MS`); three here: the model
-/// is 170 MB resident and loads again in a few seconds.
-pub const IDLE_TIMEOUT: Duration = Duration::from_secs(3 * 60);
-/// `EMBED_KEEP_WARM_MS`: how long a backlog being worked keeps the model resident.
-pub const KEEP_WARM: Duration = Duration::from_secs(3 * 60);
-
 type Loaded = Arc<OnceCell<Result<Embedder, String>>>;
 type Load = Arc<dyn Fn(EmbedConfig) -> Pin<Box<dyn Future<Output = Result<Embedder, String>> + Send>> + Send + Sync>;
 
-/// When the model was last asked for, and until when a backlog keeps it warm (`createIdleLease`).
-struct Usage {
-    last_use: std::sync::Mutex<Instant>,
-    warm_until: std::sync::Mutex<Option<Instant>>,
-    /// A release timer is running.
-    armed: AtomicBool,
+pub(in crate::memory) struct Demand(Arc<EmbeddingProvider>);
+
+impl Drop for Demand {
+    fn drop(&mut self) {
+        let provider = &self.0;
+        let mut count = locked(&provider.demand);
+        *count -= 1;
+        if *count != 0 {
+            return;
+        }
+        // Keep the generation until reaped. The next demand must not reuse a stopping
+        // host, and a failed host must still go through restart accounting.
+        let loaded = locked(&provider.loaded);
+        if let Some(Ok(model)) = loaded.get()
+            && model.alive()
+        {
+            // We recovered and drained real demand on a live host. Its intentional
+            // exit must not make the next cold start pay for the old failure.
+            locked(&provider.restarts).count = 0;
+            model.retire();
+            provider.tick.bump();
+        }
+    }
 }
 
 fn locked<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -122,8 +119,8 @@ impl Restarts {
 
 /// Empties the cell, retiring the host it held: the host's end is the owner's choice (Node excludes retiring workers from the restart count), and
 /// its later `Ended` is never read by a warmup, which only reads the cell's current host.
-fn retire_cell(loaded: &std::sync::Mutex<Loaded>) {
-    let mut cell = locked(loaded);
+#[cfg(test)]
+fn retire_cell(cell: &mut Loaded) {
     if let Some(Ok(model)) = cell.get() {
         model.retire();
     }
@@ -135,11 +132,11 @@ pub struct EmbeddingProvider {
     hub: String,
     /// The load, shared by every caller; a failure is retried on the next request. Shared with the task that runs
     /// it, so a recall that stops waiting does not end it; a dispose puts a fresh cell in its place.
-    loaded: Arc<std::sync::Mutex<Loaded>>,
-    usage: Arc<Usage>,
+    loaded: std::sync::Mutex<Loaded>,
+    demand: std::sync::Mutex<usize>,
+    query_cache: std::sync::Mutex<VectorCache>,
+    measured_dims: std::sync::atomic::AtomicUsize,
     restarts: std::sync::Mutex<Restarts>,
-    /// The idle window; zero never releases (`MIXDOG_EMBED_IDLE_TIMEOUT_MS=0`).
-    idle: Duration,
     /// The worker's `modelCacheCompressionStarted`: one compression per provider, a reload after a
     /// dispose included.
     compress_started: Arc<std::sync::atomic::AtomicBool>,
@@ -180,51 +177,6 @@ mod unbuilt_tests {
 }
 
 #[cfg(test)]
-mod idle_tests {
-    use super::*;
-
-    fn failing(dir: &std::path::Path, idle: Duration) -> EmbeddingProvider {
-        EmbeddingProvider::installed_with_load(dir, || Box::pin(async { Err("no model in this test".to_owned()) })).with_idle_timeout(idle)
-    }
-
-    async fn settled(provider: &EmbeddingProvider) -> bool {
-        for _ in 0..100 {
-            if provider.current().get().is_none() {
-                return true;
-            }
-            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
-        }
-        false
-    }
-
-    #[tokio::test]
-    async fn an_idle_model_is_released_and_the_next_use_loads_again() {
-        let dir = tempfile::tempdir().unwrap();
-        let provider = failing(dir.path(), Duration::from_millis(40));
-        assert!(provider.warmup().await.is_err());
-        assert!(provider.current().get().is_some());
-        assert!(settled(&provider).await, "the idle model was not released");
-        assert!(provider.warmup().await.is_err());
-        assert!(provider.current().get().is_some(), "the next use loads again");
-    }
-
-    #[tokio::test]
-    async fn a_backlog_holds_the_model_and_a_zero_window_never_releases() {
-        let dir = tempfile::tempdir().unwrap();
-        let held = failing(dir.path(), Duration::from_millis(30));
-        assert!(held.warmup().await.is_err());
-        held.hold_warm();
-        mixdog_rt::time::sleep(Duration::from_millis(150)).await;
-        assert!(held.current().get().is_some(), "a held model is released");
-        let never = failing(dir.path(), Duration::ZERO);
-        assert!(never.warmup().await.is_err());
-        mixdog_rt::time::sleep(Duration::from_millis(100)).await;
-        assert!(never.current().get().is_some());
-    }
-}
-
-
-#[cfg(test)]
 mod install_tests {
     use super::*;
 
@@ -244,43 +196,6 @@ mod install_tests {
 }
 
 
-/// Releases the model once it has not been asked for during `idle` and no backlog holds it warm. A
-/// lease that is still held re-arms a full window; the timer ends with the provider.
-async fn release_when_idle(loaded: Weak<std::sync::Mutex<Loaded>>, usage: Arc<Usage>, idle: Duration, tick: StateTick) {
-    loop {
-        let seen = *locked(&usage.last_use);
-        mixdog_rt::time::sleep_until_unrefed(seen + idle).await;
-        let Some(loaded) = loaded.upgrade() else { return };
-        let now = Instant::now();
-        let last = *locked(&usage.last_use);
-        if locked(&usage.warm_until).is_some_and(|until| now < until) {
-            *locked(&usage.last_use) = now;
-            continue;
-        }
-        if now < last + idle {
-            continue;
-        }
-        // An embed in flight keeps the host; re-arm even if no later request arrives.
-        let busy = {
-            let cell = locked(&loaded);
-            // The load future owns the cell until startup ends; releasing it earlier could start
-            // another host while the first is still loading.
-            Arc::strong_count(&cell) > 1 || cell.get().and_then(|outcome| outcome.as_ref().ok()).is_some_and(Embedder::in_use)
-        };
-        if busy {
-            *locked(&usage.last_use) = now;
-            continue;
-        }
-        usage.armed.store(false, Ordering::Release);
-        retire_cell(&loaded);
-        tick.bump();
-        // Asked for while it was released: the new load needs its own timer.
-        if *locked(&usage.last_use) > last && !usage.armed.swap(true, Ordering::AcqRel) {
-            continue;
-        }
-        return;
-    }
-}
 impl EmbeddingProvider {
     pub fn new(config: EmbedConfig) -> Self {
         Self::with_tick(config, StateTick::default())
@@ -291,22 +206,17 @@ impl EmbeddingProvider {
         Self {
             config,
             hub: install::HUB.to_owned(),
-            loaded: Arc::default(),
-            usage: Arc::new(Usage { last_use: std::sync::Mutex::new(Instant::now()), warm_until: std::sync::Mutex::new(None), armed: AtomicBool::new(false) }),
+            loaded: std::sync::Mutex::default(),
+            demand: std::sync::Mutex::new(0),
+            query_cache: std::sync::Mutex::default(),
+            measured_dims: std::sync::atomic::AtomicUsize::new(0),
             restarts: std::sync::Mutex::default(),
-            idle: IDLE_TIMEOUT,
             compress_started: Arc::default(),
             load: Arc::new(|config| Box::pin(async move { Embedder::load(config).await.map_err(|e| e.message()) })),
             installing: Gate::new(),
             tick,
             compact: None,
         }
-    }
-
-    /// Releases the model after `idle` without use instead of [`IDLE_TIMEOUT`]; zero never releases.
-    pub fn with_idle_timeout(mut self, idle: Duration) -> Self {
-        self.idle = idle;
-        self
     }
 
     /// Compress the model cache with `compact` once the model first loads.
@@ -320,10 +230,9 @@ impl EmbeddingProvider {
         let model = js_trim(&self.config.model_id);
         // `cachedDims || getKnownDimsForCurrentModel()`: the measured value once loaded.
         let current = self.current();
-        let (dims, device) = match current.get() {
-            Some(Ok(embedder)) => (Some(embedder.dims()), embedder.device()),
-            _ => (config::known_dims(model), ""),
-        };
+        let device = current.get().and_then(|m| m.as_ref().ok()).filter(|m| m.alive()).map_or("", Embedder::device);
+        let measured = self.measured_dims.load(std::sync::atomic::Ordering::Acquire);
+        let dims = (measured != 0).then_some(measured).or_else(|| config::known_dims(model));
         info_of(model, self.config.dtype.as_deref(), dims, device)
     }
 
@@ -368,30 +277,11 @@ impl EmbeddingProvider {
         self.loaded.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
-    /// A backlog is being worked: the model stays resident for [`KEEP_WARM`] more (it expires on its own,
-    /// so a stopped backlog never pins the model).
-    pub fn hold_warm(&self) {
-        let until = Instant::now() + KEEP_WARM;
-        let mut warm = locked(&self.usage.warm_until);
-        *warm = Some(warm.map_or(until, |held| held.max(until)));
-    }
-
-    /// The model was just asked for: the idle window restarts, and the release timer runs.
-    fn touched(&self) {
-        if self.idle.is_zero() {
-            return;
-        }
-        *locked(&self.usage.last_use) = Instant::now();
-        if !self.usage.armed.swap(true, Ordering::AcqRel) {
-            let (loaded, usage, idle, tick) = (Arc::downgrade(&self.loaded), self.usage.clone(), self.idle, self.tick.clone());
-            tokio::spawn(release_when_idle(loaded, usage, idle, tick));
-        }
-    }
-
     /// The worker's `dispose`: the loaded model (or the remembered failure) is released, so the next
     /// warmup loads again.
-    pub fn dispose(&self) {
-        retire_cell(&self.loaded);
+    #[cfg(test)]
+    pub(crate) fn dispose(&self) {
+        retire_cell(&mut locked(&self.loaded));
         self.tick.bump();
     }
 
@@ -401,8 +291,7 @@ impl EmbeddingProvider {
     /// The host's end is read from its lifecycle (Rule B): a `Stopping` host (its output closed, a write failed, a kill was asked) is not classified;
     /// the call waits for the reaper's `Ended` outside the provider's lock and reads the cell again. The end of the host the cell holds is
     /// accounted once, under the cell's lock, with the cell's replacement: a later end of an older host never touches the cell's replacement.
-    pub async fn warmup(&self) -> Result<Option<Embedder>, String> {
-        self.touched();
+    pub(crate) async fn warmup(&self) -> Result<Option<Embedder>, String> {
         loop {
             let stopping = {
                 let mut cell = locked(&self.loaded);
@@ -484,7 +373,8 @@ impl EmbeddingProvider {
 
     /// The shared load, as an owned future a task can run to its end.
     fn load_future(&self) -> impl Future<Output = Result<Embedder, String>> + Send + 'static {
-        let (loaded, load, config, tick, compact) = (self.current(), self.load.clone(), self.config.clone(), self.tick.clone(), self.compact.clone());
+        let loaded = self.current();
+        let (load, config, tick, compact) = (self.load.clone(), self.config.clone(), self.tick.clone(), self.compact.clone());
         let started = self.compress_started.clone();
         async move {
             loaded
@@ -506,6 +396,82 @@ impl EmbeddingProvider {
                 })
                 .await
                 .clone()
+        }
+    }
+
+    /// Query cache entries outlive the child, but never own it.
+    pub async fn embed_query(self: &Arc<Self>, text: &str) -> Result<Option<Vec<f32>>, String> {
+        self.admit_query(text).1.await
+    }
+
+    pub(crate) fn admit_query(
+        self: &Arc<Self>,
+        text: &str,
+    ) -> (bool, futures::future::BoxFuture<'static, Result<Option<Vec<f32>>, String>>) {
+        let key = config::prepare_input(text, InputType::Query, self.model_id());
+        if key.is_empty() {
+            return (false, Box::pin(async { Ok(None) }));
+        }
+        if let Some(vector) = locked(&self.query_cache).get(&key) {
+            return (false, Box::pin(async move { Ok(Some(vector.to_vec())) }));
+        }
+        let (demand, ready) = {
+            // Retirement uses these same locks in the same order. A warm
+            // admission uses this exact host; it cannot silently cold-start.
+            let mut count = locked(&self.demand);
+            let loaded = locked(&self.loaded);
+            let ready = loaded.get().and_then(|outcome| outcome.as_ref().ok()).filter(|model| model.alive()).cloned();
+            *count += 1;
+            (Demand(self.clone()), ready)
+        };
+        let cold = ready.is_none();
+        let text = text.to_owned();
+        (cold, Box::pin(async move {
+            let vectors = Self::compute(demand, ready, vec![text], InputType::Query, Some(key)).await?;
+            Ok(vectors.into_iter().next().map(|v| v.to_vec()))
+        }))
+    }
+
+    pub(in crate::memory) fn document_demand(self: &Arc<Self>) -> Demand {
+        *locked(&self.demand) += 1;
+        Demand(self.clone())
+    }
+
+    pub(crate) async fn embed_documents(self: &Arc<Self>, texts: Vec<String>) -> Result<Vec<Arc<Vec<f32>>>, String> {
+        if texts.iter().all(|text| js_trim(text).is_empty()) {
+            return Ok(texts.iter().map(|_| Arc::new(Vec::new())).collect());
+        }
+        Self::compute(self.document_demand(), None, texts, InputType::Document, None).await
+    }
+
+    async fn compute(demand: Demand, ready: Option<Embedder>, texts: Vec<String>, kind: InputType, query_key: Option<String>) -> Result<Vec<Arc<Vec<f32>>>, String> {
+        // Admit before spawning so overlapping requests count even while queued. A caller
+        // dropping its wait cannot retire a child with a pipe exchange still in flight.
+        let result = mixdog_rt::spawn("embedding-demand", mixdog_rt::TaskClass::Work, async move {
+            let provider = &demand.0;
+            let model = match match ready {
+                Some(model) => Some(model),
+                None => provider.warmup().await?,
+            } {
+                Some(model) => model,
+                None if query_key.is_some() => return Ok(Vec::new()),
+                None => return Err("embedding model is not installed".to_owned()),
+            };
+            let vectors = model.embed_batch(&texts, kind).await.map_err(|e| e.message())?;
+            if let Some(vector) = vectors.iter().find(|v| !v.is_empty()) {
+                provider.measured_dims.store(vector.len(), std::sync::atomic::Ordering::Release);
+                if let Some(key) = query_key {
+                    locked(&provider.query_cache).insert(key, vector.clone());
+                }
+            }
+            // Explicit drop keeps the admission alive through the last exchange.
+            drop(demand);
+            Ok(vectors)
+        }).await;
+        match result {
+            Ok(outcome) => outcome,
+            Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+            Err(error) => Err(error.to_string()),
         }
     }
 
@@ -544,8 +510,16 @@ impl EmbeddingProvider {
         cache: &std::path::Path,
         load: impl Fn() -> Pin<Box<dyn Future<Output = Result<Embedder, String>> + Send>> + Send + Sync + 'static,
     ) -> Self {
+        Self::installed_model_with_load(cache, config::DEFAULT_MODEL_ID, load)
+    }
+
+    pub(crate) fn installed_model_with_load(
+        cache: &std::path::Path,
+        model_id: &str,
+        load: impl Fn() -> Pin<Box<dyn Future<Output = Result<Embedder, String>> + Send>> + Send + Sync + 'static,
+    ) -> Self {
         let config = EmbedConfig {
-            model_id: config::DEFAULT_MODEL_ID.to_owned(),
+            model_id: model_id.to_owned(),
             cache_dir: cache.to_path_buf(),
             ort_library: std::path::PathBuf::new(),
             dtype: None,
@@ -554,7 +528,7 @@ impl EmbeddingProvider {
         };
         let graph = install::required_files(&config).graph;
         for (file, body) in [("tokenizer.json", "{}"), ("tokenizer_config.json", "{}"), (graph.as_str(), "graph")] {
-            let path = install::model_path(&config.cache_dir, config::DEFAULT_MODEL_ID, file);
+            let path = install::model_path(&config.cache_dir, model_id, file);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, body).unwrap();
         }

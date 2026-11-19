@@ -23,7 +23,7 @@ use super::host::BROWSER_UNAVAILABLE;
 use super::host::HostCommandError;
 use super::host::HostCommands;
 use super::host::command_cancelled;
-use super::host::browser_output;
+use super::host::render_browser_output;
 use super::host::command_error;
 use super::mail_links;
 use crate::orch::schema::value_error;
@@ -1086,8 +1086,8 @@ impl Tool for BrowserTool {
         };
         // A Browser Use card the engine raises for this call asks through the call's own gate (s4-tool-adapter).
         let approvals = crate::orch::service::CallApprovals { gate: ctx.approvals.clone(), call_id: ctx.call_id.clone() };
-        match crate::orch::service::with_call_approvals(approvals, self.host.browser(&ctx.thread_id, &call.action, input, &ctx.cancel)).await {
-            Ok(value) => browser_output(&value),
+        match crate::orch::service::with_call_approvals(approvals, self.host.browser_for_tool(&ctx.thread_id, &call.action, input, &ctx.cancel)).await {
+            Ok(reply) => render_browser_output(&reply.value, reply.screenshot),
             // An observation can be asked again; a state-changing action may already have run.
             Err(HostCommandError::Cancelled) => Err(command_cancelled("browser", !OBSERVATION_ACTIONS.contains(&&*call.action))),
             Err(error) => Err(command_error(BROWSER_UNAVAILABLE, error)),

@@ -1561,8 +1561,8 @@ mod tests {
         fn release_mcp_scope(&self, session_id: &str) {
             self.inner.release_mcp_scope(session_id);
         }
-        fn unload_mcp_scope(&self, session_id: &str) {
-            self.inner.unload_mcp_scope(session_id);
+        fn release_unloaded_runtime(&self, session_id: &str) {
+            self.inner.release_unloaded_runtime(session_id);
         }
         fn forget_session_search(&self, session_id: &str) {
             self.inner.forget_session_search(session_id);

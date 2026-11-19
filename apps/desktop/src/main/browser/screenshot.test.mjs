@@ -11,19 +11,20 @@ import {
   normalizeScreenshotOptions,
 } from './screenshot-policy.ts';
 import { frameImageFitsFileBudget } from '../frame-files.ts';
-import { validatedScreenshot } from './screenshot-image.ts';
+import { screenshotWireImage, validatedScreenshot } from './screenshot-image.ts';
 
 test('validated Chromium screenshots preserve encoded bytes without a second lossy encode', () => {
-  const jpeg = Buffer.from([255, 216, 12, 34, 255, 217]).toString('base64');
+  const bytes = Buffer.from([255, 216, 12, 34, 255, 217]);
+  const jpeg = bytes.toString('base64');
   const options = normalizeScreenshotOptions({ format: 'jpeg' });
   const decode = () => ({ getSize: () => ({ width: 320, height: 240 }) });
-  assert.deepEqual(validatedScreenshot(jpeg, options, decode), {
-    data: jpeg,
-    width: 320,
-    height: 240,
-    mimeType: 'image/jpeg',
-    fullPage: false,
-  });
+  const capture = validatedScreenshot(jpeg, options, decode);
+  assert.ok(capture);
+  assert.deepEqual(capture.bytes, bytes);
+  assert.equal(capture.width, 320);
+  assert.equal(capture.height, 240);
+  assert.equal(capture.fullPage, false);
+  assert.deepEqual(screenshotWireImage(capture), { mimeType: 'image/jpeg', data: jpeg });
   assert.equal(validatedScreenshot(jpeg, normalizeScreenshotOptions({ format: 'png' }), decode), null);
   assert.equal(
     validatedScreenshot(jpeg, options, () => ({ getSize: () => ({ width: 0, height: 0 }) })),

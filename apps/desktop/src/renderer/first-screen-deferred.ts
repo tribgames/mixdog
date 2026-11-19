@@ -1,7 +1,6 @@
 // Surfaces no first screen renders (a phone's cold open never shows them),
-// kept out of the startup bundle. Each loads on its first mount or open, and
-// the idle lane loads them all after boot (useAppModuleWarmup), so a later
-// first open renders in the same frame instead of through a placeholder.
+// kept out of the startup bundle. Each loads on its first mount or open.
+// The relay-served app also warms them on idle to hide network latency.
 import { deferredModule } from './deferred-module';
 
 /** The desktop sidebar's footer guide (phones never render it). */

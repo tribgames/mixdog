@@ -143,7 +143,7 @@ impl StaticGate {
         let report = if access.release_device.is_empty() { DeviceReport::default() } else { self.store.device_version(&access.release_device) };
         let rest = access.route.as_ref().map_or_else(|| pathname.clone(), |route| route.rest.clone());
         let update_page = wants_update_page(request, access.route.as_ref());
-        let allow_default_asset = PUBLIC_APP_ASSETS.contains(&pathname) || WORKER_SCRIPTS.contains(&pathname);
+        let allow_default_asset = PUBLIC_APP_ASSETS.contains(&pathname.as_str()) || WORKER_SCRIPTS.contains(&pathname.as_str());
         let lookup = self.lookup(report.clone(), rest, update_page, allow_default_asset).await.map_err(|error| error.to_string())?;
         let Some(Lookup { resolution, unavailable, document, update_min_version }) = lookup else {
             let text = "Mixdog relay: no RENDERER_DIR configured; this relay only forwards WebSocket traffic.";

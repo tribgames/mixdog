@@ -40,6 +40,15 @@ pub struct FileStat {
     pub readonly: bool,
 }
 
+/// Metadata used to rank and display locator results, without a file version.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct LocatorStat {
+    pub kind: EntryKind,
+    pub len: u64,
+    pub modified: Option<SystemTime>,
+    pub readonly: bool,
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct DirEntry {
     pub path: AbsPath,
@@ -273,13 +282,45 @@ impl FsError {
 #[async_trait]
 pub trait FileService: Send + Sync {
     async fn stat(&self, lane: InteractiveIo, path: AbsPath) -> Result<FileStat, FsError>;
+
+    /// Like `stat`, follows links; no change time or file identity is needed.
+    async fn stat_for_locator(&self, lane: InteractiveIo, path: AbsPath) -> Result<LocatorStat, FsError> {
+        let FileStat { kind, len, modified, readonly, .. } = self.stat(lane, path).await?;
+        Ok(LocatorStat { kind, len, modified, readonly })
+    }
     async fn read(
         &self,
         lane: InteractiveIo,
         path: AbsPath,
         range: ReadRange,
     ) -> Result<FileBytes, FsError>;
+
+    /// Returns a bounded read and the file version it came from so a caller can assemble windows across reads.
+    /// Reject a change during the read. Implementations with access to a file handle should stat that handle.
+    async fn read_versioned(
+        &self,
+        lane: InteractiveIo,
+        path: AbsPath,
+        offset: u64,
+        max_len: u64,
+    ) -> Result<(FileStat, FileBytes), FsError> {
+        let before = self.stat(lane, path.clone()).await?;
+        let bytes = self.read(lane, path.clone(), ReadRange { offset, max_len: Some(max_len) }).await?;
+        let after = self.stat(lane, path.clone()).await?;
+        if before != after {
+            return Err(FsError::new(FsErrorKind::OutcomeUnknown, Some(path)));
+        }
+        Ok((before, bytes))
+    }
+
     async fn list_dir(&self, lane: InteractiveIo, path: AbsPath) -> Result<Vec<DirEntry>, FsError>;
+
+    /// For a caller that ranks all entries itself. May skip the raw path sort only below `cap`;
+    /// the bool says it did, so ties and a partial result can use raw path order.
+    async fn list_dir_for_ranking(&self, lane: InteractiveIo, path: AbsPath, cap: usize) -> Result<(Vec<DirEntry>, bool), FsError> {
+        let _ = cap;
+        self.list_dir(lane, path).await.map(|entries| (entries, false))
+    }
 
     /// Atomic replace (write, rename, fsync of file and directory). Writes
     /// through a leaf symlink to its target.
@@ -333,4 +374,15 @@ pub trait FileService: Send + Sync {
         lane: MaintenanceIo,
         request: SearchRequest,
     ) -> Box<dyn EventSource<Result<SearchMatch, FsError>>>;
+
+    /// Search for file totals (or the first match per file when requested), without needing line text or columns.
+    /// The caller supplies no line limit and sums `count` by path, withdrawing a file on the same errors as
+    /// `search_text`. Implementations may send one total per file instead of individual matches.
+    fn search_summary(
+        &self,
+        lane: MaintenanceIo,
+        request: SearchRequest,
+    ) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
+        self.search_text(lane, request)
+    }
 }

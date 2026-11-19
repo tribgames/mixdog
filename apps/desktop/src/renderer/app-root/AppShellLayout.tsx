@@ -184,8 +184,6 @@ function renderAppShellOverlays({
     shellPanels,
     quickAccessMode,
     setQuickAccessMode,
-    settingsMounted,
-    settingsPrewarmed,
     error,
     connected,
     setError,
@@ -232,8 +230,6 @@ function renderAppShellOverlays({
       saveAndClosePendingTab={saveAndClosePendingTab}
       discardAndClosePendingTab={discardAndClosePendingTab}
       cancelPendingTabClose={cancelPendingTabClose}
-      settingsMounted={settingsMounted}
-      settingsPrewarmed={settingsPrewarmed}
       openSettings={commands.openSettings}
       replaceWithInheritedSession={taskLifecycle.replaceWithInheritedSession}
       onboardingOpen={onboardingOpen}

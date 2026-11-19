@@ -47,6 +47,33 @@ struct Known {
     spellings: Vec<String>,
 }
 
+impl Known {
+    fn gain(&mut self, values: &[String]) -> Option<u64> {
+        let mut changed = false;
+        for value in values {
+            if self.values.contains(value) {
+                continue;
+            }
+            self.values.insert(value.clone());
+            changed = true;
+            // An echo may keep the value as JSON string text.
+            let quoted = json_stringify(&Value::String(value.clone()));
+            for spelling in [value.clone(), quoted[1..quoted.len() - 1].to_owned()] {
+                if !self.spellings.contains(&spelling) {
+                    self.spellings.push(spelling);
+                }
+            }
+        }
+        if !changed {
+            return None;
+        }
+        // Longest first; equal lengths keep the order they were first seen in.
+        self.spellings.sort_by_key(|s| std::cmp::Reverse(s.encode_utf16().count()));
+        self.version += 1;
+        Some(self.version)
+    }
+}
+
 type Listener = Arc<dyn Fn(u64) + Send + Sync>;
 
 /// Told the id of a session that gained values carried from another one (`carry`).
@@ -432,10 +459,39 @@ impl SensitiveStore {
         self.journal.set(journal).is_ok()
     }
 
-    /// `values` marked for `session` as a mark of its own (a mark the journal kept from an earlier run). True when it gained one.
-    pub fn restore(&self, session: &str, values: &[String]) -> bool {
-        let values: Vec<String> = values.iter().filter(|v| !v.is_empty()).cloned().collect();
-        !session.is_empty() && !values.is_empty() && self.gain(session, values)
+    /// Install already durable edges before startup restores any marks. No live callbacks or journal writes.
+    pub fn restore_carries(&self, carries: Vec<(String, String)>) {
+        let mut inner = self.lock();
+        for (from, to) in carries {
+            if !from.is_empty() && !to.is_empty() && from != to {
+                inner.carries.entry(from).or_default().insert(to);
+            }
+        }
+    }
+
+    /// Restore a durable mark before serving sessions, without publishing it again. Return every session that
+    /// owes a scan, even if it already knew the value (e.g. retrying an interrupted settlement).
+    pub fn restore(&self, origin: String, mut sessions: Vec<String>, mut values: Vec<String>) -> BTreeSet<String> {
+        values.retain(|value| !value.is_empty());
+        let mut owed = BTreeSet::new();
+        if values.is_empty() {
+            return owed;
+        }
+        sessions.reverse();
+        sessions.push(origin);
+        let mut inner = self.lock();
+        while let Some(session) = sessions.pop() {
+            if session.is_empty() || !owed.insert(session.clone()) {
+                continue;
+            }
+            let _ = inner.by_session.entry(session.clone()).or_default().gain(&values);
+            // A durable edge may have been added just before the previous process stopped, before it
+            // journaled the recipient. The recorded sessions alone are not the recovery boundary.
+            if let Some(next) = inner.carries.get(&session) {
+                sessions.extend(next.iter().cloned());
+            }
+        }
+        owed
     }
 
     /// `values` marked for `session`, then carried along its carries. True when `session` gained one.
@@ -490,28 +546,7 @@ impl SensitiveStore {
     fn add(&self, session: &str, values: &[String]) -> Option<(u64, Vec<Listener>, Vec<String>)> {
         let (version, listeners, carries) = {
             let mut inner = self.lock();
-            let known = inner.by_session.entry(session.to_owned()).or_default();
-            let fresh: Vec<&String> = values.iter().filter(|v| !known.values.contains(*v)).collect();
-            if fresh.is_empty() {
-                return None;
-            }
-            let mut ordered: Vec<String> = known.spellings.clone();
-            for value in &fresh {
-                // As typed, and as a JSON string spells it (an echo may keep arguments as JSON text).
-                let quoted = json_stringify(&Value::String((*value).clone()));
-                for spelling in [(*value).clone(), quoted[1..quoted.len() - 1].to_owned()] {
-                    if !ordered.contains(&spelling) {
-                        ordered.push(spelling);
-                    }
-                }
-            }
-            let fresh: Vec<String> = fresh.into_iter().cloned().collect();
-            known.values.extend(fresh);
-            // Longest first; equal lengths keep the order they were first seen in.
-            ordered.sort_by_key(|s| std::cmp::Reverse(s.encode_utf16().count()));
-            known.spellings = ordered;
-            known.version += 1;
-            let version = known.version;
+            let version = inner.by_session.entry(session.to_owned()).or_default().gain(values)?;
             let listeners: Vec<Listener> =
                 inner.listeners.get(session).map(|l| l.iter().map(|(_, f)| f.clone()).collect()).unwrap_or_default();
             let carries: Vec<String> = inner.carries.get(session).map(|to| to.iter().cloned().collect()).unwrap_or_default();
@@ -680,8 +715,8 @@ impl SensitiveValues for SensitiveStore {
         }
     }
 
-    fn redact_messages(&self, session_id: &str, messages: &[Value]) -> Vec<Value> {
-        SensitiveStore::redact_messages(self, session_id, messages)
+    fn redact_message(&self, session_id: &str, message: &Value) -> Value {
+        SensitiveStore::redact_message(self, session_id, message)
     }
 
     fn redact_text(&self, session_id: &str, text: &str) -> String {

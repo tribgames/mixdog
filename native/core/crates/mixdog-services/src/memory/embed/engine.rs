@@ -42,21 +42,22 @@ fn runtime_error(what: &str, error: impl std::fmt::Display) -> MemoryError {
 
 /// Bounded cache of query vectors keyed by model, dtype, input type and text.
 #[derive(Default)]
-struct VectorCache {
+pub(super) struct VectorCache {
     entries: HashMap<String, Arc<Vec<f32>>>,
     order: std::collections::VecDeque<String>,
     bytes: usize,
 }
 
 impl VectorCache {
-    fn get(&self, key: &str) -> Option<Arc<Vec<f32>>> {
+    pub(super) fn get(&self, key: &str) -> Option<Arc<Vec<f32>>> {
         self.entries.get(key).cloned()
     }
 
-    fn insert(&mut self, key: String, vector: Arc<Vec<f32>>) {
+    pub(super) fn insert(&mut self, key: String, vector: Arc<Vec<f32>>) {
         let size = vector.len() * 4 + key.len();
-        if self.entries.insert(key.clone(), vector).is_none() {
-            self.order.push_back(key);
+        match self.entries.insert(key.clone(), vector) {
+            Some(old) => self.bytes -= old.len() * 4 + key.len(),
+            None => self.order.push_back(key),
         }
         self.bytes += size;
         while self.order.len() > QUERY_CACHE_ENTRIES || self.bytes > QUERY_CACHE_BYTES {
@@ -116,8 +117,6 @@ struct Inner {
     with_type_ids: bool,
     device: &'static str,
     lane: mixdog_rt::CpuBulk,
-    dims: std::sync::atomic::AtomicUsize,
-    cache: Mutex<VectorCache>,
 }
 
 #[derive(Clone)]
@@ -175,8 +174,7 @@ impl Embedder {
         .await
         .map_err(|error| runtime_error("embedding load", error))??;
         let with_type_ids = sessions[0].inputs().iter().any(|input| input.name() == "token_type_ids");
-        let known = config::known_dims(&model_id);
-        let embedder = Self {
+        Ok(Self {
             inner: Arc::new(Inner {
                 pooling: config::pooling(&model_id),
                 model_id,
@@ -186,25 +184,8 @@ impl Embedder {
                 with_type_ids,
                 device: if gpu { "dml" } else { "cpu" },
                 lane: config.lane,
-                dims: std::sync::atomic::AtomicUsize::new(0),
-                cache: Mutex::default(),
             }),
-        };
-        // `runEmbeddingWarmup`: one embedding measures the model's dimensions (a model the
-        // profiles do not list has no other source), and a profiled model must measure what its
-        // profile says.
-        let measured = embedder.embed("warmup", InputType::Document).await?.len();
-        if measured == 0 {
-            return Err(MemoryError::Embedding("warmup returned no dims \u{2014} model output missing".into()));
-        }
-        if let Some(expected) = known.filter(|expected| *expected != measured) {
-            return Err(MemoryError::Embedding(format!(
-                "embedding dims invariant violation: model={} expected={expected} measured={measured}",
-                embedder.inner.model_id
-            )));
-        }
-        embedder.inner.dims.store(measured, std::sync::atomic::Ordering::Release);
-        Ok(embedder)
+        })
     }
 
     pub fn model_id(&self) -> &str {
@@ -222,7 +203,7 @@ impl Embedder {
 
     /// The measured dimensions of the loaded model.
     pub fn dims(&self) -> usize {
-        self.inner.dims.load(std::sync::atomic::Ordering::Acquire)
+        config::known_dims(&self.inner.model_id).unwrap_or(0)
     }
 
     /// Token ids of the prepared text (for the golden check).
@@ -262,8 +243,13 @@ impl Embedder {
         let (shape, data) =
             outputs[name.as_str()].try_extract_tensor::<f32>().map_err(|error| runtime_error("embedding output", error))?;
         let dims = *shape.last().ok_or_else(|| MemoryError::Runtime("embedding output shape".into()))? as usize;
-        if data.len() < dims {
+        if dims == 0 || dims > data.len() || inner.pooling == Pooling::Mean && n > data.len() / dims {
             return Err(MemoryError::Runtime(format!("embedding output missing (model={})", inner.model_id)));
+        }
+        if let Some(expected) = config::known_dims(&inner.model_id).filter(|expected| *expected != dims) {
+            return Err(MemoryError::Embedding(format!(
+                "embedding dims invariant violation: model={} expected={expected} measured={dims}", inner.model_id
+            )));
         }
         let mut vector = vec![0f32; dims];
         match inner.pooling {
@@ -293,17 +279,11 @@ impl Embedder {
         if prepared.is_empty() {
             return Ok(Arc::new(Vec::new()));
         }
-        let key = format!("{}\n{}\n{input_type:?}\n{prepared}", self.inner.model_id, self.inner.dtype);
-        if let Some(hit) = self.inner.cache.lock().expect("vector cache").get(&key) {
-            return Ok(hit);
-        }
         let this = self.clone();
         let vector = run_on_lane(self.inner.lane, move || this.embed_blocking(&prepared))
             .await
             .map_err(|error| runtime_error("embedding", error))??;
-        let vector = Arc::new(vector);
-        self.inner.cache.lock().expect("vector cache").insert(key, vector.clone());
-        Ok(vector)
+        Ok(Arc::new(vector))
     }
 
     /// One vector per text, in order; empty texts give empty vectors.

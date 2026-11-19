@@ -4,7 +4,12 @@ import { SESSION_CHANGES_SOURCE_KEY, type Snapshot, type TranscriptItem } from '
 import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refresh-scheduler';
 import { t } from './i18n';
 import { RendererLruCache } from './renderer-lru-cache';
-import { fetchSessionDiff, fetchSessionDiffFilePatchResult, sessionDiffRevision } from './session-diff-cache';
+import {
+  fetchOmittedSessionDiffFilePatch,
+  fetchSessionDiff,
+  sessionDiffBinding,
+  sessionDiffRevision,
+} from './session-diff-cache';
 import {
   buildSessionDiffRows,
   decodeSessionDiffFilePatch,
@@ -138,6 +143,7 @@ type ChangesEntry = {
   /** Per-file content revision from the review read (path → revision); a
    *  file whose content moved without moving its counts re-reads by it. */
   revisions: ReadonlyMap<string, string>;
+  sessionDiffBinding?: ReturnType<typeof sessionDiffBinding>;
   /** No file's patch fit the last turn's reply (its rows still list counts). */
   diffTooLarge: boolean;
   /** Untracked files the Git read counted but did not list: `rows` is partial by this many. */
@@ -156,7 +162,7 @@ type ChangesEntry = {
 
 type ChangesRead = Pick<
   ChangesEntry,
-  'repository' | 'root' | 'base' | 'rows' | 'untracked' | 'revisions' | 'diffTooLarge' | 'untrackedOmitted'
+  'repository' | 'root' | 'base' | 'rows' | 'untracked' | 'revisions' | 'sessionDiffBinding' | 'diffTooLarge' | 'untrackedOmitted'
 >;
 
 const NO_REVISIONS: ReadonlyMap<string, string> = new Map();
@@ -175,16 +181,15 @@ const EMPTY_ROWS: readonly SessionDiffRow[] = [];
 const entries = new Map<string, ChangesEntry>();
 const requests = new Map<string, Promise<boolean>>();
 const entryListeners = new Set<() => void>();
+const scopedEntryReaders = new Map<string, number>();
+let scopedGeneration = 0;
 /** A cwd inside a repository resolves to its root once a read named it. */
 const cwdRoots = new Map<string, string>();
 /** Per session: the cwd its latest session-source read was started for. */
 const sessionReadCwds = new Map<string, string>();
 
 function changesKey({ cwd, source, sessionId }: ChangesTarget): string {
-  if (source === 'last-turn') return `last-turn\0${sessionId}`;
-  // The session review is read for the session's current workspace: a read
-  // still running for the previous one must not answer the new one.
-  if (source === 'session') return `session\0${sessionId}\0${cwd}`;
+  if (sessionScopedSource(source)) return `${source}\0${sessionId}\0${cwd}`;
   return `${cwdRoots.get(cwd) || cwd}\0${source}`;
 }
 
@@ -210,6 +215,45 @@ function publish(key: string, entry: ChangesEntry): void {
   prepareRowList(entry.rows);
   entries.set(key, entry);
   for (const listener of [...entryListeners]) listener();
+}
+
+/** Session and last-turn entries own parsed patch text while a view needs it. */
+function retainScopedEntry(target: ChangesTarget, switchedWorkspace: boolean): () => void {
+  const key = changesKey(target);
+  const readers = scopedEntryReaders.get(key) ?? 0;
+  if (target.source === 'last-turn' && readers === 0) {
+    const owner = lastTurnBarOwners.get(target.sessionId);
+    // A turn-review bar reply only names the session. Give the newly opened
+    // workspace the bar, but do not cancel the other workspace's own reads.
+    if (switchedWorkspace || owner !== undefined) {
+      staleKeys.add(key);
+      lastTurnAdoptions.set(key, { ticket: nextLastTurnRequest() });
+    }
+    lastTurnBarOwners.set(target.sessionId, key);
+  }
+  scopedEntryReaders.set(key, readers + 1);
+  return () => {
+    const count = (scopedEntryReaders.get(key) ?? 1) - 1;
+    if (count > 0) {
+      scopedEntryReaders.set(key, count);
+      return;
+    }
+    scopedEntryReaders.delete(key);
+    entries.delete(key);
+    requests.delete(key);
+    staleKeys.delete(key);
+    const validation = lastTurnAdoptions.get(key);
+    if (validation) delete validation.pending;
+    lastTurnAdoptions.delete(key);
+    if (lastTurnBarOwners.get(target.sessionId) === key) lastTurnBarOwners.delete(target.sessionId);
+    if (target.source === 'session' && sessionReadCwds.get(target.sessionId) === target.cwd) {
+      sessionReadCwds.delete(target.sessionId);
+    }
+    for (const turnKey of turnPatches.keys()) {
+      if (turnKey.startsWith(`${key}\0`)) turnPatches.delete(turnKey);
+    }
+    for (const listener of [...entryListeners]) listener();
+  };
 }
 
 function reviewRows(files: ReadonlyArray<{ path: string; status: string; additions: number; deletions: number }>) {
@@ -308,7 +352,8 @@ async function readChanges({ cwd, source, sessionId }: ChangesTarget, mode: Load
     // A file's patch can move while its counts hold: an inline patch's digest
     // does; a file listed without its patch is re-read with every fresh result
     // (the cache's revision), as the non-Git session diff does.
-    const revision = `r${sessionDiffRevision(sessionId)}`;
+    const binding = sessionDiffBinding(result);
+    const revision = `r${binding?.revision ?? sessionDiffRevision(sessionId)}`;
     return {
       repository: true,
       root: dock.status.root,
@@ -316,6 +361,7 @@ async function readChanges({ cwd, source, sessionId }: ChangesTarget, mode: Load
       rows,
       untracked: new Set(),
       revisions: new Map(rows.map((row) => [row.path, row.parts.length ? (digests.get(row.path) ?? revision) : revision])),
+      sessionDiffBinding: binding,
       diffTooLarge: result?.diffTooLarge === true,
       untrackedOmitted: 0,
     };
@@ -403,7 +449,9 @@ function adopt(target: ChangesTarget, read: ChangesRead, mode: LoadMode): void {
   const next = {
     ...read,
     rows,
-    generation: (previous?.generation ?? 0) + (changed || mode !== 'warm' ? 1 : 0),
+    generation: changed || mode !== 'warm'
+      ? (sessionScopedSource(target.source) ? ++scopedGeneration : (previous?.generation ?? 0) + 1)
+      : previous.generation,
     patchEpoch: (previous?.patchEpoch ?? 0) + (mode === 'foreground' ? 1 : 0),
     evidenceEpoch: (previous?.evidenceEpoch ?? 0) + (mode === 'activity' ? 1 : 0),
     loading: false,
@@ -423,13 +471,20 @@ function markLoading(target: ChangesTarget): void {
 /** One read per (root, source) at a time; resolves true when its answer was adopted. */
 function loadChanges(target: ChangesTarget, mode: LoadMode): Promise<boolean> {
   const key = changesKey(target);
+  if (sessionScopedSource(target.source) && !scopedEntryReaders.has(key)) return Promise.resolve(false);
   if (mode === 'foreground') markLoading(target);
   const pending = requests.get(key);
   if (pending) return pending;
   const ticket = target.source === 'last-turn' ? nextLastTurnRequest() : undefined;
-  const validation: LastTurnAdoption | undefined = ticket === undefined ? undefined : { ticket, cwd: target.cwd };
-  if (validation) lastTurnAdoptions.set(key, validation);
-  const superseded = () => ticket !== undefined && lastTurnAdoptions.get(key)?.ticket !== ticket;
+  const validation: LastTurnAdoption | undefined = ticket === undefined ? undefined : { ticket };
+  if (validation) {
+    lastTurnAdoptions.set(key, validation);
+    // Only a fresh read can reclaim the bar after its workspace closed. Its
+    // ticket rejects replies issued for the old owner.
+    if (!lastTurnBarOwners.has(target.sessionId)) lastTurnBarOwners.set(target.sessionId, key);
+  }
+  const superseded = (): boolean =>
+    requests.get(key) !== request || (ticket !== undefined && lastTurnAdoptions.get(key)?.ticket !== ticket);
   const request = readChanges(target, mode).then(
     (read) => {
       if (superseded()) return false;
@@ -506,10 +561,10 @@ export function nextLastTurnRequest(): number {
 }
 type LastTurnAdoption = {
   ticket: number;
-  cwd: string;
   pending?: { ticket: number; rows: ChangesRead['rows']; diffTooLarge: boolean };
 };
 const lastTurnAdoptions = new Map<string, LastTurnAdoption>();
+const lastTurnBarOwners = new Map<string, string>();
 
 /** The turn review bar's own read answered: the session's last-turn entry follows it. */
 export function adoptLastTurnReview(
@@ -517,14 +572,19 @@ export function adoptLastTurnReview(
   decoded: { files: TurnReviewFile[]; leadPatch: string | null; diffTooLarge?: boolean },
   ticket: number
 ): Promise<void> | undefined {
-  const key = `last-turn\0${sessionId}`;
+  const key = lastTurnBarOwners.get(sessionId);
+  if (key === undefined) return;
   // Only the scheduler reads the workspace's repository status. A bar
   // answer (including an unchanged or failed read) cannot validate it.
   const validation = lastTurnAdoptions.get(key);
-  if (!validation || ticket < validation.ticket) return;
+  if (!scopedEntryReaders.has(key) || !validation || ticket < validation.ticket) return;
   if (!staleKeys.has(key) && entries.get(key)?.repository !== true) return;
   return lastTurnRows(decoded).then((rows) => {
-    if (lastTurnAdoptions.get(key) !== validation || ticket < (validation.pending?.ticket ?? validation.ticket)) return;
+    if (
+      lastTurnBarOwners.get(sessionId) !== key ||
+      lastTurnAdoptions.get(key) !== validation ||
+      ticket < (validation.pending?.ticket ?? validation.ticket)
+    ) return;
     const diffTooLarge = decoded.diffTooLarge === true;
     if (staleKeys.has(key)) {
       // Keep the rows with this validation, not the session. A switch
@@ -540,7 +600,7 @@ export function adoptLastTurnReview(
       previous.rows === read.rows && previous.diffTooLarge === read.diffTooLarge &&
       !previous.loading && !previous.error
     ) return;
-    publish(key, { ...read, loading: false, error: '', generation: previous.generation + 1 });
+    publish(key, { ...read, loading: false, error: '', generation: ++scopedGeneration });
   });
 }
 
@@ -641,14 +701,18 @@ function readFilePatch(
         turn = readTurnReview(target.sessionId, false, false).then((decoded) =>
           parseSessionDiff({ patch: decoded?.leadPatch ?? '' })
         );
-        turnPatches.clear();
-        turnPatches.set(turnKey, turn);
+        if (entries.get(key)?.generation === entry.generation) {
+          turnPatches.clear();
+          turnPatches.set(turnKey, turn);
+        }
       }
       return turn.then((parsed) => textPatch(sessionDiffFileSlice(parsed, path)));
     }
     case 'session':
-      // Served from the shared session-diff cache the list read filled.
-      return fetchSessionDiffFilePatchResult(target.sessionId, { id: row.id, path, oldPath: row.oldPath });
+      // The displayed row is authoritative even when its list did not fit the LRU.
+      return row.patchOmitted
+        ? fetchOmittedSessionDiffFilePatch(target.sessionId, row, entry.sessionDiffBinding?.revision)
+        : Promise.resolve(textPatch(''));
     default:
       return (api?.gitReviewDiff?.(root, path, untracked, target.source) ?? Promise.resolve('')).then(textPatch);
   }
@@ -998,11 +1062,13 @@ export function prefetchSessionChanges(
 export function useSessionChangePatches({
   cwd,
   sessionId,
+  diff = null,
   rows,
   selectedId,
 }: {
   cwd: string | undefined;
   sessionId: string;
+  diff?: SessionDiffResult | null;
   rows: readonly SessionDiffRow[];
   /** The one file a capped set reads and draws. */
   selectedId: string;
@@ -1017,7 +1083,7 @@ export function useSessionChangePatches({
   const key = git ? changesKey(target) : `session\0${sessionId}`;
   // Every adopted read re-checks the wanted files: a missing or failed patch
   // is asked for again; one whose stamp held reads nothing.
-  const generation = git ? entry.generation : sessionDiffRevision(sessionId);
+  const generation = git ? entry.generation : (sessionDiffBinding(diff)?.revision ?? sessionDiffRevision(sessionId));
   const lazy = (row: SessionDiffRow) =>
     row.parts.length === 0 && ((git && !row.reason) || (sessionDiff && row.patchOmitted === true));
   const rowKey = (row: SessionDiffRow) => `${key}\0${git ? row.path : row.id}`;
@@ -1038,9 +1104,7 @@ export function useSessionChangePatches({
     }
     if (!sessionDiff) return;
     for (const row of wantedRows) {
-      requestPatch(rowKey(row), stampOf(row), () =>
-        fetchSessionDiffFilePatchResult(sessionId, { id: row.id, path: row.path, oldPath: row.oldPath })
-      );
+      requestPatch(rowKey(row), stampOf(row), () => fetchOmittedSessionDiffFilePatch(sessionId, row, generation));
     }
   }, [wantedKey, generation, git, sessionDiff]);
   const memo = useRef(new WeakMap<SessionDiffRow, { held: object | null; row: SessionDiffRow }>());
@@ -1180,16 +1244,9 @@ export function useSessionChanges({
   // new cwd's cached counts predate the move, so none render until it is read.
   const seenCwd = useRef(project);
   if (seenCwd.current !== project) {
-    if (seenCwd.current && project) {
+    if (seenCwd.current && project && source !== 'last-turn') {
       const key = changesKey(target);
-      if (source !== 'last-turn') staleKeys.add(key);
-      else if (lastTurnAdoptions.get(key)?.cwd !== project) {
-        // The last-turn entry is session keyed. Its old workspace's read
-        // can neither validate this one nor serve as its first read.
-        requests.delete(key);
-        staleKeys.add(key);
-        lastTurnAdoptions.set(key, { ticket: nextLastTurnRequest(), cwd: project });
-      }
+      staleKeys.add(key);
     }
     seenCwd.current = project;
   }
@@ -1211,6 +1268,13 @@ export function useSessionChanges({
   );
   const fallback = !gitOnly && !git;
   const diff = useSessionDiffRefresh({ sessionId: fallback ? session : '', active, revision: changeRevision, busy });
+  const lastScopedTarget = useRef<ChangesTarget | null>(null);
+  useEffect(() => {
+    if (!active || !project || !session || !sessionScopedSource(source)) return;
+    const previous = lastScopedTarget.current;
+    lastScopedTarget.current = target;
+    return retainScopedEntry(target, previous?.sessionId === session && previous.cwd !== project);
+  }, [active, project, session, source, target]);
   useEffect(() => {
     if (!active || !watchable) return;
     return retainChangesWatch(target);

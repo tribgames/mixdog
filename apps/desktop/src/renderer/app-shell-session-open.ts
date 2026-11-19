@@ -4,7 +4,7 @@ import type { DesktopSessionSummary } from '../shared/contract';
 import { sessionDisplayTitle } from './session-display-title';
 import { t } from './i18n';
 import { defaultSessionLaneStore } from './session-lane-store';
-import { requestSessionRead } from './app-snapshot-views';
+import { requestSessionRead, usesVisibleSessionActivation } from './session-read-request';
 import { confirmSessionOpen } from './session-open-intent';
 
 interface SessionOpenProps {
@@ -46,8 +46,9 @@ export function useAppSessionOpen({
     // instead of making the relay RTT part of navigation latency. A warm lane
     // has nothing in flight to bridge, so it never holds a requested id.
     const warm = Boolean(defaultSessionLaneStore.get(sessionId));
-    setRequestedSessionId(warm ? '' : sessionId);
-    const laneReady = warm ? Promise.resolve(true) : requestSessionRead(sessionId);
+    // The pane's visibility registration owns the core-direct first frame. A parallel read would open and decode it twice.
+    const laneReady = !warm && !usesVisibleSessionActivation() ? requestSessionRead(sessionId) : null;
+    setRequestedSessionId(laneReady ? sessionId : '');
     if (navigationEpoch.current !== navigationToken) return;
     // The navigation goes ahead: the press or focus that led here is an open.
     confirmSessionOpen(sessionId);
@@ -62,7 +63,7 @@ export function useAppSessionOpen({
     const pinnedTitle = fallbackTitle.trim() || openedPinnedTitle;
     // A cold lane's id is dropped once its read settles; the selection is
     // already committed by then, so the clear repaints nothing.
-    if (!warm) {
+    if (laneReady) {
       void laneReady.finally(() => {
         if (navigationEpoch.current === navigationToken) startTransition(() => setRequestedSessionId(''));
       });

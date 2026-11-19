@@ -45,8 +45,12 @@ fn encoding_failure(error: &ImageError) -> ImagingError {
 
 /// The RGB pixels of `raster` with its alpha flattened against the grey level `background` (0 is black, 255 white).
 pub fn flatten(raster: &Raster, background: u8) -> Vec<u8> {
+    flattened_rgb(raster, background).into_owned()
+}
+
+pub(crate) fn flattened_rgb(raster: &Raster, background: u8) -> std::borrow::Cow<'_, [u8]> {
     if !raster.has_alpha {
-        return raster.data.clone();
+        return std::borrow::Cow::Borrowed(&raster.data);
     }
     let background = u32::from(background);
     let mut rgb = Vec::with_capacity(raster.data.len() / 4 * 3);
@@ -56,12 +60,12 @@ pub fn flatten(raster: &Raster, background: u8) -> Vec<u8> {
             rgb.push(((u32::from(channel) * alpha + background * (255 - alpha) + 127) / 255) as u8);
         }
     }
-    rgb
+    std::borrow::Cow::Owned(rgb)
 }
 
 /// A baseline 4:2:0 JPEG at `quality`, the alpha flattened against `background`.
 pub fn encode_jpeg(raster: &Raster, quality: u8, background: u8) -> Vec<u8> {
-    jpeg_enc::encode_rgb(raster.width, raster.height, &flatten(raster, background), quality)
+    jpeg_enc::encode_rgb(raster.width, raster.height, &flattened_rgb(raster, background), quality)
 }
 
 fn encode_png(raster: &Raster) -> Result<Vec<u8>, ImagingError> {

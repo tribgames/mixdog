@@ -24,7 +24,7 @@ export const DIRECT_KEYS = {
     'resetAgentHome', 'listAgentMemory', 'deleteAgentMemory', 'agentRoomAction', 'setSessionFavorite',
     'setSessionProject', 'listProviderModels', 'setModelRoute', 'setFast', 'subscribeRelayPayloadRefused',
     'listSessions', 'markSessionRead', 'subscribeSessions', 'listAgentPool', 'searchSessionContent',
-    'subscribeAgentPool', 'getQuotaAutoResume', 'setQuotaAutoResume', 'deleteSession', 'prefetchSession',
+    'subscribeAgentPool', 'getQuotaAutoResume', 'setQuotaAutoResume', 'deleteSession', 'previewSession', 'prefetchSession',
     'readTranscriptHistory', 'setVisibleSessions', 'getSnapshot', 'subscribeState', 'readSessionAttachment',
     'submitNewTask', 'submitToSession', 'abortSession', 'resolveToolApprovalForSession',
     'resyncSessionState', 'subscribeSessionState', 'sessionStreamPosition', 'inheritSession',

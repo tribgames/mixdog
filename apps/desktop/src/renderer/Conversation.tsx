@@ -79,6 +79,7 @@ export function Conversation(props: ConversationProps) {
     promotedOwnDraft: source.promotedOwnDraft,
     routeSessionIdRef,
     armFollow: view.follow.arm,
+    resetTranscriptToLive: source.resetTranscriptToLive,
     suppressDraftSubmitPaintHandoff,
   });
   const { actions, optimisticActivityStartedAt, transcriptPendingPromptItems: pendingItems } = submission;

@@ -11,6 +11,7 @@ import type { createBrowserGuestCdp } from './cdp';
 import type { createBrowserCommandQueue } from './command-queue';
 import type { createBrowserCookieJar } from './cookie-jar';
 import type { createBrowserDisplayTracking } from './display-tracking';
+import type { createBrowserDisplayTextures } from './display-textures';
 import type { createBrowserGuestLifecycle } from './guest-lifecycle';
 import type { BrowserHost } from './host-types';
 import type { createBrowserHostPageIdentity } from './host-page-identity';
@@ -32,6 +33,7 @@ type CommandQueue = ReturnType<typeof createBrowserCommandQueue>;
 
 export function createBrowserHostDisplayMethods(options: {
   sessions: BrowserSessionRegistry;
+  displayTextures: ReturnType<typeof createBrowserDisplayTextures>;
   presentationReads: Presentation['presentationReads'];
   pageSurface: Presentation['pageSurface'];
   remoteDrive: Presentation['remoteDrive'];
@@ -67,7 +69,7 @@ export function createBrowserHostDisplayMethods(options: {
       display.setNativeShown(owner, shown ? sessions.currentGuest(owner) : null);
       return { enabled: true, shown };
     },
-    setGuestActive(sessionId, webContentsId, active) {
+    setGuestActive(sessionId, webContentsId, active, pixels = active) {
       const owner = browserSessionId(sessionId);
       let guest = sessions.guestForSession(owner, webContentsId);
       if (!guest) {
@@ -76,9 +78,16 @@ export function createBrowserHostDisplayMethods(options: {
       }
       if (!guest) return;
       // Restore a shown page before repainting it; a hidden one throttles.
+      options.displayTextures.setPanelActive(guest, pixels);
       display.setPanelActive(guest, active);
+      if (!pixels) {
+        // Only local display reads; an old tab's final report must not
+        // cancel a read already serving the newly selected page.
+        if (guest === sessions.currentGuest(owner)) options.presentationReads.release(owner);
+        options.pageSurface.releasePixels(owner, guest);
+      }
       // A late display report must never undo a newer tab selection.
-      if (active && guest === sessions.currentGuest(owner)) guest.invalidate();
+      if (pixels && guest === sessions.currentGuest(owner)) guest.invalidate();
     },
     async configureGuestViewport(sessionId, webContentsId, config) {
       const owner = browserSessionId(sessionId);

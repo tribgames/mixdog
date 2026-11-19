@@ -934,24 +934,24 @@ impl Run {
             }
         }
         if let Some(store) = self.env.artifacts.clone() {
-            let mut entries: Vec<crate::offload::BatchEntry> = indices
-                .iter()
-                .filter(|i| hits[**i].is_none())
-                .filter_map(|i| {
-                    let m = staged[*i].as_ref()?;
-                    Some(crate::offload::BatchEntry {
-                        tool: calls[*i]
+            let mut slots = Vec::new();
+            let mut entries = Vec::new();
+            for &i in &indices {
+                if hits[i].is_none() && let Some(m) = staged[i].as_mut() {
+                    slots.push(i);
+                    entries.push(crate::offload::BatchEntry {
+                        tool: calls[i]
                             .name
                             .strip_prefix("mcp__plugin_mixdog_mixdog__")
-                            .unwrap_or(&calls[*i].name)
+                            .unwrap_or(&calls[i].name)
                             .to_owned(),
-                        content: m.message.content.clone(),
-                    })
-                })
-                .collect();
+                        content: std::mem::replace(&mut m.message.content, Content::Text(String::new())),
+                    });
+                }
+            }
             crate::offload::offload_batch(store.as_ref(), &mut entries).await;
-            for (i, entry) in indices.iter().filter(|i| hits[**i].is_none()).zip(entries) {
-                if let Some(m) = staged[*i].as_mut() {
+            for (i, entry) in slots.into_iter().zip(entries) {
+                if let Some(m) = staged[i].as_mut() {
                     m.message.content = entry.content;
                 }
             }
@@ -959,7 +959,8 @@ impl Run {
         if let Some(images) = self.env.images.clone() {
             for i in &indices {
                 if let Some(m) = staged[*i].as_mut() {
-                    m.message.content = crate::offload::compact_images(images.as_ref(), &m.message.content).await;
+                    let body = std::mem::replace(&mut m.message.content, Content::Text(String::new()));
+                    m.message.content = crate::offload::compact_owned_images(images.as_ref(), body).await;
                 }
             }
         }

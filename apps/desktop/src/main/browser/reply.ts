@@ -16,7 +16,7 @@ import type { BrowserRefSet } from './ref-recovery';
 import { createRefRecovery, decorateRecovery, refRecoveryFor } from './reply-ref-recovery';
 import { attachFrame, attachScreenshot } from './reply-screenshot';
 import { awaitReplyReady, type ReplyWait } from './reply-wait';
-import type { BrowserScreenshotCapture } from './screenshot';
+import type { EncodedBrowserScreenshot } from './screenshot-image';
 import { formatPageReport, formatSnapshot } from './snapshot-format';
 
 export type { BrowserRefRecoveryContext } from './reply-ref-recovery';
@@ -38,7 +38,7 @@ export interface BrowserReplyHost {
     background: boolean,
     options: { format?: unknown; quality?: unknown; fullPage?: unknown },
     signal?: AbortSignal
-  ): Promise<BrowserScreenshotCapture>;
+  ): Promise<EncodedBrowserScreenshot>;
   bindVisualGrounding(guest: WebContents, refSet: BrowserRefSet, capture: { width: number; height: number }): void;
   /** The owning session's download ledger, newest first. */
   downloadsForGuest(guest: WebContents): TrackedBrowserDownload[];

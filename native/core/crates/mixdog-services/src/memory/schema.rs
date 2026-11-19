@@ -15,8 +15,10 @@ pub const ENTRY_STATUSES: [&str; 3] = ["pending", "active", "archived"];
 const BOOTSTRAP_DONE_KEY: &str = "boot.schema_bootstrap_complete";
 pub(crate) const DIMS_KEY: &str = "embedding.current_dims";
 const MODEL_KEY: &str = "embedding.current_model";
+const VECTOR_INDEX: &str = "CREATE INDEX IF NOT EXISTS idx_entries_embedding_hnsw ON entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL;";
 
-fn entries_ddl(dims: usize) -> String {
+fn entries_ddl(dims: Option<usize>) -> String {
+    let vector_type = dims.map_or_else(|| "halfvec".to_owned(), |n| format!("halfvec({n})"));
     format!(
         "
 DO $$
@@ -73,7 +75,7 @@ CREATE TABLE IF NOT EXISTS entries (
   last_seen_at  BIGINT,
   reviewed_at   BIGINT,
   error_count   INTEGER NOT NULL DEFAULT 0,
-  embedding     halfvec({dims}),
+  embedding     {vector_type},
   summary_hash  TEXT,
   search_tsv    tsvector GENERATED ALWAYS AS (
     setweight(to_tsvector('simple',  coalesce(element, '')), 'A') ||
@@ -117,7 +119,6 @@ CREATE INDEX IF NOT EXISTS idx_entries_raw_unembedded ON entries(id) WHERE is_ro
 CREATE INDEX IF NOT EXISTS idx_entries_root_unembedded ON entries(id) WHERE is_root = 1 AND embedding IS NULL;
 CREATE INDEX IF NOT EXISTS idx_entries_project ON entries(project_id) WHERE project_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_entries_tsv ON entries USING GIN (search_tsv);
-CREATE INDEX IF NOT EXISTS idx_entries_embedding_hnsw ON entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL;
 
 CREATE OR REPLACE FUNCTION trg_entry_score_recalc() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
@@ -180,13 +181,58 @@ const CORE_KEY_INDEX: &str = "CREATE UNIQUE INDEX IF NOT EXISTS core_entries_uni
 /// stored vectors were made by another model (different dimension or
 /// identity) they are discarded and re-embedded later.
 pub async fn ensure_memory_schema(db: &Db, dims: usize, model_identity: &serde_json::Value) -> Result<()> {
+    ensure_memory_schema_with_dims(db, Some(dims), model_identity).await
+}
+
+pub(crate) async fn ensure_memory_schema_with_dims(db: &Db, dims: Option<usize>, model_identity: &serde_json::Value) -> Result<()> {
     db.bootstrap_schema(&entries_ddl(dims)).await?;
     db.batch(CORE_DDL).await?;
-    reset_vectors_for_model(db, dims, model_identity).await?;
+    let stored_model = get_meta(db, MODEL_KEY).await?;
+    let same_identity = stored_model.as_ref() == Some(model_identity);
+    // The first real vector stores its measured dimension in this database. On
+    // the next open, tighten the column and add HNSW without discarding vectors.
+    let dims = match (dims, same_identity) {
+        (None, true) => get_meta(db, DIMS_KEY).await?.as_ref().and_then(vector_dims),
+        (dims, _) => dims,
+    };
+    let preserve = same_identity || stored_model.is_none() && dims.is_some();
+    reset_vectors_for_model(db, dims, preserve).await?;
     install_core_key_index(db).await?;
     set_meta(db, DIMS_KEY, &json!(dims)).await?;
     set_meta(db, MODEL_KEY, model_identity).await?;
     set_meta(db, BOOTSTRAP_DONE_KEY, &json!("1")).await?;
+    Ok(())
+}
+
+fn vector_dims(value: &serde_json::Value) -> Option<usize> {
+    value.as_u64().and_then(|n| (1..=16_000).contains(&n).then_some(n as usize))
+}
+
+/// Establishes the dimension in the same transaction as the first indexing
+/// write (or in one statement for recall). It needs no schema lock and cannot
+/// change a dimension already established by overlapping work.
+pub(crate) async fn record_vector_dims(client: &deadpool_postgres::Object, dims: usize) -> Result<()> {
+    use crate::memory::error::MemoryError;
+    if !(1..=16_000).contains(&dims) {
+        return Err(MemoryError::Embedding(format!("unsupported embedding dimension: {dims}")));
+    }
+    let read = || async {
+        Ok::<_, tokio_postgres::Error>(client.query_opt("SELECT value FROM meta WHERE key = $1", &[&DIMS_KEY]).await?
+            .and_then(|row| vector_dims(&row.get(0))))
+    };
+    let expected = match read().await? {
+        Some(n) => n,
+        None => {
+            client.execute(
+                "INSERT INTO meta(key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value WHERE meta.value = 'null'::jsonb",
+                &[&DIMS_KEY, &json!(dims)],
+            ).await?;
+            read().await?.ok_or_else(|| MemoryError::Embedding("stored embedding dimension is invalid".into()))?
+        }
+    };
+    if expected != dims {
+        return Err(MemoryError::Embedding(format!("embedding dimension mismatch: expected {expected}, got {dims}")));
+    }
     Ok(())
 }
 
@@ -227,7 +273,7 @@ async fn install_core_key_index(db: &Db) -> Result<()> {
     }
 }
 
-async fn reset_vectors_for_model(db: &Db, dims: usize, identity: &serde_json::Value) -> Result<()> {
+async fn reset_vectors_for_model(db: &Db, dims: Option<usize>, preserve_identity: bool) -> Result<()> {
     let stored_dims = db
         .query_opt(
             "SELECT a.atttypmod FROM pg_attribute a
@@ -239,31 +285,36 @@ async fn reset_vectors_for_model(db: &Db, dims: usize, identity: &serde_json::Va
         )
         .await?
         .map(|row| row.get::<_, i32>(0));
-    let same_identity = db
-        .query_opt("SELECT value = $1::jsonb FROM meta WHERE key = $2", &[identity, &MODEL_KEY])
-        .await?
-        .map(|row| row.get::<_, bool>(0))
-        .unwrap_or(true);
-    let dims_i32 = i32::try_from(dims).unwrap_or(i32::MAX);
+    let typmod = dims.map_or(-1, |n| n as i32);
+    let index = if dims.is_some_and(|n| n <= 4_000) {
+        VECTOR_INDEX
+    } else {
+        ""
+    };
     match stored_dims {
-        Some(stored) if stored != dims_i32 => {
+        Some(stored) if stored != typmod => {
+            let target = dims.map_or_else(|| "halfvec".to_owned(), |n| format!("halfvec({n})"));
+            let keep = stored == -1 && preserve_identity;
+            let data = if keep { "embedding" } else { "NULL" };
+            let reset = if keep { "" } else { "UPDATE entries SET summary_hash = NULL WHERE summary_hash IS NOT NULL;" };
             db.batch(&format!(
                 "DROP INDEX IF EXISTS idx_entries_embedding_hnsw;
-                 ALTER TABLE entries ALTER COLUMN embedding TYPE halfvec({dims}) USING NULL::halfvec({dims});
-                 UPDATE entries SET summary_hash = NULL WHERE summary_hash IS NOT NULL;
-                 CREATE INDEX IF NOT EXISTS idx_entries_embedding_hnsw ON entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL;"
+                 ALTER TABLE entries ALTER COLUMN embedding TYPE {target} USING {data}::{target};
+                 {reset}
+                 {index}"
             ))
             .await
         }
-        Some(_) if !same_identity => {
-            db.batch(
+        Some(_) if !preserve_identity => {
+            db.batch(&format!(
                 "DROP INDEX IF EXISTS idx_entries_embedding_hnsw;
                  UPDATE entries SET embedding = NULL WHERE embedding IS NOT NULL;
                  UPDATE entries SET summary_hash = NULL WHERE summary_hash IS NOT NULL;
-                 CREATE INDEX IF NOT EXISTS idx_entries_embedding_hnsw ON entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL;",
-            )
+                 {index}"
+            ))
             .await
         }
+        _ if !index.is_empty() => db.bootstrap_schema(index).await,
         _ => Ok(()),
     }
 }

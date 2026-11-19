@@ -19,7 +19,7 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use crate::memory::error::{MemoryError, Result};
-use crate::memory::session_search::db::SessionSearchDb;
+use crate::memory::session_search::db::{SessionSearchDb, search_row};
 
 const LAST_INGESTED_LIMIT: usize = 500;
 
@@ -27,7 +27,11 @@ const LAST_INGESTED_LIMIT: usize = 500;
 pub trait SensitiveValues: Send + Sync {
     /// Identity of the session's current set of marked values; None when it has none.
     fn version(&self, session_id: &str) -> Option<String>;
-    fn redact_messages(&self, session_id: &str, messages: &[Value]) -> Vec<Value>;
+    /// Redact one message without changing its position in the transcript.
+    fn redact_message(&self, session_id: &str, message: &Value) -> Value;
+    fn redact_messages(&self, session_id: &str, messages: &[Value]) -> Vec<Value> {
+        messages.iter().map(|message| self.redact_message(session_id, message)).collect()
+    }
     fn redact_text(&self, session_id: &str, text: &str) -> String;
 }
 
@@ -301,10 +305,24 @@ impl SessionSearchIngest {
                     stamp = after;
                     continue;
                 }
-                let Some(session) = session else { return Ok(Some(false)) };
-                let indexed = !session.agent_only;
-                let redacted = if indexed { self.sensitive.redact_messages(session_id, &session.messages) } else { Vec::new() };
-                self.db.store_backfill(session_id, &redacted, &stamp).await?;
+                let Some(IngestSession { messages, agent_only, .. }) = session else { return Ok(Some(false)) };
+                let indexed = !agent_only;
+                let rows = if indexed {
+                    // A redacted message is only needed until its search row has been derived.
+                    messages
+                        .into_iter()
+                        .enumerate()
+                        .filter_map(|(index, message)| {
+                            let redacted = self.sensitive.redact_message(session_id, &message);
+                            drop(message);
+                            search_row(session_id, &redacted, index)
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    drop(messages);
+                    Vec::new()
+                };
+                self.db.store_backfill(session_id, &rows, &stamp).await?;
                 return Ok(Some(indexed));
             }
             Ok(Some(false))

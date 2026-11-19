@@ -21,6 +21,12 @@ export function createBrowserPixelPresentation(host: {
         (!surface || current.surfaceWidth !== surface.width || current.surfaceHeight !== surface.height);
   };
   return {
+    clear(): void {
+      host.image.current?.remove();
+      host.image.current = null;
+      current = null;
+      host.textureRetired?.();
+    },
     async prepare(frame: DesktopBrowserPageFrame): Promise<void> {
       if (!frame.image) return;
       const image = new Image();
@@ -71,7 +77,7 @@ export function createBrowserPixelPresentation(host: {
         host.image.current = null;
         if (retiring) host.textureRetired?.();
       }
-      current = frame;
+      current = frame.image ? { ...frame, image: undefined } : frame;
       visibility();
       if (changed) container.dispatchEvent(new Event('browser-frame-presented', { bubbles: true }));
     },

@@ -60,7 +60,7 @@ export const IsolatedBrowserView = forwardRef<
           if (!present) throw new Error('Browser GPU display is unavailable.');
           present(sessionId, id, canvas);
         },
-        textureRetired: () => window.mixdogDesktop?.browserDiscardTexture?.(sessionId),
+        textureRetired: () => window.mixdogDesktop?.browserDiscardTexture?.(sessionId, canvasId),
       }),
     [sessionId, canvasId]
   );
@@ -69,6 +69,7 @@ export const IsolatedBrowserView = forwardRef<
       createBrowserPageClient({
         api: window.mixdogDesktop!,
         sessionId,
+        canvasId,
         metadataOnly: () => nativeShownRef.current,
         prepare: presentation.prepare,
         update: presentation.update,
@@ -78,7 +79,7 @@ export const IsolatedBrowserView = forwardRef<
         // Only a new deliberate input, begun after the failure, proves recovery.
         recovered: () => setActionFailure(''),
       }),
-    [sessionId, presentation]
+    [sessionId, presentation, canvasId]
   );
   useImperativeHandle(ref, () => {
     const node = element.current as BrowserPageElement;
@@ -89,9 +90,9 @@ export const IsolatedBrowserView = forwardRef<
     client.activate();
     return () => {
       client.dispose();
-      window.mixdogDesktop?.browserDiscardTexture?.(sessionId);
+      window.mixdogDesktop?.browserDiscardTexture?.(sessionId, canvasId);
     };
-  }, [client, sessionId]);
+  }, [client, sessionId, canvasId]);
   const input = useBrowserPageInput(client, image, keyboard);
 
   // The host hears when this pane starts and stops reading the session's
@@ -162,16 +163,25 @@ export const IsolatedBrowserView = forwardRef<
     });
     client.setRefresh(loop.wake);
     wakeDisplay.current = loop.wake;
-    document.addEventListener('visibilitychange', loop.wake);
+    const releasePixels = () => {
+      client.releasePixels();
+      presentation.clear();
+    };
+    const visibilityChanged = () => {
+      if (document.visibilityState === 'hidden') releasePixels();
+      loop.wake();
+    };
+    document.addEventListener('visibilitychange', visibilityChanged);
     loop.wake();
     return () => {
       stopped = true;
       loop.stop();
       client.setRefresh(() => {});
       wakeDisplay.current = () => {};
-      document.removeEventListener('visibilitychange', loop.wake);
+      document.removeEventListener('visibilitychange', visibilityChanged);
+      releasePixels();
     };
-  }, [active, client]);
+  }, [active, client, presentation]);
 
   // Native presentation follows the surface: its place in the window, the
   // page the session currently shows, and whether the shell draws anything

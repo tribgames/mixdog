@@ -69,6 +69,151 @@ test('a replay leaves nothing to join: the next joining resume is sent', async (
   await client.close();
 });
 
+test('a replay remains pending until the last missed event folds, not just until its attach is answered', async (t) => {
+  const { net, conn, client } = await setup();
+  t.after(() => client.close());
+  const initial = client.resumeThread('t1', { lastItems: 32 });
+  conn.serverSend(reply(JSON.parse(await conn.nextSent()).id, 'snapshot'));
+  await initial;
+  conn.serverSend({ method: 'thread/snapshot', params: {}, feed: { id: 't1', epoch: 'te', seq: 0 } });
+  await tick();
+  conn.serverClose(1006);
+  const again = await net.accept();
+  const init = JSON.parse(await again.nextSent());
+  again.serverSend({ id: init.id, result: { ...options.initializeResult, serverInstanceId: 's1' } });
+  await again.nextSent();
+  const restore = JSON.parse(await again.nextSent());
+  again.serverSend(reply(restore.id, 'replay', 'te', 1, 3));
+  await tick();
+  assert.equal(client.threadSubscription('t1').replayPending, true);
+  const folds: { seq: number | undefined; complete: boolean; pending: boolean }[] = [];
+  client.store.subscribe((change) => {
+    if (change.type === 'thread') folds.push({
+      seq: client.store.thread('t1')?.feed.seq,
+      complete: change.replayComplete === true,
+      pending: client.threadSubscription('t1').replayPending,
+    });
+  });
+  for (const seq of [1, 2]) {
+    again.serverSend({ method: 'thread/frame', params: {}, feed: { id: 't1', epoch: 'te', seq } });
+  }
+  assert.equal(client.threadSubscription('t1').replayPending, true);
+  await tick();
+  assert.deepEqual(folds, [
+    { seq: 1, complete: false, pending: true },
+    { seq: 2, complete: true, pending: false },
+  ]);
+});
+
+async function legacyThreadRestore() {
+  const { net, conn, client } = await setup();
+  const initial = client.resumeThread('t1', { lastItems: 32 });
+  conn.serverSend(reply(JSON.parse(await conn.nextSent()).id, 'snapshot'));
+  await initial;
+  conn.serverSend({ method: 'thread/snapshot', params: {}, feed: { id: 't1', epoch: 'te', seq: 0 } });
+  await tick();
+  conn.serverClose(1006);
+  const again = await net.accept();
+  const init = JSON.parse(await again.nextSent());
+  again.serverSend({ id: init.id, result: { ...options.initializeResult, serverInstanceId: 's1' } });
+  await again.nextSent();
+  const restore = JSON.parse(await again.nextSent());
+  again.serverSend({ id: restore.id, result: { subscription: { id: 's', mode: 'replay', epoch: 'te', startSeq: 1 } } });
+  return { again, client };
+}
+
+test('a legacy replay waits for both the authoritative head and the fold through it', async (t) => {
+  const { again, client } = await legacyThreadRestore();
+  t.after(() => client.close());
+  const complete: Array<number | undefined> = [];
+  client.store.subscribe((change) => {
+    if (change.type === 'thread' && change.replayComplete) complete.push(client.store.thread('t1')?.feed.seq);
+  });
+  const asked = JSON.parse(await again.nextSent());
+  assert.deepEqual([asked.method, asked.params], ['feed/heads', { feedIds: ['t1'] }]);
+  assert.equal(client.threadSubscription('t1').replayPending, true);
+  again.serverSend({ id: asked.id, result: { positions: [{ epoch: 'te', seq: 2 }] } });
+  again.serverSend({ method: 'thread/frame', params: {}, feed: { id: 't1', epoch: 'te', seq: 1 } });
+  await tick();
+  assert.deepEqual(complete, []);
+  assert.equal(client.threadSubscription('t1').replayPending, true);
+  again.serverSend({ method: 'thread/frame', params: {}, feed: { id: 't1', epoch: 'te', seq: 2 } });
+  await tick();
+  assert.deepEqual(complete, [2]);
+  assert.equal(client.threadSubscription('t1').replayPending, false);
+  assert.deepEqual(again.sent, [], 'a confirmed head needs no second attach');
+});
+
+test('a legacy peer without feed heads supplies the followed tail via a fresh snapshot, not an unconfirmed replay', async (t) => {
+  const { again, client } = await legacyThreadRestore();
+  t.after(() => client.close());
+  const asked = JSON.parse(await again.nextSent());
+  again.serverSend({ id: asked.id, error: { code: -32601, message: 'method not found' } });
+  const recovery = JSON.parse(await again.nextSent());
+  assert.deepEqual([recovery.method, recovery.params], ['thread/resume', { threadId: 't1', window: { lastItems: 32 } }]);
+  assert.equal(client.threadSubscription('t1').replayPending, true);
+  again.serverSend(reply(recovery.id, 'snapshot', 'te', 2));
+  await tick();
+  assert.equal(client.threadSubscription('t1').snapshotPending, true);
+  assert.equal(client.store.thread('t1')?.feed.seq, 0);
+  again.serverSend({ method: 'thread/snapshot', params: {}, feed: { id: 't1', epoch: 'te', seq: 1 } });
+  await tick();
+  assert.equal(client.threadSubscription('t1').snapshotPending, false);
+  assert.equal(client.store.thread('t1')?.feed.seq, 1);
+  assert.deepEqual(again.sent, []);
+});
+
+test('a transient legacy head failure recovers an idle followed thread with one fresh snapshot', async (t) => {
+  const { again, client } = await legacyThreadRestore();
+  t.after(() => client.close());
+  const delivered: Array<number | undefined> = [];
+  client.store.subscribe((change) => {
+    if (change.type === 'thread' && !client.threadSubscription('t1').replayPending &&
+        !client.threadSubscription('t1').snapshotPending) {
+      delivered.push(client.store.thread('t1')?.feed.seq);
+    }
+  });
+
+  const heads = JSON.parse(await again.nextSent());
+  again.serverSend({ id: heads.id, error: { code: -32603, message: 'internal error' } });
+  await tick();
+  assert.equal(again.sent.length, 1, 'one recovery request, with no incoming thread events to wake it');
+  const recovery = JSON.parse(await again.nextSent());
+  assert.deepEqual([recovery.method, recovery.params], ['thread/resume', { threadId: 't1', window: { lastItems: 32 } }]);
+  assert.equal(client.threadSubscription('t1').replayPending, true);
+  again.serverSend(reply(recovery.id, 'snapshot', 'te', 2));
+  await tick();
+  assert.deepEqual(delivered, [], 'the acknowledgement does not make the old fold live');
+  again.serverSend({ method: 'thread/snapshot', params: {}, feed: { id: 't1', epoch: 'te', seq: 1 } });
+  await tick();
+  assert.deepEqual(delivered, [1]);
+  assert.deepEqual(again.sent, []);
+});
+
+test('a rejected legacy recovery reports loss and a later retry cannot reuse the stale cursor', async (t) => {
+  const { again, client } = await legacyThreadRestore();
+  t.after(() => client.close());
+  const heads = JSON.parse(await again.nextSent());
+  const refusal = { code: -32603, message: 'recovery failed' };
+  again.serverSend({ id: heads.id, error: refusal });
+  const recovery = JSON.parse(await again.nextSent());
+  const states: string[] = [];
+  client.store.subscribe((change) => {
+    if (change.type === 'subscription' && change.feedId === 't1') states.push(change.state);
+  });
+  again.serverSend({ id: recovery.id, error: refusal });
+  await tick();
+  assert.deepEqual(states, ['lost']);
+  assert.equal(client.threadSubscription('t1').followed, false);
+  assert.ok(!client.store.thread('t1'));
+  assert.deepEqual(again.sent, []);
+  const retry = client.resumeThread('t1', { lastItems: 32 }, { follow: true });
+  const next = JSON.parse(await again.nextSent());
+  assert.deepEqual(next.params, { threadId: 't1', window: { lastItems: 32 } });
+  again.serverSend(reply(next.id, 'snapshot', 'te', 2));
+  await retry;
+});
+
 test('the automatic follow retries a refused turns window rather than substituting its item default', async () => {
   const { net, conn, client } = await setup();
   const initial = client.resumeThread('t1', { lastTurns: 18 });

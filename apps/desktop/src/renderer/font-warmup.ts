@@ -1,4 +1,4 @@
-// Post-reveal warmup for every declared font face.
+// Post-reveal warmup for UI fonts.
 //
 // The boot gate only guarantees the faces used by the FIRST painted tree.
 // Pretendard's dynamic subset declares 92 Hangul range slices that otherwise
@@ -68,10 +68,9 @@ export function scheduleFontWarmup(): void {
     document.fonts.forEach((face) => {
       if (face.status !== 'unloaded') return;
       if (!warmHangul && /pretendard/i.test(face.family)) return;
-      // KaTeX declares ~20 faces that only rendered math uses, and a remote
-      // surface fetches each one over the network. Math loads its own faces
-      // when it paints; the local desktop still warms them from disk.
-      if (remote && /katex/i.test(face.family)) return;
+      // Math loads the faces it actually uses, including on desktop. Its
+      // styles are already present for the first equation.
+      if (/katex/i.test(face.family)) return;
       pending.push(face);
     });
     if (pending.length === 0) return;

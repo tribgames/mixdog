@@ -83,7 +83,7 @@ import { createTranscriptTap } from './host/browser-engine/transcript';
 import { createBrowserApprovalGrants } from './browser/approval-grants';
 import { boundedNotification } from './connections/server-notifier';
 import type { RemoteHostWindows } from './remote-host-windows';
-import { createIdleReclaim, purgeRendererMemory, type IdleReclaim } from './idle-reclaim';
+import { attachWindowIdleReclaim, purgeRendererMemory, type IdleReclaim } from './idle-reclaim';
 import { watchCrashHandler } from './crash-handler-watch';
 import { setPageFaultDiagnosticSink } from './browser/page-fault-diagnostics';
 import { createDesktopDiagnostics, type DesktopDiagnostics } from './desktop-diagnostics';
@@ -2449,19 +2449,18 @@ function installLocalWindowFeatures(
   });
   // Background memory reclaim: a heavy session leaves the renderer resident
   // above 1 GB and nothing hands that back while the desktop sits untouched.
-  idleReclaim = createIdleReclaim({
-    isFocused: () => !window.isDestroyed() && window.isFocused(),
+  const windowIdleReclaim = attachWindowIdleReclaim(window, {
     reclaim: () => reclaimRendererMemory(window),
   });
+  idleReclaim = windowIdleReclaim;
   window.on('focus', () => {
     turnAttention?.onFocus();
-    idleReclaim?.onFocus();
   });
-  window.on('blur', () => idleReclaim?.onBlur());
   window.on('close', (event) => {
     backgroundWindow.onClose(event, () => window.hide());
   });
   window.on('closed', () => {
+    if (idleReclaim === windowIdleReclaim) idleReclaim = null;
     stopScreenSessions();
     stopSurfaceReport();
     computerUseOverlay?.dispose();
@@ -2694,7 +2693,6 @@ function installWindowIpc(
     ipcMain: ipcScope,
     dialog,
     shell,
-    powerMonitor,
     connectionKind: connection.kind,
     serverId: connection.id,
     // A server window's model calls run on this PC's sign-ins (model proxy,

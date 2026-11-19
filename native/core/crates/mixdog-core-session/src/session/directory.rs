@@ -432,7 +432,7 @@ pub(crate) struct DirInner {
     /// The shutdown began: the session service is closed.
     closed: std::sync::atomic::AtomicBool,
     /// The close work of each unloaded runtime still running, by thread: the next open of the thread waits for it.
-    teardowns: Mutex<HashMap<ThreadId, Vec<oneshot::Receiver<()>>>>,
+    teardowns: Mutex<HashMap<ThreadId, watch::Receiver<()>>>,
     /// The control thread paired phones share (`SessionDirectory::remote_control`); `None` until one starts it.
     remote_control: tokio::sync::Mutex<Option<ThreadId>>,
     /// Woken whenever a thread leaves the directory (a test waits on `handle(..)` turning `None`).
@@ -616,7 +616,7 @@ impl DirInner {
     /// Holds the minted `id` of a control start ([`Starting`]).
     fn start(&self, id: &ThreadId) -> Result<Starting, CoreError> {
         let mut shard = lock(self.shard(id));
-        if shard.contains_key(id) {
+        if shard.contains_key(id) || lock(&self.teardowns).contains_key(id) {
             return Err(exists());
         }
         let mark = Arc::new(Liveness::default());
@@ -656,35 +656,56 @@ impl DirInner {
     }
 
     /// Drops the loaded thread whose cell is `cell` when it still has no subscriber, and
-    /// closes the cell under the shard lock. False when a subscriber came back meanwhile. `teardown` is the unloaded runtime's
-    /// own close work (its memory ingest): it runs from here, and the next open of the thread waits for it ([`Self::settle_teardowns`]).
-    pub(crate) fn unload(&self, id: &ThreadId, cell: &Arc<ControlCell>, teardown: futures::future::BoxFuture<'static, ()>) -> bool {
+    /// closes the cell under the shard lock. `None` when a subscriber came back meanwhile.
+    /// The actor signals its own disposal before the close work runs; a reopen waits for both.
+    pub(crate) fn unload(
+        &self,
+        id: &ThreadId,
+        cell: &Arc<ControlCell>,
+        teardown: futures::future::BoxFuture<'static, ()>,
+    ) -> Option<oneshot::Sender<()>> {
         let mut shard = lock(self.shard(id));
         let ours = matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(&h.cell, cell));
         // The check and the close are one transition of the admission word: an attach that
         // comes after it fails, one before it makes the close fail.
         if !ours || !cell.close_unattached() {
-            return false;
+            return None;
         }
+        let (done, finished) = watch::channel(());
+        let (stop, stopped) = oneshot::channel();
+        lock(&self.teardowns).insert(id.clone(), finished);
         shard.remove(id);
-        let (done, finished) = oneshot::channel::<()>();
-        lock(&self.teardowns).entry(id.clone()).or_default().push(finished);
+        struct PendingTeardown {
+            directory: std::sync::Weak<DirInner>,
+            thread: ThreadId,
+            // Dropping the sender wakes both reopen and shutdown after unregistering.
+            _done: watch::Sender<()>,
+        }
+        impl Drop for PendingTeardown {
+            fn drop(&mut self) {
+                if let Some(directory) = self.directory.upgrade() {
+                    // Reopen waits on this registration and fixed-id creation cannot pass it.
+                    lock(&directory.teardowns).remove(&self.thread);
+                }
+            }
+        }
+        let pending = PendingTeardown { directory: self.me.clone(), thread: id.clone(), _done: done };
         tokio::spawn(async move {
+            let _ = stopped.await;
             teardown.await;
-            let _ = done.send(());
+            drop(pending);
         });
         #[cfg(any(test, feature = "test-support"))]
         self.left.notify_waiters();
-        true
+        Some(stop)
     }
 
-    /// Waits for the teardowns of the runtimes of `id` that unloaded before now (`settleTeardown`, `entries/disposal.mjs:22`):
-    /// a runtime for the same thread must never open while the previous one still closes, as two must never write one session.
-    /// A teardown that ends without finishing (its task dropped) ends the wait too.
+    /// The next runtime cannot open while the previous one still closes. Keep the registration
+    /// visible while waiting so shutdown can also join it.
     async fn settle_teardowns(&self, id: &ThreadId) {
-        let pending = lock(&self.teardowns).remove(id).unwrap_or_default();
-        for finished in pending {
-            let _ = finished.await;
+        let pending = lock(&self.teardowns).get(id).cloned();
+        if let Some(mut finished) = pending {
+            let _ = finished.changed().await;
         }
     }
 
@@ -1282,7 +1303,7 @@ impl DirInner {
         let (handle, launch) = {
             let mut shard = lock(self.shard(&id));
             match (shard.get(&id), &spec.starting) {
-                (None, None) => {}
+                (None, None) if !lock(&self.teardowns).contains_key(&id) => {}
                 (Some(Slot_::Starting(mark)), Some(starting)) if Arc::ptr_eq(mark, &starting.mark) => {}
                 // The start's hold was let go (shutdown drains every slot).
                 (None, Some(_)) => return Err(CoreError::ThreadClosing { thread_id: id.clone() }),
@@ -1690,32 +1711,35 @@ impl mixdog_core_domains::domains::ai_admin::route_service::LiveControls for Ses
 /// that replaces them.
 async fn image_gate_run(deps: Arc<SessionDeps>, id: ThreadId, gate: Arc<super::image_gate::ImageGate>) {
     let overlay = super::image_overlay_store::load(deps.user_cwd.data_dir(), id.as_str()).unwrap_or_default();
-    let context = super::run::ModelContext { store: deps.store.clone(), sensitive: deps.sensitive.clone(), lanes: deps.lanes, thread: id, input: mixdog_core_api::ids::ItemId::from(String::new()) };
-    let rows = match context.read_from(0).await {
-        Ok(rows) => rows,
+    let (sensitive, thread) = (deps.sensitive.clone(), id.clone());
+    // Scan the model lineage (including compaction replacements), not the display transcript.
+    let scan = super::run::fold_context(&deps.store, &deps.lanes, &id, 0, move |scan: &mut super::image_gate::ImageScan, mut rows| {
+        rows.retain(|(id, _)| !id.as_str().is_empty());
+        sensitive.held(&thread, &mut rows);
+        scan.page(rows, &overlay);
+    }).await;
+    let (run_items, pending) = match scan {
+        Ok(scan) => scan.finish(),
         Err(error) => {
             tracing::warn!(?error, "the restored history could not be read for its images");
             gate.finish(&[], &mixdog_image_vault::migration::Report { results: Vec::new(), cancelled: false });
             return;
         }
     };
-    let history = super::image_recovery::History::of(&rows);
-    let ids = history.ids();
-    let items: Vec<_> = super::image_gate::history_images(&rows, &history).into_iter().filter(|item| !super::image_gate::covered(&overlay, &ids, &item.place)).collect();
-    if items.is_empty() {
-        gate.finish(&items, &mixdog_image_vault::migration::Report { results: Vec::new(), cancelled: false });
+    if run_items.is_empty() {
+        gate.finish(&pending, &mixdog_image_vault::migration::Report { results: Vec::new(), cancelled: false });
         return;
     }
-    gate.progress(mixdog_image_vault::migration::Progress { done: 0, total: items.len() });
+    gate.progress(mixdog_image_vault::migration::Progress { done: 0, total: run_items.len() });
     let vault = mixdog_image_vault::ImageVault::for_blobs(deps.attachments.0.clone());
-    let (run_items, run_gate): (Vec<_>, _) = (items.iter().map(|item| item.image.clone()).collect(), gate.clone());
+    let run_gate = gate.clone();
     let report = mixdog_core_base::support::on_lane_wait(deps.lanes.io, &CancellationToken::new(), move |lane| {
         mixdog_image_vault::migration::migrate(&vault, lane, &run_items, &mixdog_image_egress::admission::Cancel::default(), &mut |progress| run_gate.progress(progress))
     })
     .await;
     match report {
-        Ok(report) => gate.finish(&items, &report),
-        Err(_) => gate.finish(&items, &mixdog_image_vault::migration::Report { results: items.iter().map(|item| (item.image.key.clone(), mixdog_image_vault::migration::ItemResult::NotRun)).collect(), cancelled: true }),
+        Ok(report) => gate.finish(&pending, &report),
+        Err(_) => gate.finish(&pending, &mixdog_image_vault::migration::Report { results: pending.iter().map(|item| (item.key.clone(), mixdog_image_vault::migration::ItemResult::NotRun)).collect(), cancelled: true }),
     }
 }
 
@@ -2504,13 +2528,17 @@ impl SessionDirectory {
                 ingests.push(ingest);
             }
         }
+        let pending: Vec<_> = lock(&self.inner.teardowns).values().cloned().collect();
         wait_without_cancelling(SHUTDOWN_INGEST_DEADLINE, async move {
-            futures::future::join_all(ingests.into_iter().map(|ingest| async move {
+            let loaded = futures::future::join_all(ingests.into_iter().map(|ingest| async move {
                 if let Ok(ingest) = ingest.await {
                     ingest.await;
                 }
-            }))
-            .await;
+            }));
+            let unloaded = futures::future::join_all(pending.into_iter().map(|mut finished| async move {
+                let _ = finished.changed().await;
+            }));
+            futures::join!(loaded, unloaded);
         })
         .await;
         // Each runtime's teardown ends with `dispose()` of its side checkouts: no snapshot

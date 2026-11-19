@@ -52,6 +52,27 @@ fn error(message: impl std::fmt::Display) -> MemoryError {
     MemoryError::Embedding(format!("embedding host: {message}"))
 }
 
+async fn run_pipe_job<R: Send + 'static>(
+    lane: mixdog_rt::CpuBulk,
+    job: impl FnOnce() -> R + Send + 'static,
+) -> std::result::Result<R, String> {
+    #[cfg(not(test))]
+    return run_on_lane(lane, job).await;
+
+    // Unlike production's bulk lane, the test backend executes lane jobs
+    // inline. A pipe wait must not block a Tokio worker that owns the local
+    // queue where its writer/reader task was just scheduled.
+    #[cfg(test)]
+    {
+        let runtime = tokio::runtime::Handle::current();
+        match tokio::task::spawn_blocking(move || runtime.block_on(run_on_lane(lane, job))).await {
+            Ok(outcome) => outcome,
+            Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+}
+
 #[cfg(not(test))]
 fn launch(config: &EmbedConfig) -> Result<HostLaunch> {
     let mut args = vec![
@@ -73,6 +94,7 @@ fn launch(config: &EmbedConfig) -> Result<HostLaunch> {
 struct Inner {
     pipes: Pipes,
     exchange: Mutex<()>,
+    #[cfg(test)]
     dims: usize,
     device: &'static str,
     model_id: String,
@@ -114,7 +136,7 @@ impl Embedder {
 
     pub(crate) async fn start_within(config: EmbedConfig, launch: HostLaunch, limits: Limits) -> Result<Self> {
         let runtime = tokio::runtime::Handle::current();
-        run_on_lane(config.lane, move || {
+        run_pipe_job(config.lane, move || {
             let pipes = Pipes::start_below_normal(&launch, TAG, &runtime).map_err(error)?;
             let ready = Arc::new(AtomicBool::new(false));
             let kill = pipes.kill.clone();
@@ -125,7 +147,7 @@ impl Embedder {
                 }
             }));
             let first = pipes.receive().map_err(error)?;
-            let (dims, device) = match serde_json::from_str::<Reply>(&first).map_err(error)? {
+            let (_dims, device) = match serde_json::from_str::<Reply>(&first).map_err(error)? {
                 Reply::Ready { dims, device } => (dims, device),
                 Reply::Failed { message } => return Err(MemoryError::Embedding(message)),
                 _ => return Err(error("unexpected reply while loading")),
@@ -133,7 +155,9 @@ impl Embedder {
             ready.store(true, Ordering::Release);
             let model_id = mixdog_js::js_trim(&config.model_id).to_owned();
             Ok(Self { inner: Arc::new(Inner {
-                pipes, exchange: Mutex::new(()), dims,
+                pipes, exchange: Mutex::new(()),
+                #[cfg(test)]
+                dims: _dims,
                 device: match device.as_str() { "cpu" => "cpu", "dml" => "dml", _ => return Err(error("unknown device")) },
                 dtype: config::normalize_dtype(&model_id, config.dtype.as_deref()),
                 model_id, lane: config.lane, request_limit: limits.request,
@@ -142,7 +166,6 @@ impl Embedder {
         }).await.map_err(error)?
     }
 
-    pub fn in_use(&self) -> bool { Arc::strong_count(&self.inner) > 1 }
     pub fn alive(&self) -> bool { self.inner.pipes.alive() }
     /// The host's lifecycle (Rule B): `Ended` only once its reaper read the exit.
     pub(crate) fn lifecycle(&self) -> Lifecycle { self.inner.pipes.lifecycle() }
@@ -152,7 +175,8 @@ impl Embedder {
     pub(crate) fn retire(&self) { self.inner.pipes.retire() }
     #[cfg(test)]
     pub(crate) fn generation(&self) -> u64 { self.inner.pipes.generation() }
-    pub fn dims(&self) -> usize { self.inner.dims }
+    #[cfg(test)]
+    pub(crate) fn dims(&self) -> usize { self.inner.dims }
     pub fn device(&self) -> &'static str { self.inner.device }
     pub fn model_id(&self) -> &str { &self.inner.model_id }
     pub fn dtype(&self) -> &str { &self.inner.dtype }
@@ -160,7 +184,7 @@ impl Embedder {
     pub async fn embed(&self, text: &str, input_type: InputType) -> Result<Arc<Vec<f32>>> {
         let request = Request { text: text.to_owned(), query: input_type == InputType::Query };
         let this = self.clone();
-        run_on_lane(self.inner.lane, move || {
+        run_pipe_job(self.inner.lane, move || {
             let _exchange = this.inner.exchange.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             // A host that never answers would hold the exchange for good: the alarm ends the host, which ends the wait below.
             // The alarm kills only the exchange it was armed for: the check and the kill are one step under `armed`, which the exchange's end also takes,

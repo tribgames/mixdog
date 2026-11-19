@@ -1516,6 +1516,25 @@ fn symbols_stops_at_limit_and_counts_the_rest() {
 }
 
 #[test]
+fn symbol_search_cap_keeps_the_best_names_and_declarations_after_scanning_the_scope() {
+    let (_tmp, root) = project_with_sentinel();
+    fs::write(root.join("a.mjs"), "export function job() {}\nexport function jobLists() {}\n").unwrap();
+    fs::write(root.join("src/a.mjs"), "export function runJob() {}\nexport function Job() {}\n").unwrap();
+    fs::write(root.join("src/z.mjs"), "export function job() {}\nexport function jobQueue() {}\n").unwrap();
+    let text = run_with(serde_json::json!({ "mode": "symbol_search", "symbol": "job", "limit": 2 }), &root).text;
+    let rows: Vec<_> = text.lines().collect();
+    assert_eq!(rows.len(), 4, "{text}");
+    assert_eq!(rows[0], "# search keyword=job matches=5 shown=2");
+    assert!(rows[1].starts_with("job\tsrc/z.mjs:1"), "{text}");
+    assert!(rows[2].starts_with("Job\tsrc/a.mjs:2"), "{text}");
+    assert_eq!(rows[3], "...+3 more resolved (cap=2)");
+
+    let scoped = run_with(serde_json::json!({ "mode": "search", "file": "a.mjs", "symbol": "job", "limit": 1 }), &root).text;
+    assert!(scoped.starts_with("# search keyword=job matches=2 shown=1\njob\ta.mjs:1"), "{scoped}");
+    assert!(scoped.ends_with("...+1 more resolved (cap=1)"), "{scoped}");
+}
+
+#[test]
 fn callers_search_the_project_when_files_names_the_declaration() {
     let (_tmp, root) = reader_project();
     let text = run_with(serde_json::json!({ "mode": "callers", "files": ["src/lib.mjs"], "symbol": "target" }), &root).text;

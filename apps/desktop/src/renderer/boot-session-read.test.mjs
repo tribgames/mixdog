@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { startRestoredSessionReads } from './boot-session-read.ts';
-import { requestSessionRead } from './session-read-request.ts';
+import { previewSessionTranscript, requestSessionRead } from './session-read-request.ts';
 import { defaultSessionLaneStore } from './session-lane-store.ts';
 import { createPaneLeaf } from './pane-layout.ts';
 
@@ -12,7 +12,7 @@ function storedLayout(selection) {
   return JSON.stringify({ layout: leaf, focusedLeafId: leaf.id });
 }
 
-function fixture(t, { layout = null, file = null, remote = false, prefetchSession }) {
+function fixture(t, { layout = null, file = null, remote = false, prefetchSession, previewSession }) {
   const prior = Object.getOwnPropertyDescriptor(globalThis, 'window');
   const values = new Map(layout === null ? [] : [[PANE_LAYOUT_KEY, layout]]);
   Object.defineProperty(globalThis, 'window', {
@@ -22,7 +22,7 @@ function fixture(t, { layout = null, file = null, remote = false, prefetchSessio
       clearTimeout,
       localStorage: { getItem: (key) => values.get(key) ?? null },
       ...(remote ? { mixdogRemoteServer: 'https://relay.example' } : {}),
-      mixdogDesktop: { prefetchSession, readPaneLayoutFile: () => file },
+      mixdogDesktop: { prefetchSession, previewSession, readPaneLayoutFile: () => file },
     },
   });
   defaultSessionLaneStore.clear();
@@ -51,6 +51,23 @@ test('boot starts exactly one read for the restored session and the pane read jo
   pending.resolve(true);
   assert.equal(await paneRead, true);
   assert.deepEqual(calls, ['restored']);
+});
+
+test('core-direct boot previews a restored transcript before registration without activating it', async (t) => {
+  const calls = [];
+  fixture(t, {
+    layout: storedLayout({ kind: 'session', id: 'restored' }),
+    prefetchSession: async (id) => calls.push(['activate', id]) > 0,
+    previewSession: async (id) => {
+      calls.push(['preview', id]);
+      return { sessionId: id, items: [{ id: 'stored', kind: 'user', text: 'stored prompt' }] };
+    },
+  });
+  startRestoredSessionReads();
+  assert.equal(await previewSessionTranscript('restored'), true);
+  assert.deepEqual(calls, [['preview', 'restored']]);
+  assert.equal(defaultSessionLaneStore.get('restored').items[0].id, 'stored');
+  assert.equal(defaultSessionLaneStore.liveSessionIds().has('restored'), false);
 });
 
 test('the profile-file layout restores when localStorage has none', (t) => {

@@ -72,6 +72,7 @@ function fakeWindow(id) {
 function twoConnectionFixture(t) {
   const handlers = new Map();
   const ipcMain = new EventEmitter();
+  const powerMonitor = new EventEmitter();
   ipcMain.handle = (channel, handler) => {
     if (handlers.has(channel)) throw new Error(`second handler for ${channel}`);
     handlers.set(channel, handler);
@@ -119,9 +120,14 @@ function twoConnectionFixture(t) {
         trashItem: async () => {},
       },
       connectionKind: kind,
+      powerMonitor,
       ...(kind === 'ssh'
         ? { serviceUserDataPath: () => '/root/.mixdog-remote/user-data' }
-        : { updater, previewNotificationSound: async () => 'played' }),
+        : {
+            corePort: { open: () => ({ kind: 'test-port' }), retryLaunch: async () => {} },
+            updater,
+            previewNotificationSound: async () => 'played',
+          }),
     });
     t.after(() => {
       remove();
@@ -137,7 +143,7 @@ function twoConnectionFixture(t) {
     );
   const send = (webContents, channel, ...args) =>
     ipcMain.emit(channel, { sender: webContents, senderFrame: webContents.mainFrame }, ...args);
-  return { handlers, ipcMain, pool, routes, local, server, invoke, send, dialogCalls, updater };
+  return { handlers, ipcMain, pool, routes, local, server, invoke, send, dialogCalls, updater, powerMonitor };
 }
 
 test('each window is answered by its own connection', async (t) => {
@@ -174,14 +180,16 @@ test('a window without a route or connection is refused, never served by this PC
   assert.throws(() => resolveWindowConnection(f.routes, f.pool, 99), /connection-route-missing/);
 });
 
-test('service events and snapshots reach only their connection windows', async (t) => {
-  // The session list, folder and terminal feeds reach the renderer over its own core connection (renderer/core-direct);
-  // what main still forwards (the engine state, the conversation import progress) goes to the connection's own windows.
+test('a fallback window receives state over IPC and both windows receive their own import progress', async (t) => {
   const f = twoConnectionFixture(t);
   const channels = (sent, channel) => sent.filter(([name]) => name === channel).map(([, value]) => value);
   f.server.service.publishState({ sessionId: 'remote', items: [] });
+  f.local.service.publishState({ sessionId: 'local', items: [] });
   assert.equal(channels(f.server.sent, DESKTOP_IPC.state).length, 1);
-  assert.equal(channels(f.local.sent, DESKTOP_IPC.state).length, 0);
+  assert.deepEqual(await f.invoke(f.server.webContents, DESKTOP_IPC.getSnapshot), { label: 'server-a' });
+  f.powerMonitor.emit('resume');
+  assert.equal(channels(f.server.sent, DESKTOP_IPC.state).length, 2, 'the fallback stream rebaselines on resume');
+  assert.deepEqual(channels(f.local.sent, DESKTOP_IPC.state), [], 'the direct window gets state on its core port');
 
   f.server.service.publishEvent(CONVERSATION_IMPORT_PROGRESS_EVENT, { done: 1 });
   f.local.service.publishEvent(CONVERSATION_IMPORT_PROGRESS_EVENT, { done: 2 });

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { defaultSessionLaneStore } from './session-lane-store';
-import { requestSessionRead } from './session-read-request';
+import { previewSessionTranscript, requestSessionRead, usesVisibleSessionActivation } from './session-read-request';
 import { transcriptTurnKeys } from './renderer-logic.mjs';
 import { transcriptRowHeightStore } from './transcript-row-estimates';
 import { projectSettledTranscriptRows, type TranscriptRowModel } from './transcript-rows';
@@ -83,6 +83,8 @@ function endIntent(ended: OpenIntent): void {
  *  itself: one wait per session, ended by the lane's delivery (even an empty
  *  one), the read failing, or the intent being finalized unopened. */
 export function prepareSessionOpen(sessionId: string): Promise<boolean> {
+  // Review/changes reads belong to the activated pane on this path; the intent only reads stored rows.
+  if (usesVisibleSessionActivation()) return previewSessionTranscript(sessionId);
   if (intent?.sessionId === sessionId && !intent.ended) return intent.read;
   if (intent) endIntent(intent);
   const read = requestSessionRead(sessionId);

@@ -1,5 +1,6 @@
 //! `list`: a directory's entries (one level, or `depth` levels), paged, optional metadata columns (T §3.2).
 
+use std::cmp::Ordering;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
@@ -9,8 +10,8 @@ use mixdog_core_api::domain::fs::Descent;
 use mixdog_core_api::domain::fs::NameGuard;
 use mixdog_core_api::domain::fs::DirEntry;
 use mixdog_core_api::domain::fs::EntryKind;
-use mixdog_core_api::domain::fs::FileStat;
 use mixdog_core_api::domain::fs::FsErrorKind;
+use mixdog_core_api::domain::fs::LocatorStat;
 use mixdog_core_api::domain::fs::ReadRange;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
@@ -53,8 +54,9 @@ struct Row {
     name: String,
     kind: EntryKind,
     path: AbsPath,
-    /// The row's `lstat`, read for a sort by size or time (and then reused by the `meta` columns).
-    stat: Option<FileStat>,
+    /// Read for a sort by size or time, and then reused by the `meta` columns.
+    stat: Option<LocatorStat>,
+    ordinal: usize,
 }
 
 fn type_name(kind: EntryKind) -> &'static str {
@@ -77,6 +79,7 @@ struct Rows {
     visited: usize,
     truncated: bool,
     warnings: Vec<String>,
+    raw_path_ties: bool,
 }
 
 /// JS `parseInt(value, 10)` of whatever it is given: it reads the text of the value (a number's, an array's elements joined)
@@ -125,9 +128,9 @@ fn visible(entries: Vec<DirEntry>, hidden: bool, include_noise: bool) -> Vec<Dir
 }
 
 /// `displayRelPath`: the entry's path under the listed folder, with forward slashes.
-fn row_under(root: &std::path::Path, entry: DirEntry) -> Row {
+fn row_under(root: &std::path::Path, entry: DirEntry, ordinal: usize) -> Row {
     let name = fwd(entry.path.as_path().strip_prefix(root).unwrap_or(entry.path.as_path()));
-    Row { name, kind: entry.kind, path: entry.path, stat: None }
+    Row { name, kind: entry.kind, path: entry.path, stat: None, ordinal }
 }
 
 /// `tryNativeDeepListRows`: a list below the first level asks the search server for every file and directory to `depth`
@@ -136,20 +139,25 @@ fn row_under(root: &std::path::Path, entry: DirEntry) -> Row {
 /// when the request was refused or ran past its budget, or the inventory was cut at the row cap: Node's own walk then
 /// answers.
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-async fn native_rows(ctx: &ToolContext, abs: &AbsPath, depth: usize, hidden: bool, include_noise: bool) -> Result<Option<Vec<Row>>, ToolError> {
-    let root = abs.as_path().to_path_buf();
+async fn native_rows(ctx: &ToolContext, abs: &AbsPath, walk: &Walk<'_>) -> Result<Option<Rows>, ToolError> {
+    let Walk { depth, hidden, include_noise, kind, .. } = *walk;
+    let root = abs.as_path();
     let keep = |entry: &DirEntry| {
-        let Ok(rel) = entry.path.as_path().strip_prefix(&root) else { return false };
-        let parts: Vec<_> = rel.components().map(|c| c.as_os_str().to_string_lossy()).collect();
-        !parts.is_empty()
-            && parts.len() <= depth
-            && (hidden || parts.iter().all(|p| !p.starts_with('.')))
-            && (include_noise || !parts[..parts.len() - 1].iter().any(|p| NOISE_DIRS.iter().any(|noise| *noise == &**p)))
+        let Ok(rel) = entry.path.as_path().strip_prefix(root) else { return false };
+        let mut parts = rel.components().map(|part| part.as_os_str().to_string_lossy());
+        let Some(name) = parts.next_back() else { return false };
+        (hidden || !name.starts_with('.'))
+            && parts.enumerate().all(|(i, part)| {
+                i + 1 < depth && (hidden || !part.starts_with('.')) && (include_noise || !NOISE_DIRS.contains(&part.as_ref()))
+            })
     };
     let descent = Descent { max_depth: Some(depth), bare: if include_noise { Vec::new() } else { noise_bare() }, bare_dotted: !hidden, guard: None };
     match super::search::broad_listing(ctx, abs, descent, keep, ABSOLUTE_CAP).await {
         Ok(walked) if walked.complete && !walked.capped => {
-            Ok(Some(walked.entries.into_iter().map(|entry| row_under(abs.as_path(), entry)).collect()))
+            let visited = walked.entries.len();
+            let rows = walked.entries.into_iter().filter(|entry| kind.keeps(entry.kind)).enumerate()
+                .map(|(ordinal, entry)| row_under(root, entry, ordinal)).collect();
+            Ok(Some(Rows { rows, visited, truncated: false, warnings: Vec::new(), raw_path_ties: false }))
         }
         Err(e) if matches!(e.code, mixdog_core_api::domain::tool::ToolErrorCode::Cancelled) => Err(e),
         _ => Ok(None),
@@ -233,20 +241,36 @@ struct Walk<'a> {
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn collect_rows(ctx: &ToolContext, abs: &AbsPath, walk: &Walk<'_>) -> Result<Rows, ToolError> {
     let Walk { raw, depth, hidden, include_noise, kind } = *walk;
-    if depth > 1
-        && let Some(found) = native_rows(ctx, abs, depth, hidden, include_noise).await? {
-        let visited = found.len();
-        let rows = found.into_iter().filter(|row| kind.keeps(row.kind)).collect();
-        return Ok(Rows { rows, visited, truncated: false, warnings: Vec::new() });
+    if depth > 1 && let Some(found) = native_rows(ctx, abs, walk).await? {
+        return Ok(found);
     }
     let started = mixdog_rt::time::Instant::now();
-    let mut out = Rows { rows: Vec::new(), visited: 0, truncated: false, warnings: Vec::new() };
-    let root = match guarded(ctx, "list", ctx.files.list_dir(ctx.io.interactive, abs.clone())).await? {
-        Ok(entries) => entries,
+    let mut out = Rows { rows: Vec::new(), visited: 0, truncated: false, warnings: Vec::new(), raw_path_ties: false };
+    let (root, unsorted) = match guarded(ctx, "list", async {
+        if depth == 1 {
+            ctx.files.list_dir_for_ranking(ctx.io.interactive, abs.clone(), ABSOLUTE_CAP).await
+        } else {
+            ctx.files.list_dir(ctx.io.interactive, abs.clone()).await.map(|entries| (entries, false))
+        }
+    }).await? {
+        Ok(listing) => listing,
         Err(e) => return Err(fs_failure(&e, raw)),
     };
+    let mut root = visible(root, hidden, include_noise);
+    if unsorted {
+        // Below the cap only a timeout can make the subset depend on readdir order.
+        out.visited = root.iter().take_while(|_| started.elapsed() <= WALK_TIMEOUT).count();
+        out.truncated = out.visited < root.len();
+        if out.truncated {
+            root.sort_unstable_by(|a, b| a.path.cmp(&b.path));
+        }
+        out.raw_path_ties = true;
+        out.rows = root.into_iter().take(out.visited).filter(|entry| kind.keeps(entry.kind)).enumerate()
+            .map(|(ordinal, entry)| row_under(abs.as_path(), entry, ordinal)).collect();
+        return Ok(out);
+    }
     // One level of the walk per stack entry: its entries still to visit, each followed by what lies below it.
-    let mut stack = vec![visible(root, hidden, include_noise).into_iter()];
+    let mut stack = vec![root.into_iter()];
     while let Some(level) = stack.last_mut() {
         let Some(entry) = level.next() else {
             stack.pop();
@@ -259,7 +283,7 @@ async fn collect_rows(ctx: &ToolContext, abs: &AbsPath, walk: &Walk<'_>) -> Resu
         out.visited += 1;
         let below = (entry.kind == EntryKind::Dir && stack.len() < depth).then(|| entry.path.clone());
         if kind.keeps(entry.kind) {
-            out.rows.push(row_under(abs.as_path(), entry));
+            out.rows.push(row_under(abs.as_path(), entry, out.visited - 1));
             if out.rows.len() >= ABSOLUTE_CAP {
                 out.truncated = true;
                 break;
@@ -300,7 +324,7 @@ fn iso_utc(t: SystemTime) -> String {
 
 /// The mode Node's native list-metadata server reports where the OS has no permission bits (`list_metadata_mode` of
 /// serve_search/protocol.rs): 777 for a directory, else 444 with the read-only attribute and 666 without.
-fn windows_mode_octal(stat: &FileStat) -> &'static str {
+fn windows_mode_octal(stat: &LocatorStat) -> &'static str {
     match (stat.kind, stat.readonly) {
         (EntryKind::Dir, _) => "777",
         (_, true) => "444",
@@ -322,7 +346,7 @@ fn unix_mode(_: &std::path::Path) -> Option<u32> {
 
 /// `_metaModeOctal`: `mode & 0o7777` of the entry's own `lstat` in at least three octal digits. `?` is for a mode that
 /// cannot be read: the whole `st_mode`, file type included, is tested, so a file of mode 000 is `000`.
-async fn mode_octal(ctx: &ToolContext, path: &AbsPath, stat: &FileStat) -> String {
+async fn mode_octal(ctx: &ToolContext, path: &AbsPath, stat: &LocatorStat) -> String {
     if cfg!(windows) {
         return windows_mode_octal(stat).to_owned();
     }
@@ -352,16 +376,38 @@ async fn line_count(ctx: &ToolContext, path: &AbsPath, len: u64) -> Option<u64> 
     Some(if text.ends_with('\n') { nl } else { nl + 1 })
 }
 
-async fn meta_suffix(ctx: &ToolContext, path: &AbsPath, known: Option<FileStat>) -> String {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Metadata {
+    None,
+    Stat,
+    Full,
+}
+
+impl Metadata {
+    fn of(args: &JsonValue) -> Self {
+        if arg_bool(args, "meta") {
+            Self::Full
+        } else if arg_bool(args, "stat_only") {
+            Self::Stat
+        } else {
+            Self::None
+        }
+    }
+}
+
+async fn meta_suffix(ctx: &ToolContext, path: &AbsPath, known: Option<LocatorStat>, meta: Metadata) -> String {
+    if meta == Metadata::None {
+        return String::new();
+    }
     let stat = match known {
         Some(s) => s,
-        None => match ctx.files.stat(ctx.io.interactive, path.clone()).await {
+        None => match ctx.files.stat_for_locator(ctx.io.interactive, path.clone()).await {
             Ok(s) => s,
             Err(_) => return "\t?\t?\t?".to_owned(),
         },
     };
     let mtime = stat.modified.map(iso_utc).unwrap_or_else(|| "?".to_owned());
-    let lines = if stat.kind == EntryKind::File {
+    let lines = if meta == Metadata::Full && stat.kind == EntryKind::File {
         line_count(ctx, path, stat.len).await.map(|n| format!("\t{n}")).unwrap_or_default()
     } else {
         String::new()
@@ -431,7 +477,7 @@ impl Tool for ListTool {
         let raw = super::common::optional_path_arg(&args, "path", |got| format!("Error: list arg \"path\" must be string (got {got})"))?
             .unwrap_or(".");
         let hidden = arg_bool(&args, "hidden");
-        let meta = arg_bool(&args, "meta");
+        let meta = Metadata::of(&args);
         let include_noise = arg_bool(&args, "include_noise");
         let kind = TypeFilter::of(&args);
         let sort = SortMode::of(&args, SortMode::Name);
@@ -445,7 +491,7 @@ impl Tool for ListTool {
             return find_files(ctx, &args).await;
         }
         let abs = resolve_path(&ctx.cwd, raw)?;
-        let stat = match guarded(ctx, "list", ctx.files.stat(ctx.io.interactive, abs.clone())).await? {
+        let stat = match guarded(ctx, "list", ctx.files.stat_for_locator(ctx.io.interactive, abs.clone())).await? {
             Ok(s) => s,
             Err(e) if missing_code(&e.kind).is_some() => {
                 let code = missing_code(&e.kind).unwrap_or("ENOENT");
@@ -460,43 +506,36 @@ impl Tool for ListTool {
                     format!("Error: not a directory — {}", fwd(abs.as_path())),
                 ));
             }
-            let suffix = if meta { meta_suffix(ctx, &abs, Some(stat)).await } else { String::new() };
+            let suffix = meta_suffix(ctx, &abs, Some(stat), meta).await;
             return Ok(text_output(format!("{}\tfile{suffix}", fwd(abs.as_path()))));
         }
         let depth = clamped_depth(&args, 1, 10);
         let walk = Walk { raw, depth, hidden, include_noise, kind };
-        let Rows { mut rows, visited, truncated, warnings } = collect_rows(ctx, &abs, &walk).await?;
+        let Rows { mut rows, visited, truncated, warnings, raw_path_ties } = collect_rows(ctx, &abs, &walk).await?;
         // A sort by size or time reads every row's metadata first (`needsGlobalStat`).
         let mut missing_sort_stat = false;
-        let mut cache_safe = !meta;
+        let mut cache_safe = meta == Metadata::None;
         if sort != SortMode::Name {
             cache_safe &= rows.iter().all(|row| row.kind != EntryKind::Symlink);
             use futures::StreamExt as _;
-            let paths: Vec<AbsPath> = rows.iter().map(|row| row.path.clone()).collect();
-            let stats: Vec<Option<FileStat>> = guarded(
-                ctx,
-                "list",
-                futures::stream::iter(paths.into_iter().map(|path| async move { ctx.files.stat(ctx.io.interactive, path).await.ok() }))
-                    .buffered(64)
-                    .collect(),
-            )
-            .await?;
-            for (row, stat) in rows.iter_mut().zip(stats) {
-                missing_sort_stat |= stat.is_none();
-                row.stat = stat;
-            }
+            missing_sort_stat = guarded(ctx, "list", async {
+                let mut stats = futures::stream::FuturesUnordered::new();
+                let mut missing = false;
+                for row in &mut rows {
+                    stats.push(async move {
+                        row.stat = ctx.files.stat_for_locator(ctx.io.interactive, row.path.clone()).await.ok();
+                        row.stat.is_none()
+                    });
+                    if stats.len() == 64 {
+                        missing |= stats.next().await.expect("64 pending stat requests");
+                    }
+                }
+                while let Some(failed) = stats.next().await {
+                    missing |= failed;
+                }
+                missing
+            }).await?;
         }
-        // `sortListRows`: by path in the locale's order, ties by code units; by size or time the larger first, ties by path.
-        let size = |row: &Row| row.stat.as_ref().map_or(0, |s| s.len);
-        let mtime = |row: &Row| row.stat.as_ref().and_then(|s| s.modified).and_then(|m| m.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos());
-        rows.sort_by(|a, b| {
-            let by_name = || mixdog_js::locale_compare(&a.name, &b.name).then_with(|| a.name.cmp(&b.name));
-            match sort {
-                SortMode::Name => by_name(),
-                SortMode::Mtime => mtime(b).cmp(&mtime(a)).then_with(|| a.name.cmp(&b.name)),
-                SortMode::Size => size(b).cmp(&size(a)).then_with(|| a.name.cmp(&b.name)),
-            }
-        });
         // Node's `recordDirectoryWalkTelemetry` (`list-tool.mjs:61`): the walk's entries after the hidden and noise
         // filters, up to the cap; the trace row's `payload.integrity`.
         let complete = !truncated && warnings.is_empty() && !missing_sort_stat;
@@ -516,17 +555,27 @@ impl Tool for ListTool {
             output
         };
         let total = rows.len();
-        let windowed = rows.get(offset..).unwrap_or(&[]);
-        let page = if limit == 0 { windowed } else { &windowed[..windowed.len().min(limit)] };
+        // Size and time descend; name collation and then the original display-path tie-breaks are unchanged.
+        let size = |row: &Row| row.stat.as_ref().map_or(0, |s| s.len);
+        let mtime = |row: &Row| row.stat.as_ref().and_then(|s| s.modified).and_then(|m| m.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos());
+        let page = ranked_page(&mut rows, offset, limit, |a, b| {
+            match sort {
+                SortMode::Name => mixdog_js::locale_compare(&a.name, &b.name),
+                SortMode::Mtime => mtime(b).cmp(&mtime(a)),
+                SortMode::Size => size(b).cmp(&size(a)),
+            }.then_with(|| a.name.cmp(&b.name))
+                .then_with(|| if raw_path_ties { a.path.cmp(&b.path) } else { Ordering::Equal })
+                .then_with(|| a.ordinal.cmp(&b.ordinal))
+        });
         let mut lines = Vec::with_capacity(page.len() + 1);
         for row in page {
             let mut line = format!("{}\t{}", row.name, type_name(row.kind));
-            if meta {
-                line.push_str(&meta_suffix(ctx, &row.path, row.stat.clone()).await);
+            if meta != Metadata::None {
+                line.push_str(&meta_suffix(ctx, &row.path, row.stat, meta).await);
             }
             lines.push(line);
         }
-        if windowed.len() > page.len() {
+        if total.saturating_sub(offset) > page.len() {
             lines.push(window_marker(
                 "entries",
                 offset as u64 + 1,
@@ -546,7 +595,7 @@ impl Tool for ListTool {
         }
         lines.extend(warnings);
         if lines.is_empty() {
-            return Ok(text_output(empty_message(ctx, &abs, raw, offset, total, hidden, kind).await, complete && !meta));
+            return Ok(text_output(empty_message(ctx, &abs, raw, offset, total, hidden, kind).await, complete && meta == Metadata::None));
         }
         let text = lines.join("\n");
         if text.len() > locator_max_bytes() {
@@ -561,7 +610,7 @@ impl Tool for ListTool {
             return Ok(text_output(format!("{kept}\n{marker}"), false));
         }
         // Per-entry metadata may follow a symlink or fail without changing the listing.
-        Ok(text_output(text, complete && !meta))
+        Ok(text_output(text, complete && meta == Metadata::None))
     }
 }
 
@@ -716,6 +765,8 @@ fn format_list_size(kind: EntryKind, bytes: u64) -> String {
 
 struct FoundRow {
     path: AbsPath,
+    order_path: String,
+    ordinal: usize,
     kind: EntryKind,
     size: u64,
     /// Milliseconds since the epoch; 0 when unknown.
@@ -778,6 +829,25 @@ fn head_limit(args: &JsonValue) -> Result<Option<u64>, ToolError> {
     guarded_int(args, spelling)
 }
 
+/// Partition both ends so a late page doesn't have to sort the prefix either.
+/// Include the original ordinal in `compare` when two display paths can tie.
+fn ranked_page<T>(rows: &mut [T], offset: usize, limit: usize, mut compare: impl FnMut(&T, &T) -> Ordering) -> &[T] {
+    if offset >= rows.len() {
+        return &[];
+    }
+    let end = if limit == 0 { rows.len() } else { offset.saturating_add(limit).min(rows.len()) };
+    if end < rows.len() {
+        rows.select_nth_unstable_by(end, &mut compare);
+    }
+    let rows = &mut rows[..end];
+    if offset > 0 {
+        rows.select_nth_unstable_by(offset, &mut compare);
+    }
+    let page = &mut rows[offset..];
+    page.sort_unstable_by(compare);
+    page
+}
+
 /// `executeFindFilesTool`, which `list` answers with for `mode: "find"` and for a glob-shaped `path` with no `name`: an rg
 /// inventory under the static base (`--files --directories --no-ignore`, the noise-tree excludes, `--iglob` of the rest),
 /// filtered by the name (a glob when it holds a wildcard, else a case-insensitive substring), the type, the size and the
@@ -832,7 +902,7 @@ async fn find_files(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
     };
     let lowered = name_pattern.as_deref().map(str::to_lowercase);
     let root = resolve_path(&ctx.cwd, &input)?;
-    let stat = match guarded(ctx, "list", ctx.files.stat(ctx.io.interactive, root.clone())).await? {
+    let stat = match guarded(ctx, "list", ctx.files.stat_for_locator(ctx.io.interactive, root.clone())).await? {
         Ok(s) => s,
         Err(e) if missing_code(&e.kind).is_some() => {
             let code = missing_code(&e.kind).unwrap_or("ENOENT");
@@ -869,7 +939,8 @@ async fn find_files(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
         dotted: !hidden,
     };
     let descent = Descent { max_depth: depth, guard: Some(guard), ..Descent::default() };
-    let walked = super::search::walk_inventory(ctx, &root, descent, |entry| {        let Ok(rel) = entry.path.as_path().strip_prefix(&root_path) else { return false };
+    let walked = super::search::walk_inventory(ctx, &root, descent, |entry| {
+        let Ok(rel) = entry.path.as_path().strip_prefix(&root_path) else { return false };
         let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
         if parts.is_empty() || depth.is_some_and(|d| parts.len() > d) || !named(&parts) {
             return false;
@@ -892,60 +963,51 @@ async fn find_files(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
     // each bounded by the metadata deadline; one that fails or does not answer in time is listed with `-`, or left out when
     // a size, type or date filter needs its metadata.
     use futures::StreamExt as _;
-    let stats: Vec<_> = guarded(
-        ctx,
-        "list",
-        futures::stream::iter(walked.entries.into_iter().map(|entry| async move {
-            let stat = mixdog_rt::time::timeout(FIND_STAT_DEADLINE, ctx.files.stat(ctx.io.interactive, entry.path.clone())).await;
-            (entry, stat.ok().and_then(Result::ok))
-        }))
-        .buffered(64)
-        .collect(),
-    )
-    .await?;
     let size_filtered = min_size.is_some() || max_size.is_some();
     let kind = if size_filtered && kind == TypeFilter::Any { TypeFilter::File } else { kind };
     let filters_need_stat = kind != TypeFilter::Any || size_filtered || after.is_some() || before.is_some();
-    let mut rows = Vec::with_capacity(stats.len());
-    let mut unstatted = 0usize;
-    let mut cache_safe = !uses_relative_time(args);
-    for (entry, stat) in stats {
-        // Filtering and ordering use stat, which follows even links that do
-        // not survive the final filter.
-        cache_safe &= entry.kind != EntryKind::Symlink;
-        match stat {
-            Some(s) => {
+    let (mut rows, unstatted, cache_safe) = guarded(ctx, "list", async {
+        let mut stats = futures::stream::iter(walked.entries.into_iter().map(|entry| async move {
+            let stat = mixdog_rt::time::timeout(FIND_STAT_DEADLINE, ctx.files.stat_for_locator(ctx.io.interactive, entry.path.clone())).await;
+            (entry, stat.ok().and_then(Result::ok))
+        }))
+        .buffered(64);
+        let mut rows = Vec::new();
+        let mut unstatted = 0usize;
+        let mut cache_safe = !uses_relative_time(args);
+        while let Some((entry, stat)) = stats.next().await {
+            // Filtering and ordering use stat, which follows even links that do not survive the final filter.
+            cache_safe &= entry.kind != EntryKind::Symlink;
+            let (kind, size, mtime, known) = if let Some(s) = stat {
                 let mtime = s.modified.and_then(|m| m.duration_since(UNIX_EPOCH).ok()).map_or(0.0, |d| d.as_secs_f64() * 1000.0);
                 let is_dir = s.kind == EntryKind::Dir;
                 let is_file = s.kind == EntryKind::File;
-                if (kind == TypeFilter::File && !is_file) || (kind == TypeFilter::Dir && !is_dir) {
+                if (kind == TypeFilter::File && !is_file) || (kind == TypeFilter::Dir && !is_dir)
+                    || (is_file && (min_size.is_some_and(|m| (s.len as f64) < m) || max_size.is_some_and(|m| (s.len as f64) > m)))
+                    || after.is_some_and(|a| mtime < a) || before.is_some_and(|b| mtime > b)
+                {
                     continue;
                 }
-                if is_file && (min_size.is_some_and(|m| (s.len as f64) < m) || max_size.is_some_and(|m| (s.len as f64) > m)) {
-                    continue;
-                }
-                if after.is_some_and(|a| mtime < a) || before.is_some_and(|b| mtime > b) {
-                    continue;
-                }
-                rows.push(FoundRow { path: entry.path, kind: if is_dir { EntryKind::Dir } else { EntryKind::File }, size: s.len, mtime, known: true });
-            }
-            None => {
+                (if is_dir { EntryKind::Dir } else { EntryKind::File }, s.len, mtime, true)
+            } else {
                 unstatted += 1;
-                if !filters_need_stat {
-                    rows.push(FoundRow { path: entry.path, kind: EntryKind::File, size: 0, mtime: 0.0, known: false });
+                if filters_need_stat {
+                    continue;
                 }
-            }
+                (EntryKind::File, 0, 0.0, false)
+            };
+            rows.push(FoundRow { order_path: fwd(entry.path.as_path()), ordinal: rows.len(), path: entry.path, kind, size, mtime, known });
         }
-    }
-    let path_order = |a: &FoundRow, b: &FoundRow| fwd(a.path.as_path()).cmp(&fwd(b.path.as_path()));
-    rows.sort_by(|a, b| match sort {
-        SortMode::Name => mixdog_js::locale_compare(&fwd(a.path.as_path()), &fwd(b.path.as_path())).then_with(|| path_order(a, b)),
-        SortMode::Size => b.size.cmp(&a.size).then_with(|| path_order(a, b)),
-        SortMode::Mtime => b.mtime.total_cmp(&a.mtime).then_with(|| path_order(a, b)),
-    });
+        (rows, unstatted, cache_safe)
+    }).await?;
     let total = rows.len();
-    let windowed = rows.get(offset..).unwrap_or(&[]);
-    let page = if limit == 0 { windowed } else { &windowed[..windowed.len().min(limit)] };
+    let page = ranked_page(&mut rows, offset, limit, |a, b| {
+        match sort {
+            SortMode::Name => mixdog_js::locale_compare(&a.order_path, &b.order_path),
+            SortMode::Size => b.size.cmp(&a.size),
+            SortMode::Mtime => b.mtime.total_cmp(&a.mtime),
+        }.then_with(|| a.order_path.cmp(&b.order_path)).then_with(|| a.ordinal.cmp(&b.ordinal))
+    });
     let mut lines: Vec<String> = page
         .iter()
         .map(|row| {
@@ -962,7 +1024,7 @@ async fn find_files(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
             format!("{shown}\t{}\t{mtime}", format_list_size(row.kind, row.size))
         })
         .collect();
-    if windowed.len() > page.len() {
+    if total.saturating_sub(offset) > page.len() {
         let next = (offset + page.len()) as u64;
         lines.push(window_marker("entries", offset as u64 + 1, next, Some(total as u64), Some(next), None));
     }

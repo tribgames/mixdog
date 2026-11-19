@@ -5,6 +5,10 @@ import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import test from 'node:test';
 
+import { REMOTE_WEBRTC_VERSION } from '../../shared/remote-webrtc.ts';
+import { REMOTE_WEBRTC_SENDER_IPC } from '../../shared/remote-webrtc-sender.ts';
+import { createRemoteWebrtcHost } from './host.ts';
+
 const windows = [];
 const sessions = new Map();
 
@@ -29,7 +33,7 @@ class FakeWindow {
     this.denyOpen = null;
     this.webContents = {
       id: windows.length + 1,
-      ipc: { on: () => undefined },
+      ipc: { on: (name, listener) => this.handlers.set(`ipc:${name}`, listener) },
       on: (name, listener) => this.handlers.set(`contents:${name}`, listener),
       setWindowOpenHandler: (handler) => (this.denyOpen = handler),
       send: (channel, payload) => this.sent.push([channel, payload]),
@@ -44,6 +48,10 @@ class FakeWindow {
   }
   destroy() {
     this.destroyed = true;
+    this.handlers.get('closed')?.();
+  }
+  emitSender(event) {
+    this.handlers.get(`ipc:${REMOTE_WEBRTC_SENDER_IPC.event}`)(null, event);
   }
   loadFile(file) {
     this.loaded = file;
@@ -133,4 +141,71 @@ test('a recreated sender window is the one the policy trusts', () => {
   assert.equal(ask(target, second.webContents, 'media', video), true);
   assert.equal(ask(target, first.webContents, 'media', video), false);
   bridge.dispose();
+});
+
+test('the last viewer releases the sender, and a later viewer gets a clean capture and negotiation', async (t) => {
+  windows.length = 0;
+  sessions.clear();
+  const sender = createRemoteWebrtcSenderWindow(page);
+  const source = { kind: 'screen', screenId: '1' };
+  const geometry = {
+    generation: 1,
+    cssWidth: 400,
+    cssHeight: 300,
+    deviceScaleFactor: 1,
+    pixelWidth: 400,
+    pixelHeight: 300,
+  };
+  const plan = { sourceId: 'screen:1:0', width: 400, height: 300, maxFrameRate: 30 };
+  let stops = 0;
+  const host = createRemoteWebrtcHost({
+    sender,
+    sendSignal: async () => {},
+    sources: () => ({
+      source,
+      start() {},
+      stop: () => { stops += 1; },
+      page: () => ({ documentId: null, geometry }),
+      dispatch: async () => {},
+      capturePlan: () => plan,
+    }),
+    report() {},
+  });
+  t.after(() => {
+    host.dispose();
+    sender.dispose();
+  });
+  const ready = { v: REMOTE_WEBRTC_VERSION, source, type: 'ready', receiveCodecs: ['video/VP8'] };
+  const sourceKey = 'screen:1';
+
+  await host.signal('c1', ready, []);
+  await host.signal('c2', ready, []);
+  assert.equal(windows.length, 1);
+  const first = windows[0];
+  host.viewerLeft('c1', sourceKey);
+  await host.signal('c1', { v: REMOTE_WEBRTC_VERSION, source, type: 'geometry-ack', geometryGeneration: 1 });
+  assert.equal(first.destroyed, false, 'the other viewer is still negotiating');
+  assert.equal(stops, 0, 'the other viewer still needs capture');
+  host.viewerLeft('c2', sourceKey);
+  assert.equal(first.destroyed, true, 'the last viewer left before the sender was ready');
+  assert.equal(stops, 1);
+
+  await host.signal('c2', ready, []);
+  assert.equal(windows.length, 2);
+  const second = windows[1];
+  first.emitSender({ type: 'ready' });
+  assert.deepEqual(first.sent, []);
+  assert.deepEqual(second.sent, [], 'only the new renderer can declare itself ready');
+  second.emitSender({ type: 'ready' });
+  const commands = second.sent.map(([, command]) => command);
+  assert.deepEqual(commands.map(({ type }) => type), ['source-capture', 'open']);
+  assert.deepEqual(commands[0].plan, plan);
+
+  const close = { ...ready, type: 'close', reason: 'viewer-left', connectionId: commands[1].connectionId, generation: 1 };
+  await host.signal('c2', close);
+  assert.equal(second.destroyed, true);
+  await host.signal('c2', close); // A duplicate close must not leave a phantom viewer.
+  await host.signal('c3', ready, []);
+  host.geometryChanged(sourceKey, null);
+  assert.equal(windows[2].destroyed, true, 'ending the source releases the sender too');
 });

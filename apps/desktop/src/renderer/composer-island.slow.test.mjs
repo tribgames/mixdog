@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 import React, { act } from 'react';
+import { _runIdleReclaimForTest } from './idle-reclaim';
 import { installTestDom } from './test-support/test-dom.mjs';
 const { overrideConfirmAction } = await import('./app-confirm.tsx');
 
@@ -2447,6 +2448,20 @@ test('the branch segment shows for every git session: branch, detached commit, w
   await render(worktreeWorkspace({ transition: { state: 'recovery', txId: null } }));
   assert.ok(segment().classList.contains('composer-island-seg-warning'));
   assert.equal(segment().querySelector('.composer-island-seg-text').textContent, 'Worktree missing');
+
+  // A recent session still paints its last branch immediately on remount,
+  // even before a lane or branch menu answers.
+  await render(worktreeWorkspace());
+  await act(async () => root.render(null));
+  await render(null);
+  assert.equal(segment().querySelector('.composer-island-seg-text').textContent, 'mixdog/fix-login');
+  assert.equal(segment().querySelector('.composer-island-seg-sub').textContent, 'main');
+  await act(async () => root.render(null));
+  _runIdleReclaimForTest();
+  await render(null);
+  assert.equal(segment(), null, 'an idle window drops the old fallback until live data returns');
+  await render(worktreeWorkspace());
+  assert.equal(segment().querySelector('.composer-island-seg-text').textContent, 'mixdog/fix-login');
 });
 
 test('the worktree menu runs Merge through the confirm popup, shows conflicts in a popup and flashes the result', async (t) => {

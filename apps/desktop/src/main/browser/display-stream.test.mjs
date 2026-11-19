@@ -66,6 +66,23 @@ test('a paint at another size releases the waiting read instead of holding it to
   }
 });
 
+test('releasing the local stream leaves other paint consumers attached and reopening needs fresh pixels', async () => {
+  const { guest, stream, paint } = fixture();
+  let separatePaints = 0;
+  guest.on('paint', () => separatePaints++);
+  const first = stream(guest, 'document');
+  paint(image('before'));
+  await first;
+  stream.release(guest);
+  assert.equal(guest.listenerCount('paint'), 1);
+  paint(image('hidden'));
+  const reopened = stream(guest, 'document');
+  paint(image('after'));
+  assert.equal((await reopened).data, 'after');
+  assert.equal(separatePaints, 3);
+  guest.emit('destroyed');
+});
+
 test('concurrent reads of one guest share the pending frame instead of orphaning the first', async () => {
   const { guest, stream, paint } = fixture();
   try {

@@ -820,7 +820,7 @@ impl ThreadStore for MemStore {
         let (records, skip) = *read.0.downcast::<(Vec<(u64, Record)>, usize)>().expect("MemStore context");
         let mut rows = model_rows(records);
         rows.drain(..skip.min(rows.len()));
-        Ok(ContextStep::Done(rows))
+        Ok(ContextStep::Page { first: true, rows, next: None })
     }
 
     fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError> {
@@ -2151,7 +2151,7 @@ impl super::delete::DeleteSeams for Deletes {
     fn release_mcp_scope(&self, session_id: &str) {
         lock(&self.2).push(session_id.to_owned());
     }
-    fn unload_mcp_scope(&self, session_id: &str) {
+    fn release_unloaded_runtime(&self, session_id: &str) {
         self.note(format!("unloadMcpScope:{session_id}"));
     }
     fn forget_session_search(&self, session_id: &str) {

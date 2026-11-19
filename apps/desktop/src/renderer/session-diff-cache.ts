@@ -23,19 +23,35 @@ const SESSION_DIFF_CACHE_LIMIT = 32;
 export const SESSION_DIFF_CACHE_MAX_CHARS = 8 * 1024 * 1024;
 type CachedDiff = {
   result: SessionDiffResult;
+  revision: number;
   files?: Map<string, WeakRef<SessionDiffFilePatch>>;
 };
 const sessionDiffCache = new RendererLruCache<string, CachedDiff>({
   name: 'session-diff',
   maxEntries: SESSION_DIFF_CACHE_LIMIT,
   maxChars: SESSION_DIFF_CACHE_MAX_CHARS,
-  measure: ({ result }) => estimateRetainedChars(result, SESSION_DIFF_CACHE_MAX_CHARS),
+  measure: ({ result }) => {
+    const rawChars = estimateRetainedChars(result, SESSION_DIFF_CACHE_MAX_CHARS);
+    if (rawChars > SESSION_DIFF_CACHE_MAX_CHARS) return rawChars;
+    // Holding the result keeps its weak-keyed parse alive as well. A normal
+    // fetch has already parsed it in bounded tasks; a synchronous prime
+    // measures its parse before entering the cache.
+    return rawChars + parsedSessionDiff(result).retainedPatchChars;
+  },
 });
 type DiffFlight = { inflight: Promise<SessionDiffResult>; queuedDirty: boolean };
 const pendingDiffs = new Map<string, DiffFlight>();
 /** Per session: bumps whenever the cached result changes, so a file patch
  *  read on its own is reused only against the result it was read for. */
 const revisions = new Map<string, number>();
+type OmittedFile = { id: string; oldPath: string };
+type SessionDiffBinding = {
+  revision: number;
+  omitted: ReadonlyMap<string, OmittedFile>;
+};
+const resultBindings = new WeakMap<SessionDiffResult, SessionDiffBinding>();
+// The displayed list or the LRU owns the binding, not this standalone lookup.
+const latestBindings = new Map<string, WeakRef<SessionDiffBinding>>();
 /** A settled list remembers only weak hints for its omitted files. Reads
  *  still running are shared independently of that list's cache budget. */
 const FILE_PATCHES_PER_SESSION = 16;
@@ -54,6 +70,8 @@ function adoptHost(): void {
   boundScope = scope;
   sessionDiffCache.clear();
   pendingDiffs.clear();
+  pendingFilePatches.clear();
+  latestBindings.clear();
   answeredSignals.clear();
 }
 
@@ -86,12 +104,72 @@ export { sameSessionDiffContent as sameSessionDiff };
  *  read file patches must not outlive any forced read. */
 function storeSessionDiff(id: string, result: SessionDiffResult, reread = false): void {
   const held = sessionDiffCache.get(id);
-  if (reread || !sameSessionDiffContent(held?.result ?? null, result)) {
-    revisions.set(id, (revisions.get(id) ?? 0) + 1);
-    sessionDiffCache.set(id, { result });
-  } else {
-    sessionDiffCache.set(id, { result, files: held?.files });
+  const changed = reread || !sameSessionDiffContent(held?.result ?? null, result);
+  const revision = (revisions.get(id) ?? 0) + (changed ? 1 : 0);
+  revisions.set(id, revision);
+  const { rows, index } = parsedSessionDiff(result);
+  const omitted = new Map<string, OmittedFile>();
+  rows.forEach(({ id: fileId, path, oldPath, patchOmitted }, position) => {
+    if (!patchOmitted) return;
+    const file = { id: fileId, oldPath };
+    if (index.byId.get(fileId) === position) omitted.set(fileId, file);
+    if (!index.byId.has(path) && index.byPath.get(path) === position) omitted.set(path, file);
+  });
+  const binding = { revision, omitted };
+  resultBindings.set(result, binding);
+  if (omitted.size) latestBindings.set(id, new WeakRef(binding));
+  else latestBindings.delete(id);
+  sessionDiffCache.set(id, { result, revision, files: changed ? undefined : held?.files });
+}
+
+export function sessionDiffBinding(result: SessionDiffResult | null): SessionDiffBinding | undefined {
+  return result ? resultBindings.get(result) : undefined;
+}
+
+function omittedFileKey(id: string, revision: number, fileId: string): string {
+  return JSON.stringify([id, revision, fileId]);
+}
+
+/** A file already known to be omitted can use the displayed revision without
+ *  finding its list in the LRU. Only an in-flight request owns the promise. */
+export function fetchOmittedSessionDiffFilePatch(
+  sessionId: string,
+  file: { id: string; oldPath?: string },
+  revision = sessionDiffRevision(sessionId)
+): Promise<SessionDiffFilePatch> {
+  adoptHost();
+  const id = cleanSessionId(sessionId);
+  if (!id) return Promise.resolve({ patch: '', tooLarge: false });
+  const key = omittedFileKey(id, revision, file.id);
+  const pending = pendingFilePatches.get(key);
+  if (pending) return pending;
+  const held = sessionDiffCache.peek(id);
+  const files = held?.revision === revision ? (held.files ??= new Map()) : undefined;
+  const cached = files?.get(file.id)?.deref();
+  if (cached) return Promise.resolve(cached);
+  const read = invokeSessionDiffFilePatch(id, file)
+    .then((answer) => {
+      if (files && pendingFilePatches.get(key) === read) {
+        files.set(file.id, new WeakRef(answer));
+        while (files.size > FILE_PATCHES_PER_SESSION) files.delete(files.keys().next().value as string);
+      }
+      return answer;
+    })
+    .finally(() => {
+      if (pendingFilePatches.get(key) === read) pendingFilePatches.delete(key);
+    });
+  pendingFilePatches.set(key, read);
+  return read;
+}
+
+function latestOmittedFile(id: string, input: { id: string; path: string }) {
+  const binding = latestBindings.get(id)?.deref();
+  if (!binding) {
+    latestBindings.delete(id);
+    return;
   }
+  const file = binding.omitted.get(input.id) ?? binding.omitted.get(input.path);
+  return file && { file, revision: binding.revision };
 }
 
 /** The revision of a session's cached result (fingerprints file patches). */
@@ -137,6 +215,7 @@ export function releaseSessionDiff(sessionId: string): void {
   const id = cleanSessionId(sessionId);
   sessionDiffCache.delete(id);
   pendingDiffs.delete(id);
+  latestBindings.delete(id);
   answeredSignals.delete(id);
 }
 
@@ -222,6 +301,13 @@ export async function fetchSessionDiffFilePatchResult(
   binding: 'list' | 'standalone' = 'list'
 ): Promise<SessionDiffFilePatch> {
   const id = cleanSessionId(sessionId);
+  adoptHost();
+  // A standalone open still follows an ongoing list refresh. Otherwise a
+  // live displayed list can identify an omitted file without re-reading it.
+  if (!pendingDiffs.has(id)) {
+    const omitted = latestOmittedFile(id, file);
+    if (omitted) return fetchOmittedSessionDiffFilePatch(id, omitted.file, omitted.revision);
+  }
   // The settled result is the one the listed rows were read from: a file's slice comes from it at once. A whole-session
   // read running behind it (an agent editing re-reads every few seconds, each a full diff on the core) answers a later
   // list, whose rows ask for their slices again; waiting for it held every open of Changes for that read.
@@ -232,28 +318,9 @@ export async function fetchSessionDiffFilePatchResult(
   if (slice || !id) return { patch: slice, tooLarge: false };
   // The listed file, looked up in the parse's index (by ID, else path).
   const position = parsed.index.byId.get(file.id) ?? parsed.index.byPath.get(file.path) ?? -1;
-  if (parsed.rows[position]?.patchOmitted !== true) return { patch: '', tooLarge: false };
-  const revision = sessionDiffRevision(id);
-  const held = sessionDiffCache.peek(id);
-  const files = held?.result === result ? (held.files ??= new Map()) : undefined;
-  const cached = files?.get(file.id)?.deref();
-  if (cached) return cached;
-  const key = JSON.stringify([id, revision, file.id]);
-  const pending = pendingFilePatches.get(key);
-  if (pending) return pending;
-  const read = invokeSessionDiffFilePatch(id, file);
-  pendingFilePatches.set(key, read);
-  try {
-    const answer = await read;
-    // A consumer owns the displayed patch. This reuse hint must not keep
-    // its text alive after the consumer releases it.
-    if (!files) return answer;
-    files.set(file.id, new WeakRef(answer));
-    while (files.size > FILE_PATCHES_PER_SESSION) files.delete(files.keys().next().value as string);
-    return answer;
-  } finally {
-    pendingFilePatches.delete(key);
-  }
+  const row = parsed.rows[position];
+  if (row?.patchOmitted !== true) return { patch: '', tooLarge: false };
+  return fetchOmittedSessionDiffFilePatch(id, row, sessionDiffBinding(result)?.revision);
 }
 
 /** The patch text of one file (see fetchSessionDiffFilePatchResult). */

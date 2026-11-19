@@ -11,9 +11,52 @@ const sessionReadsInFlight = new Map<string, Promise<boolean>>();
 const speculativeReads = new Set<string>();
 const MAX_SESSION_READ_ATTEMPTS = 3;
 
-function laneHasTranscript(sessionId: string): boolean {
+/** The core-direct desktop activates committed views through setVisibleSessions. The relay shim retains its view-sync path. */
+export function usesVisibleSessionActivation(): boolean {
+  return !isRemoteHostRenderer() && typeof window.mixdogDesktop?.previewSession === 'function';
+}
+
+const previewsInFlight = new Map<string, Promise<boolean>>();
+
+/** A preview can seed the paint cache, but must never fall back to a runtime-opening read. */
+export function previewSessionTranscript(sessionId: string): Promise<boolean> {
+  if (!sessionId || !usesVisibleSessionActivation()) return Promise.resolve(false);
+  if (defaultSessionLaneStore.get(sessionId)) return Promise.resolve(true);
+  const pending = previewsInFlight.get(sessionId);
+  if (pending) return pending;
+  const read = window.mixdogDesktop?.previewSession;
+  if (!read) return Promise.resolve(false);
+  let timer = 0;
+  const deadline = new Promise<null>((resolve) => {
+    timer = window.setTimeout(() => resolve(null), TRANSCRIPT_READ_TIMEOUT_MS);
+  });
+  const request = Promise.race([Promise.resolve().then(() => read(sessionId)), deadline])
+    .then((snapshot) => {
+      if (!snapshot) return false;
+      defaultSessionLaneStore.seedPreview(sessionId, snapshot);
+      return true;
+    }, () => false)
+    .finally(() => {
+      window.clearTimeout(timer);
+      previewsInFlight.delete(sessionId);
+    });
+  previewsInFlight.set(sessionId, request);
+  return request;
+}
+
+function authoritativeLane(sessionId: string) {
   const lane = defaultSessionLaneStore.get(sessionId);
+  return lane?.transcriptPreview ? null : lane;
+}
+
+function laneHasTranscript(sessionId: string): boolean {
+  const lane = authoritativeLane(sessionId);
   return Boolean(lane && Array.isArray(lane.items) && lane.items.length > 0);
+}
+
+/** A pane can open a session the Agents surface already observes, without changing the visible subscription set. */
+export function recoverCachedSessionFrame(sessionId: string): void {
+  if (!authoritativeLane(sessionId)) window.mixdogDesktop?.resyncSessionState?.(sessionId, { cachedOnly: true });
 }
 
 /** A remote renderer's link is down or still synchronizing its views. The view
@@ -98,6 +141,7 @@ export function requestSessionRead(
   }: { refresh?: boolean; speculative?: boolean; signal?: AbortSignal } = {}
 ): Promise<boolean> {
   if (!sessionId) return Promise.resolve(false);
+  if (speculative && usesVisibleSessionActivation()) return previewSessionTranscript(sessionId);
   if (!refresh && laneHasTranscript(sessionId)) return Promise.resolve(true);
   const inFlight = sessionReadsInFlight.get(sessionId);
   if (inFlight) {
@@ -186,7 +230,7 @@ export function requestSessionRead(
         );
       }
       if (accepted) {
-        if (defaultSessionLaneStore.get(sessionId) === null) {
+        if (!authoritativeLane(sessionId)) {
           try {
             window.mixdogDesktop?.resyncSessionState?.(sessionId);
           } catch {

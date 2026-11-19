@@ -80,6 +80,7 @@ export type ConnectionClientEvent =
 export interface ConnectionStoreChange {
   readonly type: string;
   readonly threadId?: string;
+  readonly replayComplete?: true;
   readonly section?: string;
   readonly key?: string | null;
   readonly feedId?: string;

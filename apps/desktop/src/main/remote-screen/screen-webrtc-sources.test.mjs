@@ -114,7 +114,7 @@ function build(over = {}) {
     log: (event) => events.push(event),
   });
   webrtc = createRemoteWebrtcHost({
-    sender: { send: (command) => commands.push(command), onEvent: () => {} },
+    sender: { send: (command) => commands.push(command), release() {}, onEvent: () => {} },
     sendSignal: async (clientId, signal) => {
       signals.push([clientId, signal]);
     },

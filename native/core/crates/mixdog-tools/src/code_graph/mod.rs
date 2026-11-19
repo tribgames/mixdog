@@ -153,6 +153,8 @@ impl CallRow<'_> {
             lane_wait_ms = stages.lane_wait_ms,
             root_wait_ms = graph.root_wait_ms,
             inventory_ms = graph.inventory_ms,
+            verify_ms = graph.verify_ms,
+            resolver_check_ms = graph.resolver_check_ms,
             cache_load_ms = graph.cache_load_ms,
             parse_ms = graph.parse_ms,
             link_ms = graph.link_ms,
@@ -166,6 +168,7 @@ impl CallRow<'_> {
             files_reused = graph.reused,
             files_parsed = graph.parsed,
             files_omitted = graph.omitted,
+            files_verified = graph.verified,
             retained = ?graph.retained,
             generation = graph.generation,
             "code_graph call"

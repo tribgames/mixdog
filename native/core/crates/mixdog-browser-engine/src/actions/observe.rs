@@ -64,6 +64,7 @@ use crate::reply::screenshot::CapturedScreenshot;
 use crate::reply::screenshot::ImageOutput;
 use crate::reply::screenshot::attach_frame;
 use crate::reply::screenshot::read_capture;
+use crate::reply::screenshot::read_capture_for_output;
 use crate::settle::reply_wait::read_page_text;
 use crate::settle::settle::Cancelled;
 
@@ -289,7 +290,8 @@ pub async fn visual_screenshot(page: &PageCall<'_>, ports: &ShotPorts<'_>, comma
     let params = screenshot_params(page.page_id, command, background)?;
     let full_page = params.full_page == Some(true);
     let result = page.host.screenshot(params, page.cancel.token()).await?;
-    let capture = read_capture(&result, full_page, ports.blobs).await?;
+    let output = image_output(command);
+    let capture = read_capture_for_output(&result, full_page, ports.blobs, output).await?;
     let text = format!(
         "{} of {} ({}x{} px). {}",
         if capture.full_page { "Full-page screenshot" } else { "Screenshot" },
@@ -299,7 +301,7 @@ pub async fn visual_screenshot(page: &PageCall<'_>, ports: &ShotPorts<'_>, comma
         if capture.full_page { "This image is inspection-only." } else { "Use snapshot mode=both or locate before coordinate actions." }
     );
     let mut reply = ToolReply::text(text);
-    attach_frame(ports.files, &mut reply, image_output(command), ports.frame_dir, &capture).await?;
+    attach_frame(ports.files, &mut reply, output, ports.frame_dir, &capture).await?;
     Ok(reply)
 }
 
@@ -317,7 +319,8 @@ pub async fn element_screenshot(
     params.full_page = None;
     params.clip = Some(BrowserScreenshotClip::Ref(BrowserClipRef { snapshot_id: snapshot_id.to_owned(), ref_id: ref_id.to_owned() }));
     let result = page.host.screenshot(params, page.cancel.token()).await?;
-    let capture = read_capture(&result, false, ports.blobs).await?;
+    let output = image_output(command);
+    let capture = read_capture_for_output(&result, false, ports.blobs, output).await?;
     let text = format!(
         "Screenshot of {ref_id} on {} ({}x{} px){}. This image is inspection-only; address the element by ref or target for input.",
         redact_url(&result.facts.url),
@@ -326,7 +329,7 @@ pub async fn element_screenshot(
         if result.partial == Some(true) { "; the element runs past the viewport, so only the visible part is shown" } else { "" }
     );
     let mut reply = ToolReply::text(text);
-    attach_frame(ports.files, &mut reply, image_output(command), ports.frame_dir, &capture).await?;
+    attach_frame(ports.files, &mut reply, output, ports.frame_dir, &capture).await?;
     Ok(reply)
 }
 

@@ -3,13 +3,9 @@ import type { WebContents } from 'electron';
 import type { BrowserCdpPort } from './cdp';
 import { timedBrowserOperation } from './timing';
 import { createElementCapture } from './screenshot-element';
-import {
-  BrowserScreenshotRestoreError,
-  captureViaCdp,
-  captureViaNative,
-  type BrowserScreenshotCapture,
-} from './screenshot-engines';
+import { BrowserScreenshotRestoreError, captureViaCdp, captureViaNative } from './screenshot-engines';
 import { anchorPinnedLayout, fullPageRect } from './screenshot-full-page';
+import type { EncodedBrowserScreenshot, ScreenshotCropInput } from './screenshot-image';
 import { captureTiledDocument } from './screenshot-tiles';
 import { normalizeScreenshotOptions } from './screenshot-policy';
 export {
@@ -17,10 +13,10 @@ export {
   type BrowserScreenshotFormat,
   type BrowserScreenshotOptions,
 } from './screenshot-policy';
-export type { BrowserScreenshotCapture } from './screenshot-engines';
-
+/** The display stream's existing base64 frame, separate from tool captures. */
+export type BrowserScreenshotCapture = Omit<EncodedBrowserScreenshot, 'bytes' | 'base64'> & { data: string };
 type EngineName = 'CDP' | 'native';
-type Engines = Record<EngineName, () => Promise<BrowserScreenshotCapture | null>>;
+type Engines = Record<EngineName, () => Promise<ScreenshotCropInput | null>>;
 
 /** The first engine that yields a usable image wins; every miss is kept so
  *  the final failure names what each engine said. A failed rollback and a
@@ -29,7 +25,7 @@ async function firstUsableCapture(
   engines: Engines,
   order: readonly EngineName[],
   signal?: AbortSignal
-): Promise<BrowserScreenshotCapture> {
+): Promise<ScreenshotCropInput> {
   const errors: Error[] = [];
   for (const name of order) {
     try {
@@ -63,8 +59,9 @@ export function createBrowserScreenshotService(
       quality?: unknown;
       fullPage?: unknown;
     } = {},
-    signal?: AbortSignal
-  ): Promise<BrowserScreenshotCapture> {
+    signal?: AbortSignal,
+    retainCropSource = false
+  ): Promise<ScreenshotCropInput> {
     const options = normalizeScreenshotOptions(rawOptions);
     signal?.throwIfAborted();
     const finishPrivacyCheck = await visualPrivacy?.(guest, signal);
@@ -90,7 +87,7 @@ export function createBrowserScreenshotService(
         /* teardown can reject repaint */
       }
       const engines: Engines = {
-        CDP: () => captureViaCdp(cdp, slow, guest, options, signal),
+        CDP: () => captureViaCdp(cdp, slow, guest, options, signal, retainCropSource),
         native: () => captureViaNative(guest, options, nativeTimeoutMs, signal),
       };
       const order: EngineName[] = background ? ['native', 'CDP'] : ['CDP', 'native'];
@@ -113,7 +110,18 @@ export function createBrowserScreenshotService(
 
   return {
     prepareVisualOutput: (guest: WebContents, signal?: AbortSignal) => visualPrivacy?.(guest, signal),
-    capture: timedBrowserOperation('screenshot', capture),
-    captureElement: timedBrowserOperation('screenshot', createElementCapture(capture)),
+    capture: timedBrowserOperation(
+      'screenshot',
+      (
+        guest: WebContents,
+        background: boolean,
+        options?: Parameters<typeof capture>[2],
+        signal?: AbortSignal
+      ): Promise<EncodedBrowserScreenshot> => capture(guest, background, options, signal)
+    ),
+    captureElement: timedBrowserOperation(
+      'screenshot',
+      createElementCapture((guest, background, options, signal) => capture(guest, background, options, signal, true))
+    ),
   };
 }

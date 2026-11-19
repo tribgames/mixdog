@@ -8,7 +8,7 @@
 // refusals go through the shared confirm popup. While work runs the tab still
 // opens, but nothing in it can switch.
 import { FileDiff, GitBranch, GitFork, GitMerge, Trash2, TriangleAlert } from 'lucide-react';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { DesktopMergeWorkspaceResult, DesktopSessionWorkspace } from '../shared/contract';
 import {
@@ -23,9 +23,11 @@ import {
 import type { ComposerIslandFlash } from './ComposerIsland';
 import { IslandSegmentPending, useComposerIslandTab } from './composer-island-state';
 import { t } from './i18n';
+import { registerIdleReclaim } from './idle-reclaim';
 import { useIslandGitStatus } from './IslandGitSegment';
 import { useMobileBack } from './mobile-back';
 import { ProgressSpinner } from './ProgressSpinner';
+import { RendererLruCache } from './renderer-lru-cache';
 import { usePaneKey } from './pane-key-context';
 import { prefetchSessionChanges } from './session-changes-store';
 import { SettingsConfirmDialog } from './settings/capability-controls';
@@ -47,14 +49,35 @@ function showsBranch(workspace: DesktopSessionWorkspace): boolean {
   );
 }
 
-/** The last workspace each session showed a branch for. Module-level, so the
- *  island (remounted per session switch) names the branch on its first paint
- *  instead of leaving the pill without it until the workspace is read again. */
-const lastShownWorkspaces = new Map<string, DesktopSessionWorkspace>();
+function branchPresentation(workspace: DesktopSessionWorkspace | null) {
+  if (!workspace || !showsBranch(workspace)) return null;
+  return {
+    branch: workspace.branch ?? '',
+    cwd: workspace.cwd,
+    baseCommit: workspace.baseCommit?.slice(0, 7) ?? '',
+    mergeTarget: workspace.mergeTarget ?? '',
+    recovery: workspace.transition.state === 'recovery',
+    worktree: Boolean(workspace.worktreeId),
+    // A menu action using the fallback must still reject a stale workspace.
+    revision: workspace.revision,
+  };
+}
 
-/** For tests: forgets every cached workspace and branch menu. */
+type BranchPresentation = NonNullable<ReturnType<typeof branchPresentation>>;
+
+/** Bridge a recent session's remount without holding its workspace DTO. */
+const lastShownBranches = new RendererLruCache<string, BranchPresentation>({
+  name: 'branch-presentation',
+  maxEntries: 64,
+  maxChars: 64 * 1024,
+  measure: (view, id) =>
+    id.length + view.branch.length + view.cwd.length + view.baseCommit.length + view.mergeTarget.length + 32,
+});
+registerIdleReclaim(() => lastShownBranches.clear());
+
+/** For tests: forgets the branch presentation and menu caches. */
 export function clearBranchSegmentCache(): void {
-  lastShownWorkspaces.clear();
+  lastShownBranches.clear();
   clearBranchMenuCache();
 }
 
@@ -87,7 +110,7 @@ function segmentIcon(recovery: boolean, worktree: boolean) {
 }
 
 /** The short commit of a detached HEAD: the workspace's own, else git status'. */
-function useDetachedCommit(workspace: DesktopSessionWorkspace | null | undefined, detached: boolean): string {
+function useDetachedCommit(workspace: BranchPresentation | null, detached: boolean): string {
   const [commit, setCommit] = useState('');
   const cwd = workspace?.cwd ?? '';
   const revision = workspace?.revision ?? 0;
@@ -159,16 +182,21 @@ export function BranchIslandSegment({
   });
   // While a move is pending or refused, the snapshot's workspace and the menu
   // re-read can both be momentarily absent (and so can they right after a
-  // session switch): the segment keeps the session's last shown workspace
+  // session switch): the segment keeps the session's last shown branch
   // instead of leaving a gap in the pill.
   // A stub snapshot workspace (no branch, repository or worktree) stands aside
   // for the menu's.
   const current = live && showsBranch(live) ? live : (menu?.workspace ?? live ?? null);
-  if (sessionId && current && showsBranch(current)) lastShownWorkspaces.set(sessionId, current);
-  const workspace = current && showsBranch(current) ? current : (lastShownWorkspaces.get(sessionId) ?? current);
-  const recovery = workspace?.transition.state === 'recovery';
-  const worktree = Boolean(workspace?.worktreeId);
-  const shown = Boolean(sessionId && workspace && showsBranch(workspace));
+  const presentation = useMemo(() => branchPresentation(current), [current]);
+  const workspace = presentation ?? lastShownBranches.peek(sessionId) ?? null;
+  useLayoutEffect(() => {
+    if (!sessionId) return;
+    if (presentation) lastShownBranches.set(sessionId, presentation);
+    else lastShownBranches.get(sessionId);
+  }, [sessionId, presentation]);
+  const recovery = workspace?.recovery ?? false;
+  const worktree = workspace?.worktree ?? false;
+  const shown = Boolean(sessionId && workspace);
   const detached = shown && !worktree && !recovery && !workspace?.branch;
   const commit = useDetachedCommit(workspace, detached);
   const panel = useRef<HTMLElement>(null);
@@ -466,7 +494,7 @@ export function BranchIslandSegment({
           locked={locked}
           base={base}
           rows={menu ? branchRows(menu, sessionId, query) : []}
-          worktreeBound={Boolean(menuWorkspace.worktreeId)}
+          worktreeBound={menu ? Boolean(menu.workspace.worktreeId) : worktree}
           worktreeActions={worktreeActions}
           onPickWorktree={() => void actions.pickWorktree()}
           onPickRow={actions.pickRow}

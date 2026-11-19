@@ -62,6 +62,42 @@ async function firstCommit(sessionId, checkpointId, boundary) {
   return seen[0];
 }
 
+test('an abandoned core-direct intent only previews stored rows, and that preview cannot extend the live transcript', async (t) => {
+  const sessionId = 'preview-only';
+  const answer = Promise.withResolvers();
+  const calls = [];
+  const items = turns(2);
+  window.mixdogDesktop = {
+    previewSession: (id) => {
+      calls.push(['preview', id]);
+      return answer.promise;
+    },
+    prefetchSession: async (id) => calls.push(['activate', id]) > 0,
+    invokeCapability: async (request) => calls.push(['capability', request.capability]),
+  };
+  t.after(() => {
+    defaultSessionLaneStore.clear();
+    defaultSessionLaneStore.setShownSessionIds([]);
+    delete window.mixdogDesktop;
+  });
+  const preview = prepareSessionOpen(sessionId);
+  assert.equal(prepareSessionOpen(sessionId), preview, 'press and focus join the preview');
+  finalizeSessionOpen(currentOpenToken(sessionId));
+  defaultSessionLaneStore.setShownSessionIds([sessionId]);
+  answer.resolve({ sessionId, items });
+  assert.equal(await preview, true);
+  assert.deepEqual(calls, [['preview', sessionId]]);
+  assert.deepEqual(defaultSessionLaneStore.get(sessionId).items.map(({ id }) => id), items.map(({ id }) => id));
+  assert.equal(defaultSessionLaneStore.liveSessionIds().has(sessionId), false);
+  defaultSessionLaneStore.apply({
+    sessionId,
+    frameSource: 'live',
+    snapshot: { sessionId, items: items.slice(3) },
+  });
+  assert.deepEqual(defaultSessionLaneStore.get(sessionId).items.map(({ id }) => id), ['u1', 'a1', 't1']);
+  assert.equal(defaultSessionLaneStore.liveSessionIds().has(sessionId), true);
+});
+
 test('the intent to open a session reads its rows changed-files cards once, before the click commits', async (t) => {
   resetTurnChangesCache();
   const reads = install(turns(3));

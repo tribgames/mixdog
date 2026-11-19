@@ -21,7 +21,7 @@ use crate::policy::Profile;
 use crate::policy::base64_len;
 use crate::policy::normalize_fmt;
 use crate::policy::target_dimensions;
-use crate::resize::fit_inside;
+use crate::resize::fit_inside_view;
 
 /// `TOOL_IMAGE_TARGET_BASE64_SIZE`: 256 KiB of base64.
 pub const TOOL_IMAGE_TARGET_BASE64_SIZE: usize = 256 * 1024;
@@ -42,7 +42,7 @@ pub struct EncodedJpeg {
 
 /// `encodeToolImageJpeg` on pixels already decoded: the box, white-flattened, as a JPEG.
 fn encode_raster(raster: &Raster, width: u32, height: u32, allow_enlargement: bool, quality: u8) -> EncodedJpeg {
-    let fitted = fit_inside(raster, width, height, !allow_enlargement);
+    let fitted = fit_inside_view(raster, width, height, !allow_enlargement);
     EncodedJpeg { data: encode_jpeg(&fitted, quality, 255), width: fitted.width, height: fitted.height }
 }
 
@@ -104,17 +104,19 @@ pub fn compact_tool_result_image(base64: &str, mime_type: &str) -> Option<Compac
     }
     let decoded = decode(&node_base64(base64), DECODE_PIXEL_LIMIT).ok()?;
     let target = target_dimensions(decoded.width, decoded.height, Profile::Anthropic);
+    let fitted = fit_inside_view(&decoded.raster, target.width, target.height, !target.allow_enlargement);
+    let rgb = crate::encode::flattened_rgb(&fitted, 255);
     let mut encoded = None;
     for quality in TOOL_IMAGE_JPEG_QUALITIES {
-        let attempt = encode_raster(&decoded.raster, target.width, target.height, target.allow_enlargement, quality);
-        let fits = base64_len(attempt.data.len()) <= TOOL_IMAGE_TARGET_BASE64_SIZE;
+        let attempt = crate::jpeg_enc::encode_rgb(fitted.width, fitted.height, &rgb, quality);
+        let fits = base64_len(attempt.len()) <= TOOL_IMAGE_TARGET_BASE64_SIZE;
         encoded = Some(attempt);
         if fits {
             break;
         }
     }
     let encoded = encoded?;
-    let data = STANDARD.encode(&encoded.data);
+    let data = STANDARD.encode(encoded);
     if data.len() >= base64.len() {
         return None;
     }
@@ -124,8 +126,8 @@ pub fn compact_tool_result_image(base64: &str, mime_type: &str) -> Option<Compac
         dimensions: Dimensions {
             original_width: decoded.width,
             original_height: decoded.height,
-            display_width: encoded.width,
-            display_height: encoded.height,
+            display_width: fitted.width,
+            display_height: fitted.height,
         },
     })
 }

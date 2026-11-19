@@ -12,7 +12,7 @@ mod webp;
 use crate::decode::DEFAULT_PIXEL_LIMIT;
 use crate::decode::Raster;
 use crate::decode::decode;
-use crate::resize::fit_inside;
+use crate::resize::fit_inside_view;
 
 pub(crate) use webp::encode_lossy as encode_webp;
 
@@ -81,7 +81,7 @@ pub(crate) fn orient(raster: Raster, orientation: u8) -> Raster {
 pub fn encode_still(bytes: &[u8], spec: StillSpec) -> Option<Still> {
     let decoded = decode(bytes, DEFAULT_PIXEL_LIMIT).ok()?;
     let upright = orient(decoded.raster, decoded.orientation);
-    let fitted = fit_inside(&upright, spec.max_edge, spec.max_edge, true);
+    let fitted = fit_inside_view(&upright, spec.max_edge, spec.max_edge, true);
     let data = webp::encode_lossy(&fitted, spec.quality).ok()?;
     Some(Still { extension: ".webp", data })
 }

@@ -1,12 +1,14 @@
 //! The thirteen mode answers over a built graph. A mode handler gets the resolved anchor
 //! (`rel`/`node` for a file, `scope_prefix` for a directory) and returns its text.
 
-use std::path::Path;
+use std::{cmp::Ordering, collections::HashMap, path::Path};
+
+use mixdog_graph::outline::SymbolInfo;
 
 use super::args::Args;
 use super::graph::{Graph, Node};
 use super::hits::{
-    FindOptions, Hit, declaration_outside_scope, find_hits, find_symbol_across_graph,
+    FindOptions, Hit, compare_native_declarations, declaration_outside_scope, find_hits, find_symbol_across_graph,
     native_hit, pick_declaration,
 };
 use super::outline::outline_rows;
@@ -621,18 +623,10 @@ fn token_start_offsets(sym: &str) -> Vec<usize> {
     starts
 }
 
-fn contiguous_match_token_aligned(sym: &str, lower_key: &str) -> bool {
-    let len = lower_key.chars().count();
-    if len == 0 {
-        return false;
-    }
-    let sym_lower: Vec<char> = sym.to_lowercase().chars().collect();
-    let key: Vec<char> = lower_key.chars().collect();
+fn contiguous_match_token_aligned(sym: &str, sym_lower: &str, key: &[char], lead: usize) -> bool {
+    let len = key.len();
+    let sym_lower: Vec<char> = sym_lower.chars().collect();
     let starts = token_start_offsets(sym);
-    let lead = key
-        .iter()
-        .position(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
-        .unwrap_or(len);
     let mut from = 0;
     while from + len <= sym_lower.len() {
         let Some(idx) = (from..=sym_lower.len() - len).find(|i| sym_lower[*i..*i + len] == key[..])
@@ -663,36 +657,18 @@ fn ordered_token_match(sym_lower: &str, tokens: &[String]) -> bool {
     true
 }
 
-fn keyword_matches(name: &str, lower_key: &str, tokens: &[String]) -> bool {
-    let sym = name.trim();
-    if sym.is_empty() || lower_key.is_empty() {
-        return false;
-    }
-    contiguous_match_token_aligned(sym, lower_key)
-        || (tokens.len() >= 2 && ordered_token_match(&sym.to_lowercase(), tokens))
+struct Entry<'a> {
+    name: &'a str,
+    lower_name: String,
+    rank: Option<(usize, usize, usize)>,
+    declaration: Option<(&'a Node, &'a SymbolInfo)>,
 }
 
-fn keyword_sort_key(name: &str, keyword: &str) -> Option<(usize, usize, usize)> {
-    let lower_name = name.to_lowercase();
-    let idx = lower_name.find(&keyword.to_lowercase())?;
-    Some((
-        lower_name.chars().count(),
-        usize::from(idx != 0),
-        lower_name[..idx].chars().count(),
-    ))
-}
-
-struct Entry {
-    name: String,
-    hit: Option<Hit>,
-}
-
-fn compare_entries(a: &Entry, b: &Entry, keyword: &str) -> std::cmp::Ordering {
-    match (keyword_sort_key(&a.name, keyword), keyword_sort_key(&b.name, keyword)) {
-        (Some(_), None) => std::cmp::Ordering::Less,
-        (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => name_cmp(&a.name, &b.name),
-        (Some(ka), Some(kb)) => ka.cmp(&kb).then_with(|| name_cmp(&a.name, &b.name)),
+fn compare_entries(a: &Entry<'_>, b: &Entry<'_>) -> Ordering {
+    match (a.rank, b.rank) {
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (ka, kb) => ka.cmp(&kb).then_with(|| a.lower_name.cmp(&b.lower_name)).then_with(|| b.name.cmp(a.name)),
     }
 }
 
@@ -703,39 +679,46 @@ fn search_keyword(ctx: &Ctx<'_>, keyword: &str, limit: usize) -> String {
     }
     let cap = limit.clamp(1, 100);
     let lower_key = clean.to_lowercase();
+    let key: Vec<char> = lower_key.chars().collect();
+    let lead = key.iter().position(|c| c.is_ascii_lowercase() || c.is_ascii_digit()).unwrap_or(key.len());
     let key_tokens = tokenize_keyword(clean);
     let scope = ctx.scope();
     let language = ctx.language();
-    let mut by_name: Vec<(String, Vec<Hit>)> = Vec::new();
-    for node in &ctx.graph.nodes {
+    let mut by_name: HashMap<&str, Entry<'_>> = HashMap::new();
+    let nodes = ctx.node.map_or(ctx.graph.nodes.as_slice(), std::slice::from_ref);
+    for node in nodes {
         if language.is_some_and(|l| node.lang != l) || !scope.contains(&node.rel) {
             continue;
         }
         for sym in &node.symbols {
             let name = sym.name.trim();
-            if !keyword_matches(name, &lower_key, &key_tokens) {
-                continue;
-            }
-            let slot = match by_name.iter().position(|(n, _)| n == name) {
-                Some(i) => i,
-                None => {
-                    by_name.push((name.to_string(), Vec::new()));
-                    by_name.len() - 1
+            let entry = match by_name.entry(name) {
+                std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    let lower_name = name.to_lowercase();
+                    let found = lower_name.find(&lower_key);
+                    if !(found.is_some() && contiguous_match_token_aligned(name, &lower_name, &key, lead)
+                        || key_tokens.len() >= 2 && ordered_token_match(&lower_name, &key_tokens))
+                    {
+                        continue;
+                    }
+                    let rank = found.map(|idx| (
+                        lower_name.chars().count(),
+                        usize::from(idx != 0),
+                        lower_name[..idx].chars().count(),
+                    ));
+                    entry.insert(Entry { name, lower_name, rank, declaration: None })
                 }
             };
-            if let Some(hit) = native_hit(node, sym) {
-                by_name[slot].1.push(hit);
+            if sym.start_line > 0
+                && entry.declaration.is_none_or(|current| compare_native_declarations((node, sym), current).is_lt())
+            {
+                entry.declaration = Some((node, sym));
             }
         }
     }
-    let mut entries: Vec<Entry> = by_name
-        .into_iter()
-        .map(|(name, hits)| Entry {
-            hit: pick_declaration(&hits, None),
-            name,
-        })
-        .collect();
-    if entries.is_empty() {
+    let total = by_name.len();
+    if total == 0 {
         let scope_label = ctx
             .rel
             .clone()
@@ -749,26 +732,20 @@ fn search_keyword(ctx: &Ctx<'_>, keyword: &str, limit: usize) -> String {
             language.map(|l| format!(", language={l}")).unwrap_or_default()
         );
     }
-    entries.sort_by(|a, b| {
-        b.hit
-            .is_some()
-            .cmp(&a.hit.is_some())
-            .then_with(|| compare_entries(a, b, clean))
-    });
-    let resolved: Vec<&Entry> = entries.iter().filter(|e| e.hit.is_some()).collect();
-    let unresolved: Vec<&str> = entries
-        .iter()
-        .filter(|e| e.hit.is_none())
-        .map(|e| e.name.as_str())
-        .collect();
-    let shown = &resolved[..resolved.len().min(cap)];
+    let (mut resolved, mut unresolved): (Vec<_>, Vec<_>) =
+        by_name.into_values().partition(|e| e.declaration.is_some());
+    let resolved_total = resolved.len();
+    if resolved_total > cap {
+        resolved.select_nth_unstable_by(cap, compare_entries);
+        resolved.truncate(cap);
+    }
+    resolved.sort_unstable_by(compare_entries);
     let mut lines = vec![format!(
-        "# search keyword={clean} matches={} shown={}",
-        entries.len(),
-        shown.len()
+        "# search keyword={clean} matches={total} shown={}",
+        resolved.len()
     )];
-    for e in shown {
-        let Some(hit) = &e.hit else { continue };
+    for e in resolved {
+        let Some(hit) = e.declaration.and_then(|(node, sym)| native_hit(node, sym)) else { continue };
         let facts = hit.facts();
         lines.push(format!(
             "{}\t{}{}{}",
@@ -778,14 +755,15 @@ fn search_keyword(ctx: &Ctx<'_>, keyword: &str, limit: usize) -> String {
             hit.sig.as_ref().map(|s| format!("\t{s}")).unwrap_or_default()
         ));
     }
-    if resolved.len() > shown.len() {
-        lines.push(format!("...+{} more resolved (cap={cap})", resolved.len() - shown.len()));
+    if resolved_total > cap {
+        lines.push(format!("...+{} more resolved (cap={cap})", resolved_total - cap));
     }
     if !unresolved.is_empty() {
+        unresolved.sort_unstable_by(compare_entries);
         lines.push(format!(
             "+{} unresolved name variants (token-only, no declaration — find_symbol will miss these; grep to locate): {}",
             unresolved.len(),
-            unresolved.join(", ")
+            unresolved.iter().map(|e| e.name).collect::<Vec<_>>().join(", ")
         ));
     }
     lines.join("\n")

@@ -62,7 +62,7 @@ use crate::policy::IMAGE_TARGET_RAW_SIZE;
 use crate::policy::est_tokens_of_bytes;
 use crate::policy::js_round;
 use crate::policy::target_dimensions;
-use crate::resize::fit_inside;
+use crate::resize::{fit_inside_view, output_size};
 
 /// How a rendition came to be, so the token gate can be told from a plain resize (the twin corpus checks it).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -113,25 +113,32 @@ struct Rendition {
 /// The rendition inside the profile's target box. Trimming the edges separately can leave a box the picture does not
 /// fill (`fit: 'inside'` keeps the aspect ratio), so what came out is reported, not what was asked for: the metadata
 /// line and its coordinate scale are read as the truth about this image.
-fn render_rendition(bytes: &[u8], decoded: &Decoded, profile: Profile) -> Result<Rendition, ImagingError> {
+fn render_rendition<'a>(bytes: &[u8], decoded: &'a Decoded, profile: Profile) -> Result<(Rendition, Option<std::borrow::Cow<'a, Raster>>), ImagingError> {
     let target = target_dimensions(decoded.width, decoded.height, profile);
     let needs_resize = target.width != decoded.width || target.height != decoded.height;
     // A provider takes PNG, JPEG, GIF or WebP: an image in any other format (markup, TIFF, AVIF) is never handed on
     // as it is but as the PNG of its pixels, and the media type names what is written.
     let carried = decoded.format.carried_as();
     if needs_resize || carried != decoded.format || bytes.len() as u64 > IMAGE_TARGET_RAW_SIZE {
-        let resized = fit_inside(&decoded.raster, target.width, target.height, !target.allow_enlargement);
+        let resized = fit_inside_view(&decoded.raster, target.width, target.height, !target.allow_enlargement);
         let data = encode_in_format(&resized, carried)?;
-        return Ok(Rendition { data, media_type: carried.media_type().to_owned(), display: (resized.width, resized.height), branch: Branch::Rendition });
+        return Ok((Rendition { data, media_type: carried.media_type().to_owned(), display: (resized.width, resized.height), branch: Branch::Rendition }, Some(resized)));
     }
-    Ok(Rendition { data: bytes.to_vec(), media_type: decoded.format.media_type().to_owned(), display: (decoded.width, decoded.height), branch: Branch::Original })
+    Ok((Rendition { data: bytes.to_vec(), media_type: decoded.format.media_type().to_owned(), display: (decoded.width, decoded.height), branch: Branch::Original }, None))
 }
 
 /// The token-budget gate: recompress to JPEG q50 at the (already resized) display size, then the 400x400 JPEG q20
 /// hard fallback.
-fn fit_to_token_budget(decoded: &Decoded, rendition: &mut Rendition, max_tokens: u64) {
+fn fit_to_token_budget(decoded: &Decoded, fitted: Option<std::borrow::Cow<'_, Raster>>, rendition: &mut Rendition, max_tokens: u64) {
     let (display_width, display_height) = rendition.display;
-    let at_display = fit_inside(&decoded.raster, display_width, display_height, true);
+    let size = output_size(decoded.width, decoded.height, display_width, display_height, true);
+    let at_display = match fitted {
+        Some(raster) if (raster.width, raster.height) == size => raster,
+        other => {
+            drop(other);
+            fit_inside_view(&decoded.raster, display_width, display_height, true)
+        }
+    };
     rendition.data = encode_jpeg(&at_display, 50, 0);
     rendition.media_type = Format::Jpeg.media_type().to_owned();
     rendition.display = (at_display.width, at_display.height);
@@ -139,7 +146,8 @@ fn fit_to_token_budget(decoded: &Decoded, rendition: &mut Rendition, max_tokens:
     if est_tokens_of_bytes(rendition.data.len()) <= max_tokens {
         return;
     }
-    let fallback = fit_inside(&decoded.raster, 400, 400, true);
+    drop(at_display);
+    let fallback = fit_inside_view(&decoded.raster, 400, 400, true);
     rendition.data = encode_jpeg(&fallback, 20, 0);
     let scale = (400.0 / f64::from(decoded.width)).min(400.0 / f64::from(decoded.height)).min(1.0);
     let scaled = |side: u32| (js_round(f64::from(side) * scale).max(1.0)) as u32;
@@ -149,9 +157,9 @@ fn fit_to_token_budget(decoded: &Decoded, rendition: &mut Rendition, max_tokens:
 
 fn resize_uncached(bytes: &[u8], options: ResizeOptions) -> Result<Resized, ImagingError> {
     let decoded = decode(bytes, DECODE_PIXEL_LIMIT)?;
-    let mut rendition = render_rendition(bytes, &decoded, options.profile)?;
+    let (mut rendition, fitted) = render_rendition(bytes, &decoded, options.profile)?;
     if est_tokens_of_bytes(rendition.data.len()) > options.max_tokens {
-        fit_to_token_budget(&decoded, &mut rendition, options.max_tokens);
+        fit_to_token_budget(&decoded, fitted, &mut rendition, options.max_tokens);
     }
     Ok(Resized {
         mime: rendition.media_type,

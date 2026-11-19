@@ -1,4 +1,3 @@
-import type React from 'react';
 import { lazy, Suspense, useCallback, useEffect, useRef, type ComponentProps } from 'react';
 import { OPEN_DOCTOR_EVENT } from '../command-surface-doctor-event';
 import { OPEN_TASK_SESSION_EVENT } from '../agent-task-events';
@@ -55,8 +54,6 @@ export interface AppShellOverlaysProps {
 
   settingsOpen: boolean;
   settingsSection: ComponentProps<typeof SettingsView>['initialSection'];
-  settingsMounted: React.RefObject<boolean>;
-  settingsPrewarmed: boolean;
   setSettingsOpen: (open: boolean) => void;
   /** Routes a /doctor fix to its settings page, like the typed slash command. */
   openSettings?: (section?: SlashSettingsSection | null) => void;
@@ -106,8 +103,6 @@ export function AppShellOverlays({
   cancelPendingTabClose,
   settingsOpen,
   settingsSection,
-  settingsMounted,
-  settingsPrewarmed,
   setSettingsOpen,
   openSettings,
   commandSurface,
@@ -127,6 +122,8 @@ export function AppShellOverlays({
   setError,
   snapshot,
 }: AppShellOverlaysProps) {
+  const settingsMounted = useRef(false);
+  if (settingsOpen) settingsMounted.current = true;
   const mountedCommandSurfaces = useRef(new Set<string>());
   if (commandSurface) mountedCommandSurfaces.current.add(commandSurface);
 
@@ -230,7 +227,7 @@ export function AppShellOverlays({
           ) : null
         }
       >
-        {(settingsOpen || settingsMounted.current || settingsPrewarmed) && (
+        {(settingsOpen || settingsMounted.current) && (
           <SettingsView
             open={settingsOpen}
             initialSection={settingsSection}

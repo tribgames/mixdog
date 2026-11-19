@@ -19,7 +19,7 @@ if (remoteBrowser) installShellUpdateState();
 // Start the remote transport immediately. On the installed web app, mobile
 // detection, language code and first-screen CSS overlap this fetch instead of
 // forming four relay round trips in a row.
-const remoteShimReady = import('./remote-shim');
+const remoteShimReady = remoteBrowser ? import('./remote-shim') : undefined;
 let launchApplication = true;
 if (remoteBrowser) {
   const { isInstalledMobileWebAppSurface, isMobileDeviceSurface } = await import('./mobile-surface');

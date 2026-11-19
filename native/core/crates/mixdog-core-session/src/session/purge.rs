@@ -314,6 +314,7 @@ pub struct SessionDeletion {
     pub tool_events: Arc<ToolEventsLog>,
     /// The sessions' MCP scopes (`disconnectAll({ scopeId })` of the runtime's close).
     pub mcp_scopes: Arc<dyn McpScopes>,
+    pub read_state: Arc<ReadState>,
 }
 
 #[async_trait]
@@ -330,8 +331,9 @@ impl DeleteSeams for SessionDeletion {
         self.mcp_scopes.release(session_id);
     }
 
-    fn unload_mcp_scope(&self, session_id: &str) {
+    fn release_unloaded_runtime(&self, session_id: &str) {
         self.mcp_scopes.release_unloaded(session_id);
+        self.read_state.release_session(session_id);
     }
 
     async fn release_session_work(&self, session_id: &str, reason: &str) {

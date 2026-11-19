@@ -151,9 +151,21 @@ async fn read_context_from(
     thread: &ThreadId,
     skip: usize,
 ) -> Result<Vec<(ItemId, Value)>, CoreError> {
+    fold_context(store, lanes, thread, skip, |out: &mut Vec<_>, rows| out.extend(rows)).await
+}
+
+/// A consumer that needs only part of each row can discard the rest before the next page is read.
+pub(super) async fn fold_context<T: Default + Send + 'static>(
+    store: &Arc<dyn ThreadStore>,
+    lanes: &SessionLanes,
+    thread: &ThreadId,
+    skip: usize,
+    visit: impl Fn(&mut T, Vec<(ItemId, Value)>) + Send + 'static,
+) -> Result<T, CoreError> {
     let token = CancellationToken::new();
     let (dropped, refused) = (context_dropped, context_refused);
     let mut read = None;
+    let (mut acc, mut visit) = (T::default(), visit);
     loop {
         store.unheld().await;
         let (store_io, thread) = (store.clone(), thread.clone());
@@ -168,21 +180,30 @@ async fn read_context_from(
             .await
             .map_err(|_| dropped())??;
         let store_cpu = store.clone();
-        let step = lanes
+        (acc, visit, read) = lanes
             .cpu
-            .submit_wait(&token, move |lane| store_cpu.context_cpu(lane, page))
+            .submit_wait(&token, move |lane| {
+                let next = match store_cpu.context_cpu(lane, page)? {
+                    ContextStep::More(next) => Some(next),
+                    ContextStep::Page { first, mut rows, next } => {
+                        if first {
+                            acc = T::default();
+                        }
+                        for (_, body) in &mut rows {
+                            mixdog_protocol::message_class::without_display_facts(body);
+                        }
+                        visit(&mut acc, rows);
+                        next
+                    }
+                };
+                Ok::<_, CoreError>((acc, visit, next))
+            })
             .await
             .map_err(refused)?
             .await
             .map_err(|_| dropped())??;
-        match step {
-            ContextStep::More(next) => read = Some(next),
-            ContextStep::Done(mut rows) => {
-                for (_, body) in &mut rows {
-                    mixdog_protocol::message_class::without_display_facts(body);
-                }
-                return Ok(rows);
-            }
+        if read.is_none() {
+            return Ok(acc);
         }
     }
 }

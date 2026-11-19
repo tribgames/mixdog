@@ -32,6 +32,23 @@ pub(crate) enum Lifecycle {
 /// Hosts started so far in this process: each host is one generation.
 static GENERATIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// Observes a particular child without keeping its pipes or containment alive.
+#[cfg(test)]
+#[derive(Clone)]
+pub(crate) struct ChildExit {
+    pub(crate) pid: u32,
+    pub(crate) generation: u64,
+    result: tokio::sync::watch::Receiver<Option<Result<std::process::ExitStatus, WaitError>>>,
+}
+
+#[cfg(test)]
+impl ChildExit {
+    pub(crate) async fn wait(&mut self) -> std::process::ExitStatus {
+        self.result.wait_for(Option::is_some).await.expect("child reaper stopped without reporting exit")
+            .as_ref().expect("exit published").clone().expect("waiting for the child failed")
+    }
+}
+
 pub(crate) struct Pipes {
     to_host: tokio::sync::mpsc::UnboundedSender<String>,
     replies: Mutex<mpsc::Receiver<String>>,
@@ -43,6 +60,8 @@ pub(crate) struct Pipes {
     /// Held by a test to withhold the reaper's publication of `Ended`.
     #[cfg(test)]
     pub(crate) end_gate: Arc<tokio::sync::Semaphore>,
+    #[cfg(test)]
+    pub(crate) child_exit: ChildExit,
     _contained: Containment,
 }
 
@@ -113,6 +132,11 @@ impl Pipes {
         let (mut stdin, stdout) = (child.stdin.take().expect("piped"), child.stdout.take().expect("piped"));
         let kill = CancellationToken::new();
         let generation = GENERATIONS.fetch_add(1, Ordering::Relaxed) + 1;
+        #[cfg(test)]
+        let (exit_report, child_exit) = {
+            let (report, result) = tokio::sync::watch::channel(None);
+            (report, ChildExit { pid: child.id().expect("spawned child"), generation, result })
+        };
         let (publish, state) = tokio::sync::watch::channel(Lifecycle::Running);
         let publish = Arc::new(publish);
         // EOF, a writer failure or a kill request: the host is stopping, nothing more (the reaper alone says how it ended).
@@ -164,9 +188,14 @@ impl Pipes {
                     child.wait().await
                 }
             };
-            #[cfg(test)]
-            let _gate = reaper_gate.acquire().await;
             let exit = status.map_err(|error| WaitError::from(error.to_string()));
+            #[cfg(test)]
+            let _gate = {
+                // Distinguish the OS wait from publication of the state-machine
+                // transition, which some tests intentionally delay.
+                exit_report.send_replace(Some(exit.clone()));
+                reaper_gate.acquire().await
+            };
             reaper_state.send_replace(Lifecycle::Ended { generation, exit, retired: reaper_retired.load(Ordering::Acquire) });
         }));
         Ok(Self {
@@ -178,6 +207,8 @@ impl Pipes {
             retired,
             #[cfg(test)]
             end_gate,
+            #[cfg(test)]
+            child_exit,
             _contained: contained,
         })
     }

@@ -11,35 +11,8 @@ import { InitialSurface } from './InitialSurface';
 import type { ProjectAddDialogHandle, ProjectAddDialogHost } from './ProjectAddDialogHost';
 import type { ProjectEditorDialog, ProjectEditorDialogHandle } from './ProjectEditorDialog';
 import { useDeferredModule } from './deferred-module';
-import { showDesktopToast } from './desktop-toasts';
-import { errorMessageText } from './ErrorNotice';
 import { projectAddDialogModule, projectEditorDialogModule } from './first-screen-deferred';
-
-/** A deferred dialog host's pending open: replayed once its module has
- *  mounted, so the first open needs no extra click. A failed load drops the
- *  open with a toast (these hosts render inside the app shell itself, so a
- *  thrown error would take the whole window down); the next open retries. */
-function useDeferredOpen<Handle>(load: () => Promise<unknown>) {
-  const ref = useRef<Handle>(null);
-  const [requested, setRequested] = useState<{ open(handle: Handle): void } | null>(null);
-  useEffect(() => {
-    if (!requested || !ref.current) return;
-    requested.open(ref.current);
-    setRequested(null);
-  });
-  const request = (open: (handle: Handle) => void) => {
-    if (ref.current) {
-      open(ref.current);
-      return;
-    }
-    setRequested({ open });
-    load().catch((error: unknown) => {
-      setRequested(null);
-      showDesktopToast(errorMessageText(error), 'error');
-    });
-  };
-  return { ref, request };
-}
+import { useDeferredOpen } from './use-deferred-open';
 
 type ShellPanels = ReturnType<typeof useAppShellPanels>;
 

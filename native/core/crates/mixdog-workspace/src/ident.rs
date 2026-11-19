@@ -198,13 +198,17 @@ pub(crate) fn stat_leaf_with_version(path: &Path) -> io::Result<(Metadata, StatV
 
 #[cfg(windows)]
 fn stat_path_with_flags(path: &Path, flags: u32) -> io::Result<(Metadata, StatVersion)> {
+    handle_stat_with_version(&open_attributes(path, flags)?)
+}
+
+#[cfg(windows)]
+pub(crate) fn open_attributes(path: &Path, flags: u32) -> io::Result<File> {
     use std::os::windows::fs::OpenOptionsExt;
     use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
     use windows_sys::Win32::Storage::FileSystem::FILE_READ_ATTRIBUTES;
     // Attributes only, like libuv's fs.stat; a no-share data handle does not refuse this.
-    let file = std::fs::OpenOptions::new().access_mode(FILE_READ_ATTRIBUTES)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | flags).open(path)?;
-    handle_stat_with_version(&file)
+    std::fs::OpenOptions::new().access_mode(FILE_READ_ATTRIBUTES)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | flags).open(path)
 }
 
 #[cfg(windows)]

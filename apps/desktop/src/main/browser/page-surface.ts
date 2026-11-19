@@ -43,6 +43,7 @@ export interface BrowserPageSurfaceHost {
     signal?: AbortSignal
   ): Promise<BrowserScreenshotCapture>;
   captureTexture?(guest: WebContents, documentId: string, pixels: Size): BrowserDisplayTexture | undefined;
+  releaseCapture?(guest: WebContents): void;
   currentGuest?(sessionId: string): WebContents | null;
   /** The user pressed or typed in this page, so it is theirs from now on. */
   userTouched?(sessionId: string, guest: WebContents): void;
@@ -73,6 +74,10 @@ export function createBrowserPageSurface(host: BrowserPageSurfaceHost) {
   return {
     frame,
     metadata: frame.metadata,
+    releasePixels(sessionId: string, guest: WebContents): void {
+      if (presentedGuests.get(sessionId) === guest) presentedGuests.delete(sessionId);
+      frame.releasePixels(guest);
+    },
     control: createPageSurfaceControl(host, state),
     /** The size and zoom the session's pane last asked for, if any. */
     paneGeometry(sessionId: string): { size?: Size; zoom?: number } {
@@ -98,6 +103,8 @@ export function createBrowserPageSurface(host: BrowserPageSurfaceHost) {
       };
     },
     release(sessionId: string) {
+      const guest = presentedGuests.get(sessionId);
+      if (guest) frame.releasePixels(guest);
       paneSizes.delete(sessionId);
       paneZooms.delete(sessionId);
       presentedGuests.delete(sessionId);

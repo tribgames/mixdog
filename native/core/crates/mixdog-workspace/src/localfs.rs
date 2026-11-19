@@ -58,6 +58,7 @@ use mixdog_core_api::domain::fs::FileStat;
 use mixdog_core_api::domain::fs::FsError;
 use mixdog_core_api::domain::fs::FsErrorKind;
 use mixdog_core_api::domain::fs::FsStep;
+use mixdog_core_api::domain::fs::LocatorStat;
 use mixdog_core_api::domain::fs::ReadRange;
 use mixdog_core_api::domain::fs::SearchClass;
 use mixdog_core_api::domain::fs::SearchMatch;
@@ -811,22 +812,29 @@ fn printed_lines(bytes: &[u8]) -> Vec<String> {
 /// What a match adds to its file's count, as grep-printer's summary printer counts it for Node's server's `--count`
 /// (`Summary::matched`): 1 for a line searched line by line; in a multi-line search each match its lines hold, the regex
 /// seeing at most 128 bytes past them (`find_iter_at_in_context`, `MAX_LOOK_AHEAD`).
-fn match_count<M: Matcher>(searcher: &Searcher, matcher: &M, found: &SinkMatch<'_>) -> io::Result<u64> {
+fn match_count<M: Matcher>(searcher: &Searcher, matcher: &M, found: &SinkMatch<'_>, check: impl Fn() -> io::Result<()>) -> io::Result<u64> {
+    check()?;
     if !searcher.multi_line_with_matcher(matcher) {
         return Ok(1);
     }
     let range = found.bytes_range_in_buffer();
     let buffer = found.buffer();
     let mut count = 0;
+    let mut cancelled = Ok(());
     matcher
         .find_iter_at(&buffer[..buffer.len().min(range.end + 128)], range.start, |m| {
             if m.start() >= range.end {
+                return false;
+            }
+            cancelled = check();
+            if cancelled.is_err() {
                 return false;
             }
             count += 1;
             true
         })
         .map_err(|error| io::Error::other(error.to_string()))?;
+    cancelled?;
     Ok(count)
 }
 
@@ -875,7 +883,7 @@ impl<P: Sink<Error = io::Error>, M: Matcher> Sink for Collect<'_, P, M> {
         self.printer.matched(searcher, found)?;
         let printed = printed_lines(&self.printed.0.take());
         let mut column = self.matcher.find(found.bytes()).ok().flatten().map_or(0, |m| m.start()) as u64 + 1;
-        let mut count = match_count(searcher, self.matcher, found)?;
+        let mut count = match_count(searcher, self.matcher, found, || Ok(()))?;
         for (line, text) in (found.line_number().unwrap_or(0)..).zip(printed) {
             if !self.out.send(Ok(SearchMatch { path: self.path.clone(), line, column, text, count })) {
                 self.closed = true;
@@ -893,6 +901,23 @@ impl<P: Sink<Error = io::Error>, M: Matcher> Sink for Collect<'_, P, M> {
             }
         }
         Ok(*self.left != Some(0) && !self.first_per_file)
+    }
+}
+
+/// Keep only the file's total; the producer sends it after a successful scan, so a failed file emits no partial row.
+struct Summarize<'a, M> {
+    matcher: &'a M,
+    ctl: &'a Control,
+    first_per_file: bool,
+    count: Option<u64>,
+}
+
+impl<M: Matcher> Sink for Summarize<'_, M> {
+    type Error = io::Error;
+
+    fn matched(&mut self, searcher: &Searcher, found: &SinkMatch<'_>) -> Result<bool, io::Error> {
+        *self.count.get_or_insert(0) += match_count(searcher, self.matcher, found, || self.ctl.check())?;
+        Ok(!self.first_per_file)
     }
 }
 
@@ -1066,6 +1091,16 @@ impl Control {
 
     fn stopped(&self) -> bool {
         self.stop.load(Ordering::SeqCst)
+    }
+
+    fn check(&self) -> io::Result<()> {
+        if self.stopped() {
+            return Err(io::Error::other(Halt::Stopped));
+        }
+        if self.expired() {
+            return Err(io::Error::other(Halt::Deadline));
+        }
+        Ok(())
     }
 
     /// Stops the producer, waking it if it waits for room in the queue or for a blocking call's answer.
@@ -1299,6 +1334,7 @@ struct Scan {
     searcher: Searcher,
     left: Option<usize>,
     first_per_file: bool,
+    summary: bool,
     link: Arc<IoLink>,
     #[cfg(feature = "count-jobs")]
     root: PathBuf,
@@ -2603,6 +2639,37 @@ mod tests {
         assert_eq!(run(SearchRequest { binary_as_text: true, ..lookahead.clone() }).await, vec![("bin.dat".into(), 1, "\u{0}\u{1} needle in".into(), 1)]);
         assert!(run(lookahead).await.is_empty());
     }
+
+    #[tokio::test]
+    async fn search_summary_emits_one_row_per_file_for_dense_and_multiline_matches() {
+        let (_dir, root) = root();
+        let fs = LocalFileService::new();
+        let l = lanes();
+        std::fs::write(root.join("a.txt").as_path(), "start\nend\n".repeat(1024)).unwrap();
+        std::fs::write(root.join("b.txt").as_path(), "start\nend\n").unwrap();
+        std::fs::write(root.join("c.txt").as_path(), "start\nnot a match\n").unwrap();
+        let request = SearchRequest { pattern: r"start\nend".into(), regex: true, multiline: true, ..needle_request(&root, None) };
+        for (first_per_file, expected) in [(false, [1024, 1]), (true, [1, 1])] {
+            let mut stream = fs.search_summary(l.maintenance, SearchRequest { first_per_file, ..request.clone() });
+            for (name, count) in ["a.txt", "b.txt"].into_iter().zip(expected) {
+                let row = stream.next().await.unwrap().unwrap();
+                assert_eq!(row.path, root.join(name));
+                assert_eq!(row.count, count);
+            }
+            assert!(stream.next().await.is_none());
+        }
+    }
+
+    #[test]
+    fn search_summary_stops_on_cancel_even_with_matches_already_buffered() {
+        let ctl = Control::new(Deadline::default());
+        let matcher = grep::regex::RegexMatcher::new("needle").unwrap();
+        let mut sink = Summarize { matcher: &matcher, ctl: &ctl, first_per_file: false, count: None };
+        ctl.halt();
+        let error = SearcherBuilder::new().build().search_slice(&matcher, b"needle\nneedle\n", &mut sink).unwrap_err();
+        assert!(matches!(halt_of(&error), Some(Halt::Stopped)));
+    }
+
     /// Waits until `f` holds, at most 10 s.
     async fn eventually(mut f: impl FnMut() -> bool) -> bool {
         let until = Instant::now() + Duration::from_secs(10);
@@ -3526,6 +3593,50 @@ fn stat_from_version(meta: &fs::Metadata, version: &StatVersion) -> FileStat {
         readonly: meta.permissions().readonly(),
     }
 }
+
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
+fn list_entries(path: &Path) -> Result<Vec<DirEntry>, FsError> {
+    if fs::metadata(path).is_ok_and(|m| !m.is_dir()) {
+        return Err(plain(FsErrorKind::NotADirectory, path));
+    }
+    let mut out = Vec::new();
+    for entry in fs::read_dir(path).map_err(|e| io_error(&e, path))? {
+        let entry = entry.map_err(|e| io_error(&e, path))?;
+        let kind = entry.file_type().map(entry_kind).map_err(|e| io_error(&e, &entry.path()))?;
+        if let Some(path) = AbsPath::new(entry.path()) {
+            out.push(DirEntry { path, kind });
+        }
+    }
+    Ok(out)
+}
+
+fn order_entries(entries: &mut [DirEntry]) {
+    entries.sort_unstable_by(|a, b| a.path.as_path().cmp(b.path.as_path()));
+}
+
+#[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
+fn open_read(path: &Path) -> Result<File, FsError> {
+    let meta = fs::metadata(path).map_err(|e| io_error(&e, path))?;
+    if meta.is_dir() {
+        return Err(plain(FsErrorKind::IsADirectory, path));
+    }
+    if !meta.is_file() {
+        return Err(plain(FsErrorKind::Special, path));
+    }
+    File::open(path).map_err(|e| io_error(&e, path))
+}
+
+fn read_at(file: &mut File, offset: u64, max_len: Option<u64>, total_len: u64) -> io::Result<FileBytes> {
+    if offset != 0 {
+        file.seek(SeekFrom::Start(offset))?;
+    }
+    let mut bytes = Vec::new();
+    match max_len {
+        Some(n) => file.take(n).read_to_end(&mut bytes)?,
+        None => file.read_to_end(&mut bytes)?,
+    };
+    Ok(FileBytes { offset, bytes, total_len })
+}
 /// Node: `atomicWriteShouldFsync`; `MIXDOG_ATOMIC_FSYNC=0|false|no|off` opts out.
 fn fsync_wanted() -> bool {
     !matches!(std::env::var("MIXDOG_ATOMIC_FSYNC").map(|v| v.to_lowercase()).as_deref(), Ok("0" | "false" | "no" | "off"))
@@ -3635,27 +3746,41 @@ impl FileService for LocalFileService {
     }
 
     #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
+    async fn stat_for_locator(&self, lane: InteractiveIo, path: AbsPath) -> Result<LocatorStat, FsError> {
+        on(lane, move || {
+            let p = path.as_path();
+            #[cfg(windows)]
+            let meta = crate::ident::open_attributes(p, 0).and_then(|file| file.metadata());
+            #[cfg(not(windows))]
+            let meta = fs::metadata(p);
+            let meta = meta.map_err(|e| io_error(&e, p))?;
+            Ok(LocatorStat { kind: entry_kind(meta.file_type()), len: meta.len(), modified: meta.modified().ok(), readonly: meta.permissions().readonly() })
+        }).await?
+    }
+
+    #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn read(&self, lane: InteractiveIo, path: AbsPath, range: ReadRange) -> Result<FileBytes, FsError> {
         on(lane, move || {
             let p = path.as_path();
-            let meta = fs::metadata(p).map_err(|e| io_error(&e, p))?;
-            if meta.is_dir() {
-                return Err(plain(FsErrorKind::IsADirectory, p));
-            }
-            if !meta.is_file() {
-                return Err(plain(FsErrorKind::Special, p));
-            }
-            let mut file = File::open(p).map_err(|e| io_error(&e, p))?;
+            let mut file = open_read(p)?;
             let total = file.metadata().map_err(|e| io_error(&e, p))?.len();
-            let start = range.offset.min(total);
-            file.seek(SeekFrom::Start(start)).map_err(|e| io_error(&e, p))?;
-            let mut bytes = Vec::new();
-            let read = match range.max_len {
-                Some(n) => file.take(n).read_to_end(&mut bytes),
-                None => file.read_to_end(&mut bytes),
-            };
-            read.map_err(|e| io_error(&e, p))?;
-            Ok(FileBytes { offset: start, bytes, total_len: total })
+            read_at(&mut file, range.offset.min(total), range.max_len, total).map_err(|e| io_error(&e, p))
+        })
+        .await?
+    }
+
+    #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
+    async fn read_versioned(&self, lane: InteractiveIo, path: AbsPath, offset: u64, max_len: u64) -> Result<(FileStat, FileBytes), FsError> {
+        on(lane, move || {
+            let p = path.as_path();
+            let mut file = open_read(p)?;
+            let (meta, before) = handle_stat_with_version(&file).map_err(|e| io_error(&e, p))?;
+            let bytes = read_at(&mut file, offset, Some(max_len), meta.len()).map_err(|e| io_error(&e, p))?;
+            let (_, after) = handle_stat_with_version(&file).map_err(|e| io_error(&e, p))?;
+            if before != after {
+                return Err(FsError::new(FsErrorKind::OutcomeUnknown, Some(path)));
+            }
+            Ok((stat_from_version(&meta, &before), bytes))
         })
         .await?
     }
@@ -3663,22 +3788,23 @@ impl FileService for LocalFileService {
     #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
     async fn list_dir(&self, lane: InteractiveIo, path: AbsPath) -> Result<Vec<DirEntry>, FsError> {
         on(lane, move || {
-            let p = path.as_path();
-            if fs::metadata(p).is_ok_and(|m| !m.is_dir()) {
-                return Err(plain(FsErrorKind::NotADirectory, p));
-            }
-            let mut out = Vec::new();
-            for entry in fs::read_dir(p).map_err(|e| io_error(&e, p))? {
-                let entry = entry.map_err(|e| io_error(&e, p))?;
-                let kind = entry.file_type().map(entry_kind).map_err(|e| io_error(&e, &entry.path()))?;
-                if let Some(path) = AbsPath::new(entry.path()) {
-                    out.push(DirEntry { path, kind });
-                }
-            }
-            out.sort_by(|a, b| a.path.as_path().cmp(b.path.as_path()));
-            Ok(out)
+            let mut entries = list_entries(path.as_path())?;
+            order_entries(&mut entries);
+            Ok(entries)
         })
         .await?
+    }
+
+    #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
+    async fn list_dir_for_ranking(&self, lane: InteractiveIo, path: AbsPath, cap: usize) -> Result<(Vec<DirEntry>, bool), FsError> {
+        on(lane, move || {
+            let mut entries = list_entries(path.as_path())?;
+            let unsorted = entries.len() < cap;
+            if !unsorted {
+                order_entries(&mut entries);
+            }
+            Ok((entries, unsorted))
+        }).await?
     }
 
     #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
@@ -3818,6 +3944,14 @@ impl FileService for LocalFileService {
         };
         search_with(&PRODUCERS, &request, walked, Box::new(open_to_search))
     }
+
+    fn search_summary(&self, _lane: MaintenanceIo, request: SearchRequest) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
+        let walked = match text_listing(&request, Box::new(tree::RealDirs)) {
+            Ok(walked) => walked,
+            Err(error) => return failed(error),
+        };
+        search_with_output(&PRODUCERS, &request, walked, Box::new(open_to_search), true)
+    }
 }
 /// A walk request's walk, its entries listed through `dirs` ([`tree`]).
 #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
@@ -3882,8 +4016,18 @@ fn search_over(
 fn search_with(
     producers: &Arc<Producers>,
     request: &SearchRequest,
+    walked: Walked,
+    open: Opener,
+) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
+    search_with_output(producers, request, walked, open, false)
+}
+
+fn search_with_output(
+    producers: &Arc<Producers>,
+    request: &SearchRequest,
     Walked { listing, volumes }: Walked,
     open: Opener,
+    summary: bool,
 ) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
     // A pattern that does not parse is reported with the parser's own text, as Node shows it.
     let matcher = match compile(request) {
@@ -3906,6 +4050,7 @@ fn search_with(
         open,
         left: request.limit,
         first_per_file: request.first_per_file,
+        summary,
         volumes,
         #[cfg(feature = "count-jobs")]
         root: request.root.as_path().to_path_buf(),
@@ -4738,12 +4883,7 @@ fn serve(link: &IoLink, mut listing: Listing, open: Opener, hold: Hold, volumes:
 }
 impl Read for Linked<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if self.ctl.stopped() {
-            return Err(io::Error::other(Halt::Stopped));
-        }
-        if self.ctl.expired() {
-            return Err(io::Error::other(Halt::Deadline));
-        }
+        self.ctl.check()?;
         let n = buf.len().min(READ_CHUNK);
         let Some((Answer::Read(read), state)) = self.link.ask(self.ctl, Ask::Read(n)) else {
             return Err(io::Error::other(Halt::Stopped));
@@ -4768,6 +4908,7 @@ struct Searching {
     left: Option<usize>,
     /// [`SearchRequest::first_per_file`].
     first_per_file: bool,
+    summary: bool,
     /// The volumes its producer reads on, shared with its walk ([`Volumes`]).
     volumes: SharedVolumes,
     #[cfg(feature = "count-jobs")]
@@ -4784,6 +4925,7 @@ impl Produce<SearchMatch> for Searching {
             open,
             left,
             first_per_file,
+            summary,
             volumes,
             #[cfg(feature = "count-jobs")]
             root,
@@ -4798,6 +4940,7 @@ impl Produce<SearchMatch> for Searching {
             searcher,
             left,
             first_per_file,
+            summary,
             link: link.clone(),
             #[cfg(feature = "count-jobs")]
             root,
@@ -4831,8 +4974,8 @@ impl Scan {
         let ctl = &*out.ctl;
         #[cfg(feature = "count-jobs")]
         let root = self.root.clone();
-        let Scan { searcher, left, first_per_file, link, .. } = self;
-        let (first_per_file, link) = (*first_per_file, &**link);
+        let Scan { searcher, left, first_per_file, summary, link, .. } = self;
+        let (first_per_file, summary, link) = (*first_per_file, *summary, &**link);
         while *left != Some(0) {
             if ctl.stopped() {
                 return;
@@ -4871,6 +5014,20 @@ impl Scan {
             let mut sent = 0;
             let searched = opened.and_then(|()| {
                 let inner = Linked { link, ctl };
+                if summary {
+                    let mut sink = Summarize { matcher, ctl, first_per_file, count: None };
+                    searcher.search_reader(matcher, inner, &mut sink)?;
+                    ctl.check()?;
+                    if let Some(count) = sink.count {
+                        if !out.send(Ok(SearchMatch { path: path.clone(), line: 1, column: 1, text: String::new(), count })) {
+                            return Ok(true);
+                        }
+                        sent = 1;
+                        #[cfg(feature = "count-jobs")]
+                        probe::found(&root);
+                    }
+                    return Ok(false);
+                }
                 let printed = Printed::default();
                 let mut printer = StandardBuilder::new()
                     .heading(false)

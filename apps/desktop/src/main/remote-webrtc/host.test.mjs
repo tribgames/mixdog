@@ -24,7 +24,7 @@ test('a demotion the phone caused by closing reaches it before the answer to tha
   let emit = () => {};
   const gates = new Map();
   const host = createRemoteWebrtcHost({
-    sender: { send: (command) => commands.push(command), onEvent: (listener) => (emit = listener) },
+    sender: { send: (command) => commands.push(command), release() {}, onEvent: (listener) => (emit = listener) },
     // The demote's delivery is held until the test releases it.
     sendSignal: (_clientId, signal) => {
       signals.push(signal);
@@ -82,7 +82,7 @@ test('the promoted and stats diagnostics record the path the selected candidate 
   const reports = [];
   let emit = () => {};
   const host = createRemoteWebrtcHost({
-    sender: { send: (command) => commands.push(command), onEvent: (listener) => (emit = listener) },
+    sender: { send: (command) => commands.push(command), release() {}, onEvent: (listener) => (emit = listener) },
     sendSignal: (_clientId, signal) => {
       signals.push(signal);
       return Promise.resolve();
@@ -173,15 +173,16 @@ test('a captured source switches to a drawn track for raw pictures and back, and
   const commands = [];
   let emit = () => {};
   let plan = { sourceId: 'screen:1:0', width: 400, height: 300, maxFrameRate: 30 };
+  const page = { documentId: null, geometry: null };
   const delivered = [];
   const host = createRemoteWebrtcHost({
-    sender: { send: (command) => commands.push(command), onEvent: (listener) => (emit = listener) },
+    sender: { send: (command) => commands.push(command), release() {}, onEvent: (listener) => (emit = listener) },
     sendSignal: () => Promise.resolve(),
     sources: () => ({
       source: screen,
       start() {},
       stop() {},
-      page: () => ({ documentId: null, geometry }),
+      page: () => page,
       dispatch: async () => {},
       capturePlan: () => plan,
       delivered: (epoch) => delivered.push(epoch),
@@ -189,15 +190,16 @@ test('a captured source switches to a drawn track for raw pictures and back, and
     report: () => {},
   });
   const of = (type) => commands.filter((command) => command.type === type);
-  // Helper path before the first connection: the drawn track at its open, no capture.
-  await host.signal('c1', { v: REMOTE_WEBRTC_VERSION, source: screen, type: 'geometry-ack', geometryGeneration: 1 });
-  host.drawnTrack('screen:1', true);
-  assert.deepEqual(of('source-draw'), [], 'nothing to switch before a connection');
+  // Select the helper path while the first negotiation is waiting for geometry.
   await host.signal(
     'c1',
     { v: REMOTE_WEBRTC_VERSION, source: screen, type: 'ready', receiveCodecs: ['video/VP8'] },
     TURN
   );
+  host.drawnTrack('screen:1', true);
+  assert.deepEqual(of('source-draw'), [], 'nothing to switch before a connection');
+  page.geometry = geometry;
+  host.geometryChanged('screen:1', geometry);
   assert.deepEqual(
     commands
       .filter((command) => command.type === 'source-draw' || command.type === 'open')
@@ -261,7 +263,7 @@ test('a sender crash resets each source’s track; the next connection sets up t
   let emit = () => {};
   const plan = { sourceId: 'screen:1:0', width: 400, height: 300, maxFrameRate: 30 };
   const host = createRemoteWebrtcHost({
-    sender: { send: (command) => commands.push(command), onEvent: (listener) => (emit = listener) },
+    sender: { send: (command) => commands.push(command), release() {}, onEvent: (listener) => (emit = listener) },
     sendSignal: () => Promise.resolve(),
     sources: () => ({
       source: screen,
@@ -314,7 +316,7 @@ test('a ready that widens the video limit mid-negotiation offers only the reconc
   const page = { documentId: 'p1:1', geometry };
   const limits = [];
   const host = createRemoteWebrtcHost({
-    sender: { send: (command) => commands.push(command), onEvent: (listener) => (emit = listener) },
+    sender: { send: (command) => commands.push(command), release() {}, onEvent: (listener) => (emit = listener) },
     sendSignal: (_clientId, signal) => {
       signals.push(signal);
       return Promise.resolve();

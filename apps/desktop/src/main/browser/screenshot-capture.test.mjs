@@ -229,12 +229,14 @@ test('screenshot fallback preserves foreground and background preferences and ac
             },
           }
     );
-    assert.equal((await f.service.capture(f.guest, background)).data, bytes.toString('base64'));
+    assert.deepEqual((await f.service.capture(f.guest, background)).bytes, bytes);
     assert.deepEqual(f.calls, background ? ['native', 'CDP'] : ['CDP', 'native']);
   }
-  const invalid = fixture({ cdpCapture: () => ({ data: '' }) });
-  assert.equal((await invalid.service.capture(invalid.guest, false)).data, bytes.toString('base64'));
-  assert.deepEqual(invalid.calls, ['CDP', 'native']);
+  for (const data of ['', Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).toString('base64')]) {
+    const invalid = fixture({ cdpCapture: () => ({ data }) });
+    assert.deepEqual((await invalid.service.capture(invalid.guest, false)).bytes, bytes);
+    assert.deepEqual(invalid.calls, ['CDP', 'native']);
+  }
 });
 
 test('screenshot cancellation never starts a fallback engine', async () => {
@@ -300,7 +302,7 @@ test('a background full-page screenshot stitches viewport pixels without resizin
     cdpCapture: () => assert.fail('a full-size CDP bitmap can still contain blank offscreen pixels'),
   });
   const result = await f.service.capture(f.guest, true, { fullPage: true });
-  assert.equal(result.data, bytes.toString('base64'));
+  assert.deepEqual(result.bytes, bytes);
   assert.deepEqual([result.width, result.height], [2000, 1500]);
   assert.deepEqual(f.calls, ['prepare', ...Array(9).fill('native'), 'restore']);
   assert.deepEqual(f.size(), [320, 240]);

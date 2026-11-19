@@ -176,6 +176,7 @@ export function SessionDiffPane({
     refresh,
     adoptions,
     rows,
+    diff,
     repository,
     source,
     setSource,
@@ -253,6 +254,7 @@ export function SessionDiffPane({
   const { withPatch, capped } = useSessionChangePatches({
     cwd,
     sessionId,
+    diff,
     rows: visibleRows,
     selectedId: selectedRow?.id ?? '',
   });

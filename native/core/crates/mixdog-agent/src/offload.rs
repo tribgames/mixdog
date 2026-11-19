@@ -100,13 +100,6 @@ pub(crate) fn is_offloaded(text: &str) -> bool {
     text.starts_with(OFFLOAD_PREFIX)
 }
 
-fn splits_pair(units: &[u16], at: usize) -> bool {
-    at > 0
-        && at < units.len()
-        && (0xd800..=0xdbff).contains(&units[at - 1])
-        && (0xdc00..=0xdfff).contains(&units[at])
-}
-
 fn js_round(x: f64) -> usize {
     (x + 0.5).floor() as usize
 }
@@ -114,35 +107,35 @@ fn js_round(x: f64) -> usize {
 /// Head and tail of `text` within `max` units, cut on line boundaries when one
 /// is near; `(preview, truncated)`.
 fn build_preview(text: &str, max: usize) -> (String, bool) {
-    let units: Vec<u16> = text.encode_utf16().collect();
-    if units.len() <= max {
+    let len = u16_len(text);
+    if len <= max {
         return (text.to_owned(), false);
     }
     let head_budget = (max as f64 * 0.6).floor() as usize;
     let tail_budget = max - head_budget;
-    let head_end = head_budget - usize::from(splits_pair(&units, head_budget));
-    let mut head = &units[..head_end];
-    if let Some(cut) = head.iter().rposition(|u| *u == u16::from(b'\n'))
-        && cut > (head_budget as f64 * 0.6).floor() as usize
+    let edge_bytes = |chars: &mut dyn Iterator<Item = char>, mut left: usize| {
+        chars.take_while(|c| {
+            if c.len_utf16() > left { return false; }
+            left -= c.len_utf16();
+            true
+        }).map(char::len_utf8).sum::<usize>()
+    };
+    let mut head = &text[..edge_bytes(&mut text.chars(), head_budget)];
+    if let Some(cut) = head.rfind('\n')
+        && u16_len(&head[..cut]) > (head_budget as f64 * 0.6).floor() as usize
     {
         head = &head[..cut];
     }
-    let mut tail_start = units.len().saturating_sub(tail_budget);
-    if splits_pair(&units, tail_start) {
-        tail_start += 1;
-    }
-    let mut tail = &units[tail_start..];
-    if let Some(cut) = tail.iter().position(|u| *u == u16::from(b'\n'))
-        && cut < (tail_budget as f64 * 0.4).floor() as usize
+    let mut tail = &text[text.len() - edge_bytes(&mut text.chars().rev(), tail_budget)..];
+    if let Some(cut) = tail.find('\n')
+        && u16_len(&tail[..cut]) < (tail_budget as f64 * 0.4).floor() as usize
     {
         tail = &tail[cut + 1..];
     }
-    let omitted_kb = js_round((units.len() - head.len() - tail.len()) as f64 / 1024.0).max(1);
+    let omitted_kb = js_round((len - u16_len(head) - u16_len(tail)) as f64 / 1024.0).max(1);
     (
         format!(
-            "{}\n... [preview middle omitted — {omitted_kb} KB] ...\n{}",
-            String::from_utf16_lossy(head),
-            String::from_utf16_lossy(tail)
+            "{head}\n... [preview middle omitted — {omitted_kb} KB] ...\n{tail}"
         ),
         true,
     )
@@ -150,10 +143,8 @@ fn build_preview(text: &str, max: usize) -> (String, bool) {
 
 /// One text body replaced by its pointer and preview; unchanged when it did
 /// not persist (persistence is the reduction's commit point).
-async fn offload_text(store: &dyn ArtifactStore, tool: &str, text: &str) -> String {
-    let Some(artifact) = store.persist(text).await else {
-        return text.to_owned();
-    };
+async fn offload_text(store: &dyn ArtifactStore, tool: &str, text: &str) -> Option<String> {
+    let artifact = store.persist(text).await?;
     // git offloads were fetched from the preview most of the time, so git
     // keeps a head and tail large enough to answer from directly.
     let git = tool.eq_ignore_ascii_case("git");
@@ -170,7 +161,7 @@ async fn offload_text(store: &dyn ArtifactStore, tool: &str, text: &str) -> Stri
     } else {
         "\n[preview truncated; full output preserved at the artifact path above]".to_owned()
     };
-    format!("{header}\n\n{preview}{suffix}")
+    Some(format!("{header}\n\n{preview}{suffix}"))
 }
 
 fn text_len(part: &ContentPart) -> usize {
@@ -221,35 +212,43 @@ pub struct BatchEntry {
 /// Inline images are validated and re-encoded once, before the result reaches
 /// the transcript; stored history is never revisited.
 pub async fn compact_images(compactor: &dyn ImageCompactor, content: &Content) -> Content {
+    let Content::Parts(parts) = content else { return content.clone() };
+    compact_parts(compactor, parts.iter().map(std::borrow::Cow::Borrowed)).await
+}
+
+pub(crate) async fn compact_owned_images(compactor: &dyn ImageCompactor, content: Content) -> Content {
     let Content::Parts(parts) = content else {
-        return content.clone();
+        return content;
     };
+    compact_parts(compactor, parts.into_iter().map(std::borrow::Cow::Owned)).await
+}
+
+async fn compact_parts<'a>(
+    compactor: &dyn ImageCompactor,
+    parts: impl ExactSizeIterator<Item = std::borrow::Cow<'a, ContentPart>>,
+) -> Content {
     let mut out = Vec::with_capacity(parts.len());
-    let mut changed = false;
     for part in parts {
-        if let ContentPart::Image(ImageSource::FileId(id)) = part
+        if let ContentPart::Image(ImageSource::FileId(id)) = part.as_ref()
             && let Some(digest) = id.strip_prefix("sha256:")
             && let Some((reference, mime_type)) = compactor.import_blob(digest).await
         {
-            changed = true;
             out.push(ContentPart::File { source: BinarySource::AttachmentRef(reference), mime_type, filename: None, text: None });
             continue;
         }
-        let ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) = part else {
-            out.push(part.clone());
+        let ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) = part.as_ref() else {
+            out.push(part.into_owned());
             continue;
         };
         match compactor.compact(data, mime_type).await {
-            ImageOutcome::Keep => out.push(part.clone()),
+            ImageOutcome::Keep => out.push(part.into_owned()),
             ImageOutcome::Stored { reference, mime, note } => {
-                changed = true;
                 if let Some(note) = note {
                     out.push(ContentPart::Text(note, None));
                 }
                 out.push(ContentPart::File { source: BinarySource::AttachmentRef(reference), mime_type: mime, filename: None, text: None });
             }
             ImageOutcome::Compacted { data, mime, note } => {
-                changed = true;
                 if let Some(note) = note {
                     out.push(ContentPart::Text(note, None));
                 }
@@ -257,7 +256,7 @@ pub async fn compact_images(compactor: &dyn ImageCompactor, content: &Content) -
             }
         }
     }
-    if changed { Content::Parts(out) } else { content.clone() }
+    Content::Parts(out)
 }
 
 #[cfg(test)]
@@ -327,6 +326,26 @@ mod tests {
         assert!(matches!(&out, Content::Text(t) if t.starts_with(OFFLOAD_PREFIX)));
     }
     #[tokio::test]
+    async fn cancelling_a_batch_during_persistence_keeps_the_inline_body() {
+        struct Pending;
+        #[async_trait]
+        impl ArtifactStore for Pending {
+            async fn persist(&self, _: &str) -> Option<Artifact> {
+                std::future::pending().await
+            }
+            async fn preview(&self, _: &str) -> Option<Artifact> { None }
+        }
+        let body = "result".repeat(10_000);
+        let mut entries = [BatchEntry { tool: "grep".into(), content: Content::Text(body.clone()) }];
+        tokio::select! {
+            biased;
+            _ = offload_batch(&Pending, &mut entries) => panic!("persistence is still pending"),
+            _ = std::future::ready(()) => {}
+        }
+        assert_eq!(entries[0].content, Content::Text(body));
+    }
+
+    #[tokio::test]
     async fn the_batch_budget_offloads_the_largest_eligible_results_first() {
         let store = Store(Mutex::new(Vec::new()));
         let part = |n: usize| Content::Text("y".repeat(n));
@@ -376,52 +395,81 @@ pub async fn offload_result(
     content: &Content,
     force: bool,
 ) -> Content {
+    match planned_offload(store, tool, content, force).await {
+        None => content.clone(),
+        Some(Replacement::Text(text)) => Content::Text(text),
+        Some(Replacement::Parts(mut edits)) => {
+            let Content::Parts(parts) = content else { unreachable!() };
+            Content::Parts(parts.iter().enumerate().map(|(i, part)| {
+                edits.remove(&i).unwrap_or_else(|| part.clone())
+            }).collect())
+        }
+    }
+}
+
+async fn offload_in_place(store: &dyn ArtifactStore, tool: &str, content: &mut Content, force: bool) {
+    match planned_offload(store, tool, content, force).await {
+        None => {}
+        Some(Replacement::Text(text)) => *content = Content::Text(text),
+        Some(Replacement::Parts(edits)) => {
+            let Content::Parts(parts) = content else { unreachable!() };
+            for (i, part) in edits {
+                parts[i] = part;
+            }
+        }
+    }
+}
+
+enum Replacement {
+    Text(String),
+    Parts(std::collections::HashMap<usize, ContentPart>),
+}
+
+// A cancelled persist must leave the caller's entry untouched, including for a multipart result.
+async fn planned_offload(store: &dyn ArtifactStore, tool: &str, content: &Content, force: bool) -> Option<Replacement> {
     match content {
         Content::Text(text) => {
             if is_offloaded(text) || (!force && u16_len(text) <= threshold(tool)) {
-                return content.clone();
+                return None;
             }
             if !force && reads_as_error(text) && u16_len(text) <= DEFAULT_THRESHOLD {
-                return content.clone();
+                return None;
             }
-            Content::Text(offload_text(store, tool, text).await)
+            offload_text(store, tool, text).await.map(Replacement::Text)
         }
         Content::Parts(parts) => {
             if !parts.iter().any(|p| matches!(p, ContentPart::Text(_, _))) {
-                return content.clone();
+                return None;
             }
             let limit = if force { 0 } else { threshold(tool) };
-            let mut inline = inline_len(content);
+            let mut inline = parts.iter().map(text_len).sum::<usize>();
             if inline <= limit {
-                return content.clone();
+                return None;
             }
             let first_text = parts.iter().find_map(|p| match p {
                 ContentPart::Text(text, _) => Some(text.as_str()),
                 _ => None,
             });
             if !force && first_text.is_some_and(reads_as_error) && inline <= DEFAULT_THRESHOLD {
-                return content.clone();
+                return None;
             }
             let mut order: Vec<usize> = (0..parts.len()).filter(|i| is_offloadable_part(&parts[*i])).collect();
             order.sort_by_key(|i| std::cmp::Reverse(text_len(&parts[*i])));
-            let mut next = parts.clone();
-            let mut changed = false;
+            let mut edits = std::collections::HashMap::new();
             for index in order {
-                let ContentPart::Text(text, _) = &next[index] else {
+                let ContentPart::Text(text, _) = &parts[index] else {
                     continue;
                 };
-                let replaced = offload_text(store, tool, text).await;
-                if replaced == *text {
+                let Some(replaced) = offload_text(store, tool, text).await else {
                     continue;
-                }
+                };
                 inline = inline + u16_len(&replaced) - u16_len(text);
-                next[index] = ContentPart::Text(replaced, None);
-                changed = true;
+                edits.insert(index, ContentPart::Text(replaced, None));
                 if inline <= limit {
                     break;
                 }
             }
-            if changed { Content::Parts(next) } else { content.clone() }
+            (!edits.is_empty()).then_some(Replacement::Parts(edits))
         }
     }
 }
@@ -429,7 +477,7 @@ pub async fn offload_result(
 /// remaining text results: largest first, ties preferring the latest result.
 pub async fn offload_batch(store: &dyn ArtifactStore, entries: &mut [BatchEntry]) {
     for entry in entries.iter_mut() {
-        entry.content = offload_result(store, &entry.tool, &entry.content, false).await;
+        offload_in_place(store, &entry.tool, &mut entry.content, false).await;
     }
     let eligible = |e: &BatchEntry| !aggregate_excluded(&e.tool);
     let mut total: usize = entries.iter().filter(|e| eligible(e)).map(|e| inline_len(&e.content)).sum();
@@ -448,10 +496,9 @@ pub async fn offload_batch(store: &dyn ArtifactStore, entries: &mut [BatchEntry]
         };
         attempted[index] = true;
         let before = inline_len(&entries[index].content);
-        let entry = &entries[index];
-        let replaced = offload_result(store, &entry.tool, &entry.content, true).await;
-        let after = inline_len(&replaced);
-        entries[index].content = replaced;
+        let entry = &mut entries[index];
+        offload_in_place(store, &entry.tool, &mut entry.content, true).await;
+        let after = inline_len(&entry.content);
         total = (total as i64 + after as i64 - before as i64).max(0) as usize;
     }
 }
