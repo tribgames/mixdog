@@ -1,6 +1,8 @@
 {
   "terms": {
     "--argument": "CLI flag",
+    "LibreOffice": "product name (the built-in features row)",
+    "· Auto": "the effort tier name most Latin-script locales keep as is, as \"Auto\" (agent rows)",
     "Corgi": "dog breed name, spelled the same in Latin-script locales (avatar picker)",
     "Husky": "dog breed name, spelled the same in Latin-script locales (avatar picker)",
     "Labrador": "dog breed name, spelled the same in Latin-script locales (avatar picker)",
@@ -199,7 +201,17 @@
       "Web": "same spelling in German",
       "Layout": "same term used in German UI",
       "Support": "same term used in German UI",
-      "Cookies {{count}}": "established web term in German UI"
+      "Cookies {{count}}": "established web term in German UI",
+      "{{name}} (Diff)": "established Git term in German UI",
+      "{{value0}} (Diff)": "established Git term in German UI",
+      "Skills": "established feature loanword in German UI",
+      "Skill": "established feature loanword in German UI",
+      "Breadcrumbs": "established navigation loanword in German UI",
+      "Labels": "established GitHub term in German UI",
+      "Tools": "established developer loanword in German UI",
+      "Overhead": "established IT loanword in German UI",
+      "Reasoning {{levels}}": "established AI loanword in German UI",
+      "Releases": "established GitHub feature name in German UI"
     },
     "es": {
       "Simple": "same spelling in Spanish",
@@ -251,7 +263,8 @@
       "Tokens (est.)": "established AI term in Spanish UI",
       "Audio": "same spelling in Spanish",
       "Web": "same spelling in Spanish",
-      "Cookies {{count}}": "established web term in Spanish UI"
+      "Cookies {{count}}": "established web term in Spanish UI",
+      "{{count}} worktrees": "established Git term in Spanish UI"
     },
     "fr": {
       "Simple": "same spelling in French",
@@ -349,7 +362,14 @@
       "Options": "same word in French UI",
       "Question": "same word in French UI",
       "Cookies {{count}}": "established web term in French UI",
-      "Site": "same spelling in French UI"
+      "Site": "same spelling in French UI",
+      "Routines": "same spelling in French",
+      "Public": "same spelling in French",
+      "{{count}} cookies": "established web term in French UI",
+      "Contacts": "same spelling in French",
+      "Dimensions": "same spelling in French",
+      "Page": "same spelling in French",
+      "Section": "same spelling in French"
     },
     "it": {
       "Workflow": "established software term in Italian UI",
@@ -410,7 +430,17 @@
       "Audio": "same spelling in Italian",
       "Web": "same spelling in Italian",
       "Layout": "same term used in Italian UI",
-      "Password": "standard term in Italian UI"
+      "Password": "standard term in Italian UI",
+      "Tablet · 768×1024": "established device loanword in Italian UI",
+      "Tablet · 1024×1366": "established device loanword in Italian UI",
+      "Laptop · 1366×768": "established device loanword in Italian UI",
+      "OK": "established confirmation label in Italian UI",
+      "Commit · push": "established Git terms in Italian UI",
+      "Jump host {{name}}": "established SSH term in Italian UI",
+      "Skill": "established feature loanword in Italian UI",
+      "Overhead": "established IT loanword in Italian UI",
+      "Media": "established loanword in Italian UI",
+      "Skin": "established UI loanword in Italian UI"
     },
     "ja": {
       "OK": "standard confirmation button label in Japanese UI",
@@ -477,7 +507,17 @@
       "Layout": "same term used in Brazilian Portuguese UI",
       "Logins": "established software loanword in Portuguese UI",
       "Cookies {{count}}": "established web term in Portuguese UI",
-      "Site": "same spelling in Brazilian Portuguese"
+      "Site": "same spelling in Brazilian Portuguese",
+      "{{name}} (Diff)": "established Git term in Portuguese UI",
+      "{{value0}} (Diff)": "established Git term in Portuguese UI",
+      "Skills": "skill is kept in English per the Portuguese glossary",
+      "Skill": "skill is kept in English per the Portuguese glossary",
+      "Desktop · 100%": "established device loanword in Portuguese UI",
+      "Commit {{hash}}": "established Git term in Portuguese UI",
+      "Tag": "established Git term in Portuguese UI",
+      "Manual": "same spelling in Portuguese",
+      "App": "established software loanword in Portuguese UI",
+      "{{count}} cookies": "established web term in Portuguese UI"
     },
     "vi": {
       "Video": "established loanword in Vietnamese UI",
@@ -492,7 +532,20 @@
       "PROMPT": "established AI term in Vietnamese UI",
       "Shell {{shell}}": "established developer term in Vietnamese UI",
       "Prompt": "established AI term in Vietnamese UI",
-      "Web": "same spelling in Vietnamese"
+      "Web": "same spelling in Vietnamese",
+      "{{name}} (Diff)": "established Git term in Vietnamese UI",
+      "{{value0}} (Diff)": "established Git term in Vietnamese UI",
+      "Terminal": "established software term in Vietnamese UI",
+      "Laptop · 1366×768": "established device loanword in Vietnamese UI",
+      "OK": "established confirmation label in Vietnamese UI",
+      "Agent {{agent}}": "established AI term in Vietnamese UI",
+      "Agent": "established AI term in Vietnamese UI",
+      "Commit": "established Git term in Vietnamese UI",
+      "Checkout": "established Git term in Vietnamese UI",
+      "{{action}} pull request #{{number}}?": "established GitHub term in Vietnamese UI; {{action}} is localized",
+      "tag": "established Git term in Vietnamese UI",
+      "Fetch {{value0}}": "established Git command in Vietnamese UI",
+      "Skin": "established UI loanword in Vietnamese UI"
     }
   }
 }
