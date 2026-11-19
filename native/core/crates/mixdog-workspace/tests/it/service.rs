@@ -129,6 +129,33 @@ impl mixdog_workspace::grants::SessionCatalog for NoneGone {
     }
 }
 
+/// A closed connection's unfinished read goes with it; a read another connection holds stays usable. (A first window that
+/// finishes after its connection closed is covered in readwindow.rs.)
+#[tokio::test(flavor = "multi_thread")]
+async fn a_closed_connection_gives_up_its_unfinished_read_and_no_other() {
+    let env = env();
+    let root = project_holding(&env, "pf-closed", &[("w.txt", "0123456789abcdef".as_bytes())]).await;
+    let as_connection = |id: u64, params: Value| {
+        let mut req = request("projectFs/readText", params);
+        req.ctx = CallContext::connection(ConnectionId(id), Origin::Relay, CancellationToken::new());
+        req
+    };
+    let first = json!({ "root": root, "rel": "w.txt", "maxChars": 4 });
+    let mut ids = Vec::new();
+    for connection in [1, 2] {
+        let Reply::Value(answer) = env.service.call(as_connection(connection, first.clone())).await.unwrap() else {
+            panic!("readText answers with a value")
+        };
+        ids.push(answer["readId"].as_str().expect("the read is held").to_owned());
+    }
+    env.service.connection_closed(&ConnectionId(1));
+    let next = |id: &str| json!({ "root": root, "rel": "w.txt", "readId": id, "fromChar": 4, "maxChars": 4 });
+    assert!(env.service.call(as_connection(1, next(&ids[0]))).await.is_err(), "the closed connection's read is gone");
+    let Reply::Value(second) = env.service.call(as_connection(2, next(&ids[1]))).await.unwrap() else {
+        panic!("readText answers with a value")
+    };
+    assert_eq!(second["content"], "4567");
+}
 /// A file is answered a window of code points at a time (one connection answer is capped), `nextChar` naming where the next starts;
 /// the pieces joined are the whole text.
 #[tokio::test(flavor = "multi_thread")]

@@ -935,6 +935,7 @@ impl WorkspaceService {
     pub fn connection_closed(&self, connection: &ConnectionId) {
         let owner = Owner::connection(connection.0).to_string();
         self.transfers.end_owner(&owner);
+        self.read_windows.release_owner(&owner);
         if let Some(grants) = self.phone_grants.get() {
             grants.store.release(connection.0);
         }
@@ -1354,6 +1355,8 @@ impl WorkspaceService {
                     let from = req.params.get("fromChar").and_then(Value::as_u64).unwrap_or(0) as usize;
                     return value(self.read_windows.next(&Self::owner(req), id, from, max)?);
                 }
+                // Taken before any await: a close that comes while the file is read is seen by `begin`.
+                let first_window = self.read_windows.first_window(&Self::owner(req));
                 let (root, rel) = self.file_target(req, params).await?;
                 let authorized = opt_bool(params, "authorized");
                 let file = run_fallible(self.lanes.interactive, &cancel, move || {
@@ -1362,7 +1365,7 @@ impl WorkspaceService {
                 .await?;
                 let answer = json!(file);
                 value(match max {
-                    Some(max) => self.read_windows.begin(&Self::owner(req), answer, max),
+                    Some(max) => self.read_windows.begin(&first_window, answer, max),
                     None => answer,
                 })
             }

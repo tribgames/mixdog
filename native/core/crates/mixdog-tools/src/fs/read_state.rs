@@ -592,6 +592,17 @@ mod tests {
         assert_eq!(state.snapshot(Some("s"), "/b").unwrap().body_delivered, Some(false));
     }
     #[test]
+    fn a_new_cached_answer_drops_the_expired_ones_it_would_sit_beside() {
+        let now = Arc::new(std::sync::atomic::AtomicU64::new(1_000));
+        let clock = Arc::clone(&now);
+        let state = ReadState::with_clock(None, Arc::new(move || clock.load(std::sync::atomic::Ordering::SeqCst)));
+        state.cache_set("old", "0123456789".to_owned(), &["/d/a"], None, String::new());
+        now.store(1_000 + 30_001, std::sync::atomic::Ordering::SeqCst);
+        state.cache_set("new", "abc".to_owned(), &["/d/b"], None, String::new());
+        let inner = state.shared.lock();
+        assert_eq!((inner.cache.len(), inner.cache_bytes), (1, 3));
+    }
+    #[test]
     fn cached_answers_expire_after_30_seconds_and_die_with_their_path() {
         let now = Arc::new(std::sync::atomic::AtomicU64::new(1_000));
         let clock = Arc::clone(&now);
@@ -1319,10 +1330,10 @@ impl ReadState {
         }
         let now = (self.shared.clock)();
         let mut inner = self.shared.lock();
-        if let Some(at) = inner.cache.iter().position(|e| e.key == key) {
-            let gone = inner.cache.remove(at);
-            inner.cache_bytes = inner.cache_bytes.saturating_sub(gone.bytes);
-        }
+        // An entry past its TTL is never served again; only a lookup of its own key used to drop it, so up to the byte
+        // cap of dead answers stayed resident until evicted by size.
+        inner.cache.retain(|e| e.key != key && now.saturating_sub(e.ts) <= CACHE_TTL_MS);
+        inner.cache_bytes = inner.cache.iter().map(|e| e.bytes).sum();
         inner.cache.push(CacheEntry {
             key: key.to_owned(),
             ts: now,

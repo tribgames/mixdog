@@ -2,6 +2,7 @@
 //! the text in windows (`projectFs/readText` with `maxChars`) and joins them. Node answered a read from one authorized handle, in one
 //! piece: every window of one read therefore comes from the one read of the file made when the first window was asked, with the
 //! metadata (`mtimeMs`, `encoding`, ...) of that read; a file replaced between two windows changes nothing the reader sees.
+use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
@@ -29,6 +30,34 @@ struct Held {
 #[derive(Default)]
 pub struct ReadWindows {
     held: Mutex<VecDeque<Held>>,
+    /// The owners with a first window still being read, and whether the owner closed meanwhile. A first window finishes after its
+    /// connection closed (running requests are let finish), and would register a whole file for an owner nobody will ask again.
+    /// Lock order: `reading`, then `held`.
+    reading: Mutex<HashMap<String, Reading>>,
+}
+
+#[derive(Default)]
+struct Reading {
+    count: usize,
+    closed: bool,
+}
+
+/// A first window under way for an owner: taken before the file is read, handed to [`ReadWindows::begin`] after.
+pub struct FirstWindow<'a> {
+    windows: &'a ReadWindows,
+    owner: String,
+}
+
+impl Drop for FirstWindow<'_> {
+    fn drop(&mut self) {
+        let mut reading = self.windows.reading.lock().expect("read windows");
+        if let Some(state) = reading.get_mut(&self.owner) {
+            state.count -= 1;
+            if state.count == 0 {
+                reading.remove(&self.owner);
+            }
+        }
+    }
 }
 
 /// The `max` code points of `content` from byte `start_byte`, and the byte where the next window starts.
@@ -41,13 +70,16 @@ fn window(content: &str, start_byte: usize, max: usize) -> (&str, usize) {
 impl ReadWindows {
     /// The first window of a read: `answer` is the file's whole reply, read once. When text remains, the read is held and the answer
     /// carries `readId` with `nextChar`.
-    pub fn begin(&self, owner: &str, mut answer: Value, max: usize) -> Value {
+    pub fn begin(&self, first: &FirstWindow<'_>, mut answer: Value, max: usize) -> Value {
+        // Held to the push: a close cannot come between the check and the registration.
+        let reading = self.reading.lock().expect("read windows");
+        let closed = reading.get(&first.owner).is_some_and(|state| state.closed);
         let content = answer["content"].as_str().unwrap_or_default().to_owned();
         let total = content.chars().count();
         let (piece, next_byte) = window(&content, 0, max);
         let piece = piece.to_owned();
         answer["content"] = json!(piece);
-        if total <= max {
+        if total <= max || closed {
             return answer;
         }
         let id = uuid::Uuid::new_v4().to_string();
@@ -56,11 +88,27 @@ impl ReadWindows {
         let mut meta = answer.clone();
         meta.as_object_mut().expect("a file's reply is an object").retain(|key, _| key != "nextChar" && key != "readId" && key != "content");
         let mut held = self.held.lock().expect("read windows");
-        held.push_back(Held { id, owner: owner.to_owned(), meta, content, total, cursor: (max, next_byte) });
+        held.push_back(Held { id, owner: first.owner.clone(), meta, content, total, cursor: (max, next_byte) });
         while held.len() > MAX_OPEN_READS {
             held.pop_front();
         }
         answer
+    }
+
+    /// The reads `owner` left unfinished go with its connection: each holds a whole file's text, and nothing else frees them
+    /// short of sixteen newer reads.
+    pub fn release_owner(&self, owner: &str) {
+        let mut reading = self.reading.lock().expect("read windows");
+        if let Some(state) = reading.get_mut(owner) {
+            state.closed = true;
+        }
+        self.held.lock().expect("read windows").retain(|read| read.owner != owner);
+    }
+
+    /// Marks a first window of `owner` as under way, before its file is read.
+    pub fn first_window(&self, owner: &str) -> FirstWindow<'_> {
+        self.reading.lock().expect("read windows").entry(owner.to_owned()).or_default().count += 1;
+        FirstWindow { windows: self, owner: owner.to_owned() }
     }
 
     /// The window of a held read from code point `from`; the read is released with its last window.
@@ -119,7 +167,7 @@ mod tests {
     fn windows_join_to_the_text_and_carry_the_one_reads_metadata() {
         let windows = ReadWindows::default();
         let text = "가나다라마바사 abc\u{1F600}def";
-        let first = windows.begin("c1", reply(text, 7.0), 5);
+        let first = windows.begin(&windows.first_window("c1"), reply(text, 7.0), 5);
         let (joined, answers) = drain(&windows, first, 5);
         assert_eq!(joined, text);
         assert!(answers.iter().all(|a| a["mtimeMs"] == 7.0 && a["encoding"] == "utf8"));
@@ -130,7 +178,7 @@ mod tests {
     #[test]
     fn a_text_that_fits_one_window_holds_nothing() {
         let windows = ReadWindows::default();
-        let answer = windows.begin("c1", reply("short", 1.0), 60_000);
+        let answer = windows.begin(&windows.first_window("c1"), reply("short", 1.0), 60_000);
         assert_eq!(answer, reply("short", 1.0));
         assert!(windows.held.lock().unwrap().is_empty());
     }
@@ -138,19 +186,32 @@ mod tests {
     #[test]
     fn a_read_belongs_to_its_connection_and_an_unknown_read_is_refused() {
         let windows = ReadWindows::default();
-        let first = windows.begin("c1", reply("0123456789", 1.0), 4);
+        let first = windows.begin(&windows.first_window("c1"), reply("0123456789", 1.0), 4);
         let id = first["readId"].as_str().unwrap();
         assert_eq!(windows.next("c2", id, 4, 4).unwrap_err().reason, Reason::Expired);
         assert_eq!(windows.next("c1", "nope", 4, 4).unwrap_err().reason, Reason::Expired);
     }
 
     #[test]
+    fn a_first_window_finishing_after_its_owner_closed_holds_nothing() {
+        let windows = ReadWindows::default();
+        let (dead, alive) = (windows.first_window("c1"), windows.first_window("c2"));
+        windows.release_owner("c1");
+        let answer = windows.begin(&dead, reply("0123456789", 1.0), 4);
+        assert!(answer.get("readId").is_none());
+        let kept = windows.begin(&alive, reply("0123456789", 1.0), 4);
+        assert_eq!(windows.held.lock().unwrap().len(), 1);
+        assert!(windows.next("c2", kept["readId"].as_str().unwrap(), 4, 4).is_ok());
+        drop((dead, alive));
+        assert!(windows.reading.lock().unwrap().is_empty(), "no owner is remembered once its reads are done");
+    }
+    #[test]
     fn the_oldest_unfinished_read_makes_room_for_a_newer_one() {
         let windows = ReadWindows::default();
-        let first = windows.begin("c1", reply("0123456789", 1.0), 4);
+        let first = windows.begin(&windows.first_window("c1"), reply("0123456789", 1.0), 4);
         let id = first["readId"].as_str().unwrap().to_owned();
         for _ in 0..MAX_OPEN_READS {
-            windows.begin("c1", reply("0123456789", 1.0), 4);
+            windows.begin(&windows.first_window("c1"), reply("0123456789", 1.0), 4);
         }
         assert_eq!(windows.next("c1", &id, 4, 4).unwrap_err().reason, Reason::Expired);
     }
