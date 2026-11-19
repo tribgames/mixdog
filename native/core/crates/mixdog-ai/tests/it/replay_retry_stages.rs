@@ -38,6 +38,11 @@ pub const REPLAYS: &[Replay] = &[Replay { set: "retry-stages", run: every_case_r
 /// The manifest's line for the stages the core raises outside the provider send.
 const OTHER_STAGES: &str = "streaming stages";
 
+/// Departure: the stage the Anthropic adapter raises while it prepares a request (credentials, body) is the core's local
+/// wait (`mixdog-agent` delivers it as `local_wait`, never as a stage of its own); Node raises no stage there, so it is
+/// left out of both comparisons.
+const LOCAL_STAGE: &str = "preparing";
+
 /// The stages the send raised and the requests that arrived as one sequence, in the order they happened: each stage
 /// stands after the requests that had arrived when it was delivered.
 #[cfg(node_twin)]
@@ -45,7 +50,7 @@ fn interleaved(events: &replay_world::Events, arrivals: usize) -> Exact {
     let mut sequence = Vec::new();
     for at in 0..=arrivals {
         for ((stage, _), seen) in events.stages.iter().zip(&events.stage_arrivals) {
-            if *seen == at {
+            if *seen == at && stage != LOCAL_STAGE {
                 sequence.push(Exact::Object(vec![("stage".to_owned(), Exact::String(stage.clone()))]));
             }
         }
@@ -355,6 +360,7 @@ async fn every_case_replays_as_nodes() {
             events
                 .stages
                 .iter()
+                .filter(|(stage, _)| stage != LOCAL_STAGE)
                 .map(|(stage, payload)| {
                     let mut entry = vec![("stage".to_owned(), Exact::String(stage.clone()))];
                     if let Some(payload) = payload {
@@ -376,7 +382,18 @@ async fn every_case_replays_as_nodes() {
                 .unwrap()
                 .iter()
                 .filter(|(_, channel, _)| *channel == Channel::Stderr)
-                .map(|(_, _, line)| Exact::String(format!("{line}\n")))
+                // Departure: the core's log appends the send's trace identity and phase to a provider line
+                // (`mixdog_rt::node_log`, ` session=… turn=… send=… attempt=… phase=…`); Node's line is the text before it.
+                .map(|(_, _, line)| {
+                    let text = match line.find(" session=") {
+                        Some(at) => {
+                            assert!(line[at..].contains(" phase="), "{what}: a trace suffix: {line}");
+                            &line[..at]
+                        }
+                        None => line.as_str(),
+                    };
+                    Exact::String(format!("{text}\n"))
+                })
                 .collect(),
         );
         recorded.get("stderr").assert_eq(&format!("{what}: stderr"), &stderr);

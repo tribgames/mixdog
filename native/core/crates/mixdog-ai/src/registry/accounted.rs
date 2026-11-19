@@ -90,6 +90,14 @@ pub(crate) fn observe_attempt_usage(usage: Usage, model: Option<String>) {
     });
 }
 
+/// The attempt's observation replaced after a provider rolled its decoding back: `None` clears it, so a failure or a
+/// cancellation books only what the restored decoding holds.
+pub(crate) fn reset_attempt_usage(observed: Option<(Usage, Option<String>)>) {
+    let _ = ATTEMPT_USAGE.try_with(|journal| {
+        journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner).current.observed = observed;
+    });
+}
+
 pub(crate) fn attach_observed_usage(error: &mut ProviderError) {
     let _ = ATTEMPT_USAGE.try_with(|journal| {
         journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner).current.fill_failure(error);
@@ -112,6 +120,25 @@ pub(super) fn observe_pool_failure(error: &mut ProviderError) {
     if let Some(usage) = error.partial_usage.as_deref() {
         observe_attempt_usage(usage.clone(), error.partial_model.as_deref().map(str::to_owned));
     }
+}
+
+/// Books a billed attempt the provider discarded inside the stream it is still reading (Node's `noteAbandonedUsage`): its
+/// own row, with the current attempt's report left as it is. `false` when no accounting owner takes it.
+pub(crate) fn note_abandoned_usage(
+    usage: Usage,
+    model: Option<String>,
+    sent: &mixdog_core_api::domain::provider::SendIdentity,
+) -> bool {
+    ATTEMPT_USAGE.try_with(|journal| {
+        let mut journal = journal.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !journal.has_sink {
+            return false;
+        }
+        journal.abandoned.push(AbandonedUsage {
+            usage: Box::new(usage), model: model.map(Into::into), speed: sent.dispatched_speed_tier(), account: sent.account().map(|s| s.account),
+        });
+        true
+    }).unwrap_or(false)
 }
 
 /// Transfer the abandoned bill before an internal replay overwrites the

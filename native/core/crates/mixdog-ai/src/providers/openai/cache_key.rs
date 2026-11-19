@@ -6,6 +6,12 @@
 
 mod lanes;
 
+/// The lane slots assigned so far, forgotten as a new process has them.
+#[cfg(any(test, feature = "test-support"))]
+pub fn reset_lane_assignments() {
+    lanes::reset_assignments();
+}
+
 use mixdog_core_api::domain::provider::RequestOptions;
 use serde_json::{Value, json};
 use sha2::Digest;

@@ -24,6 +24,12 @@ struct Group {
 
 static ASSIGNMENTS: LazyLock<Mutex<HashMap<(String, String), Group>>> = LazyLock::new(Mutex::default);
 
+/// A new process has assigned no lane slots.
+#[cfg(any(test, feature = "test-support"))]
+pub(super) fn reset_assignments() {
+    ASSIGNMENTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+}
+
 fn non_null(value: Option<&Value>) -> Option<&Value> {
     value.filter(|v| !v.is_null())
 }

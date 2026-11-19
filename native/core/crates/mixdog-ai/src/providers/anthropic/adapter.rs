@@ -331,12 +331,18 @@ impl Credentials {
 // Adapter
 // ---------------------------------------------------------------------------
 
+/// The retry counts `CLAUDE_CODE_MAX_RETRIES` can name (0..=100).
+const BUDGET_COUNTS: usize = 101;
+
 pub struct AnthropicAdapter {
     id: ProviderId,
     codec: AnthropicCodec,
     policy: RetryPolicy,
     /// The policy of a `claude-opus-*` send on the API-key route, where repeated overloads end the send.
     opus_policy: Option<RetryPolicy>,
+    /// The request-row budgets `CLAUDE_CODE_MAX_RETRIES` has asked for, by count and policy: the setting is read on every
+    /// request (`anthropicMaxAttempts`), and a count is built once. One slot per count (0..=100) for each of the two policies, owned by the adapter.
+    budgets: Vec<std::sync::OnceLock<Box<RetryPolicy>>>,
     keepalive: KeepaliveSchedule,
     /// The transport of every model exchange: its phase deadlines are the driver's; listings and cache warms go through
     /// [`ModelDriver::aux`] and begin no attempt.
@@ -435,14 +441,14 @@ impl ProviderAdapter for AnthropicAdapter {
     }
 
     fn retry_policy(&self) -> &RetryPolicy {
-        &self.policy
+        self.budgeted(&self.policy, false)
     }
 
     /// `isTerminalOverloadModel`: `^claude-opus-` after trimming and lowercasing.
     fn retry_policy_for(&self, model: &str) -> &RetryPolicy {
         match &self.opus_policy {
-            Some(policy) if model.trim().to_lowercase().starts_with("claude-opus-") => policy,
-            _ => &self.policy,
+            Some(policy) if model.trim().to_lowercase().starts_with("claude-opus-") => self.budgeted(policy, true),
+            _ => self.budgeted(&self.policy, false),
         }
     }
 
@@ -892,6 +898,33 @@ mod idle_tests {
         assert_eq!(began.elapsed(), Duration::from_secs(600), "expires at the declared window, not the fallback's");
         assert!(err.transport.is_some(), "the head expiry reads as the transport's own timeout, as the SDK's headersTimeout did");
     }
+    /// `CLAUDE_CODE_MAX_RETRIES` is read on every request, not once at construction (`anthropicMaxAttempts`).
+    #[test]
+    fn the_retry_budget_follows_the_setting_as_it_changes() {
+        let value = Arc::new(std::sync::Mutex::new(None::<String>));
+        let source = value.clone();
+        let adapter = adapter().with_settings(Arc::new(move |name| (name == "CLAUDE_CODE_MAX_RETRIES").then(|| source.lock().unwrap().clone()).flatten()));
+        let retries = |adapter: &AnthropicAdapter| adapter.retry_policy_for("claude-sonnet-4").request.schedule.max_retries;
+        assert_eq!(retries(&adapter), 10);
+        *value.lock().unwrap() = Some("2".into());
+        assert_eq!(retries(&adapter), 2);
+        *value.lock().unwrap() = Some("5".into());
+        assert_eq!(retries(&adapter), 5);
+        *value.lock().unwrap() = None;
+        assert_eq!(retries(&adapter), 10);
+    }
+    /// `API_TIMEOUT_MS` is the response-head bound of a model request (`anthropicRequestTimeoutMs`): a head that never comes
+    /// expires at the configured 5 s, not at the SDK's ten minutes.
+    #[tokio::test(start_paused = true)]
+    async fn api_timeout_ms_bounds_a_stalled_response_head() {
+        let adapter = adapter().with_settings(Arc::new(|name| (name == "API_TIMEOUT_MS").then(|| "5000".to_owned())));
+        let identity = SendIdentity::default();
+        let call = model_call(&adapter, &identity);
+        let began = tokio::time::Instant::now();
+        let err = open(Script::of(&[100_000], &[&[]]), &call, &identity).await.err().expect("the head never comes");
+        assert_eq!(began.elapsed(), Duration::from_secs(5));
+        assert!(err.transport.is_some());
+    }
     /// Every submission is an attempt with a whole fresh window: a second head that takes 500 s again is answered, though the
     /// two together outlast one window.
     #[tokio::test(start_paused = true)]
@@ -1217,6 +1250,7 @@ impl AnthropicAdapter {
                 Credentials::ApiKey(_) => None,
             }),
             policy: retry_policy(retry_429),
+            budgets: (0..2 * BUDGET_COUNTS).map(|_| std::sync::OnceLock::new()).collect(),
             keepalive: KeepaliveSchedule::SPEC,
             driver: ModelDriver::new(http),
             credentials,
@@ -1226,6 +1260,19 @@ impl AnthropicAdapter {
             images: None,
             compressor: None,
         }
+    }
+
+    /// `base` with its request row's retry count as `CLAUDE_CODE_MAX_RETRIES` reads now.
+    fn budgeted<'a>(&'a self, base: &'a RetryPolicy, opus: bool) -> &'a RetryPolicy {
+        let retries = super::policy::request_retries(|name| (self.settings)(name));
+        if retries == base.request.schedule.max_retries {
+            return base;
+        }
+        self.budgets[usize::from(opus) * BUDGET_COUNTS + retries as usize].get_or_init(|| {
+            let mut policy = base.clone();
+            policy.request.schedule.max_retries = retries;
+            Box::new(policy)
+        })
     }
 
     /// Prepares the images of every request body with `fitter` ([`super::images::ImageFitter::fit_wire`]).
@@ -1346,7 +1393,8 @@ impl AnthropicAdapter {
     fn model_call(&self, request: &ModelRequest, recovery: bool) -> ModelCall {
         let millis = |ms: f64| std::time::Duration::from_millis(ms as u64);
         let windows = PhaseWindows {
-            head: Some(std::time::Duration::from_secs(600)),
+            // `anthropicRequestTimeoutMs`: `API_TIMEOUT_MS` (the SDK's ten minutes unset) bounds the response head.
+            head: Some(std::time::Duration::from_millis(super::policy::request_timeout_ms(|name| (self.settings)(name)))),
             payload: Some(millis(self.first_message_ms())),
             first_output: None,
             idle: self.stream_idle_ms().map(millis),

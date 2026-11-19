@@ -252,7 +252,7 @@ mod tests {
             for _ in 0..5 {
                 tokio::task::yield_now().await;
             }
-            let body = format!(r#"{{"accessToken":"{}","refreshToken":"r"}}"#, jwt(4_000_000_000));
+            let body = format!(r#"{{"accessToken":"{}","refreshToken":"r"}}"#, jwt(4_100_000_000));
             Ok(HttpResponse {
                 status: self.status,
                 headers: Vec::new(),
@@ -264,7 +264,7 @@ mod tests {
     #[tokio::test]
     async fn concurrent_callers_cause_one_exchange() {
         let http = std::sync::Arc::new(Exchange { calls: AtomicUsize::new(0), status: 200 });
-        let access = std::sync::Arc::new(ApiKeyAccess::new(http.clone(), "key".into(), "env CURSOR_API_KEY".into()));
+        let access = std::sync::Arc::new(ApiKeyAccess::new(http.clone(), "key".into(), "env CURSOR_API_KEY (concurrent-callers test)".into()));
         let calls = (0..8).map(|_| {
             let access = access.clone();
             async move { access.access_token(false).await.unwrap() }
@@ -288,7 +288,7 @@ mod tests {
             _exchange: crate::transport::Exchange,
         ) -> Result<HttpResponse, ProviderError> {
             let n = self.0.fetch_add(1, Ordering::SeqCst) as u64;
-            let body = format!(r#"{{"accessToken":"{}","refreshToken":"rotating-refresh-{n:04}"}}"#, jwt(4_000_000_000 + n));
+            let body = format!(r#"{{"accessToken":"{}","refreshToken":"rotating-refresh-{n:04}"}}"#, jwt(4_200_000_000 + n));
             Ok(HttpResponse { status: 200, headers: Vec::new(), body: Box::new(Once(Some(Bytes::from(body)))) })
         }
     }
@@ -315,8 +315,8 @@ mod tests {
     async fn a_failed_exchange_surfaces_even_when_the_key_looks_valid() {
         let http = std::sync::Arc::new(Exchange { calls: AtomicUsize::new(0), status: 401 });
         // The key is a JWT that has not expired: it is still not a fallback.
-        let key = jwt(4_000_000_000);
-        let access = ApiKeyAccess::new(http, key, "env CURSOR_API_KEY".into());
+        let key = jwt(4_300_000_000);
+        let access = ApiKeyAccess::new(http, key, "env CURSOR_API_KEY (failed-exchange test)".into());
         let error = access.access_token(false).await.unwrap_err();
         assert!(error.reauth_required);
     }
@@ -387,7 +387,7 @@ mod tests {
         std::fs::write(file.path(), format!(r#"{{"access_token":"{}","refresh_token":"r0"}}"#, jwt(1))).unwrap();
         let http = std::sync::Arc::new(Exchange { calls: AtomicUsize::new(0), status: 200 });
         let access = FileAccess::new(http.clone(), file);
-        assert_eq!(access.access_token(false).await.unwrap(), jwt(4_000_000_000));
+        assert_eq!(access.access_token(false).await.unwrap(), jwt(4_100_000_000));
         assert_eq!(http.calls.load(Ordering::SeqCst), 1);
     }
 

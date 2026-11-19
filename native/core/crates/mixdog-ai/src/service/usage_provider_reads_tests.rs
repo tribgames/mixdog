@@ -222,12 +222,40 @@ fn antigravity_gemini_rows_cover_only_gemini_and_odd_buckets_are_skipped() {
     assert_eq!(num(&plain[0], "usedPct"), 60.0);
     // A bucket under another window name, with no fraction, or out of range is not a reading / is clamped.
     assert!(rows(json!({ "groups": [{ "buckets": [bucket("gemini-5h", "weekly", 0.4, None)] }] })).is_empty());
+    // A fraction that is present but not a number is malformed, even beside a reset time: only omission reads as empty.
+    assert!(rows(json!({ "groups": [{ "buckets": [{ "bucketId": "gemini-5h", "window": "5h", "remainingFraction": "n/a", "resetTime": "2030-01-01T00:00:00Z" }] }] })).is_empty());
     assert!(rows(json!({ "groups": [{ "buckets": [{ "bucketId": "gemini-5h", "window": "5h" }] }] })).is_empty());
     let clamped = rows(json!({ "groups": [{ "buckets": [bucket("gemini-5h", "5h", 1.5, None), bucket("gemini-weekly", "weekly", -0.5, None)] }] }));
     assert_eq!(clamped.iter().map(|r| num(r, "usedPct")).collect::<Vec<_>>(), [0.0, 100.0]);
     // The snapshot is an object even with nothing in it.
     let empty = usage_antigravity::snapshot(&json!({}));
     assert_eq!((empty["provider"].as_str(), empty["quotaWindows"].as_array().map(Vec::len)), (Some("antigravity-oauth"), Some(0)));
+}
+
+#[test]
+fn antigravity_argon_under_the_wrong_window_neither_shows_nor_takes_argon_out_of_the_gemini_row() {
+    let all = rows(json!({ "groups": [{ "buckets": [
+        bucket("gemini-5h", "5h", 0.0, None),
+        bucket("gemini-argon-wtu-weekly", "daily", 0.5, None),
+    ] }] }));
+    assert_eq!(all.len(), 1, "{all:?}");
+    assert_eq!(all[0]["label"], "5H");
+    assert!(all[0].get("except").is_none(), "{:?}", all[0]);
+}
+
+#[test]
+fn antigravity_unknown_buckets_keep_the_responses_name_and_a_reset_without_fraction_is_exhausted() {
+    let all = rows(json!({ "groups": [{ "buckets": [
+        bucket("gemini-5h", "5h", 0.5, None),
+        { "bucketId": "neon-daily", "displayName": "Neon Daily", "window": "daily", "remainingFraction": 0.25 },
+        { "bucketId": "other-weekly", "window": "weekly", "resetTime": "2030-01-01T00:00:00Z" },
+    ] }] }));
+    let labels: Vec<&str> = all.iter().map(|r| r["label"].as_str().unwrap()).collect();
+    assert_eq!(labels, ["5H", "Neon Daily", "other-weekly"]);
+    assert_eq!(num(&all[1], "usedPct"), 75.0);
+    assert_eq!(all[1]["models"], json!([]));
+    assert_eq!(num(&all[2], "usedPct"), 100.0);
+    assert_eq!(num(&all[2], "resetAt"), 1_893_456_000_000.0);
 }
 
 const QUOTA: &str = usage_antigravity::QUOTA_URL;
@@ -356,21 +384,8 @@ fn opencode_go_skips_a_meter_it_cannot_read_and_has_no_snapshot_without_any() {
 
 const GO_TWIN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/opencode-go-usage/golden.json");
 
-/// Where the Rust reading intentionally departs from the recording: a meter proves a limit only from stated amounts,
-/// and reads full only from a spend that reached its cap. Everything else, and every request on the wire, must match.
-fn go_twin_departure(flow: &str) -> Option<Value> {
-    match flow {
-        // A micro-cent short of the cap is 99.99 %, where the recording rounded it to 100.
-        "three meters" => Some(json!({ "M": 99.99 })),
-        // The cap is withdrawn: no window, where the recording kept a 0 % one.
-        "a zero limit" => Some(json!({ "7D": null })),
-        // Empty and null amounts are unstated, not 0: only the stated meter remains.
-        "numbers, empty text, null and text values" => Some(json!({ "7D": null, "M": null })),
-        // A negative spend is not a reading.
-        "fractional dollars round" => Some(json!({ "M": null })),
-        _ => None,
-    }
-}
+// Where the Rust reading intentionally departs from the recording: `usage_opencode_go::go_twin_departure`. Everything
+// else, and every request on the wire, must match.
 
 #[tokio::test]
 async fn every_recorded_go_flow_replays_with_the_same_wire_and_only_the_named_departures() {
@@ -400,7 +415,17 @@ async fn every_recorded_go_flow_replays_with_the_same_wire_and_only_the_named_de
         assert_eq!(seen.len(), wire.len(), "{name}: requests {:?}", seen.iter().map(|r| &r.url).collect::<Vec<_>>());
         for (at, recorded) in wire.iter().enumerate() {
             let (request, exchange) = (&seen[at], exchanges[at]);
-            let headers: Vec<(String, String)> = recorded["headers"].as_array().unwrap().iter().map(|h| (h[0].as_str().unwrap().to_owned(), h[1].as_str().unwrap().to_owned())).collect();
+            // The refresh is the login flow's own request: the recorded headers, with their names spelled in lower case.
+            let refresh = recorded["method"] != "GET";
+            let headers: Vec<(String, String)> = recorded["headers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|h| {
+                    let name = h[0].as_str().unwrap();
+                    (if refresh { name.to_lowercase() } else { name.to_owned() }, h[1].as_str().unwrap().to_owned())
+                })
+                .collect();
             let body = recorded["body"].as_str().unwrap_or("");
             assert_eq!((request.method.as_str(), request.url.as_str(), &request.headers, String::from_utf8_lossy(&request.body).into_owned()), (recorded["method"].as_str().unwrap(), recorded["url"].as_str().unwrap(), &headers, body.to_owned()), "{name}: request {at}");
             assert_eq!((exchange.redirect, exchange.liveness.total_deadline()), (Redirect::Error, recorded["timeoutMs"].as_u64().map(Duration::from_millis)), "{name}: exchange {at}");
@@ -412,16 +437,10 @@ async fn every_recorded_go_flow_replays_with_the_same_wire_and_only_the_named_de
 
         match (flow.get("snapshot"), got) {
             (Some(recorded), Ok(Some(snapshot))) => {
-                let mut want = recorded["quotaWindows"].as_array().unwrap().clone();
-                if let Some(departure) = go_twin_departure(name) {
+                if usage_opencode_go::go_twin_departure(name).is_some() {
                     departed.insert(name.to_owned());
-                    for (label, used) in departure.as_object().unwrap() {
-                        match used {
-                            Value::Null => want.retain(|w| w["label"] != *label),
-                            used => want.iter_mut().filter(|w| w["label"] == *label).for_each(|w| w["usedPct"] = used.clone()),
-                        }
-                    }
                 }
+                let want = usage_opencode_go::go_twin_windows(name, recorded["quotaWindows"].as_array().unwrap());
                 assert_eq!(snapshot["quotaWindows"], Value::Array(want), "{name}");
                 // The rest of the reading as recorded; `fetchedAt` is the process clock's, not the recording's.
                 for key in ["provider", "source", "model", "email", "accountId"] {

@@ -443,8 +443,8 @@ impl Lookup<'_> {
             Some(id) => id.unwrap_or_else(|| model.to_owned()),
             None => registry::ANTIGRAVITY_FALLBACK
                 .iter()
-                .find(|(id, wires)| *id == model || wires.contains(&model))
-                .map_or_else(|| model.to_owned(), |(id, _)| (*id).to_owned()),
+                .find(|(id, _, wires)| *id == model || wires.contains(&model))
+                .map_or_else(|| model.to_owned(), |(id, _, _)| (*id).to_owned()),
         };
         registry::antigravity_pricing_alias(&id).to_owned()
     }

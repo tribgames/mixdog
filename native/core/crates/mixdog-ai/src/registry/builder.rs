@@ -1670,7 +1670,7 @@ impl DefaultProviderBuilder {
                     // The installed models are read once now, so `getCachedModelInfo` has its answer from the moment the
                     // provider exists (Node reads the disk on every call); a failed read leaves it a miss until the next.
                     let _ = runtime.installed().await;
-                    let built = Arc::new(crate::providers::local::RegisteredAdapter::new(self.env.http.clone(), runtime.clone()));
+                    let built = Arc::new(crate::providers::local::RegisteredAdapter::new(self.env.http.clone(), runtime.clone()).with_extra_headers(string_pairs(cfg, "extraHeaders")));
                     self.declare(name, built.clone());
                     Ok(built)
                 }

@@ -123,6 +123,37 @@ pub fn snapshot(parsed: Value, email: &str, account_id: &str, fetched_at: i64) -
     Value::Object(out)
 }
 
+/// Where the Rust reading intentionally departs from the recording (`fixtures/opencode-go-usage`), for every twin that
+/// replays it: a meter proves a limit only from stated amounts, and reads full only from a spend that reached its cap.
+/// Per flow, the window labels whose `usedPct` differs (a number) or which the product does not report (`null`).
+#[cfg(test)]
+pub(crate) fn go_twin_departure(flow: &str) -> Option<Value> {
+    match flow {
+        // A micro-cent short of the cap is 99.99 %, where the recording rounded it to 100.
+        "three meters" => Some(serde_json::json!({ "M": 99.99 })),
+        // The cap is withdrawn: no window, where the recording kept a 0 % one.
+        "a zero limit" => Some(serde_json::json!({ "7D": null })),
+        // Empty and null amounts are unstated, not 0: only the stated meter remains.
+        "numbers, empty text, null and text values" => Some(serde_json::json!({ "7D": null, "M": null })),
+        // A negative spend is not a reading.
+        "fractional dollars round" => Some(serde_json::json!({ "M": null })),
+        _ => None,
+    }
+}
+
+/// The recorded windows of `flow` in the product's form ([`go_twin_departure`]).
+#[cfg(test)]
+pub(crate) fn go_twin_windows(flow: &str, recorded: &[Value]) -> Vec<Value> {
+    let mut want = recorded.to_vec();
+    for (label, used) in go_twin_departure(flow).as_ref().and_then(Value::as_object).into_iter().flatten() {
+        match used {
+            Value::Null => want.retain(|w| w["label"] != *label),
+            used => want.iter_mut().filter(|w| w["label"] == *label).for_each(|w| w["usedPct"] = used.clone()),
+        }
+    }
+    want
+}
+
 #[cfg(node_twin)]
 #[cfg(test)]
 #[path = "usage_opencode_go_tests.rs"]

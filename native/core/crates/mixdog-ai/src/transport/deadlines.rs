@@ -101,6 +101,12 @@ pub const TOKEN_GROK: Exchange =
 /// (`antigravity-oauth-login.mjs:60-74`, `redirect: 'error'` `:72`, `withTimeoutSignal` `:73` = `AbortSignal.timeout`).
 pub const ANTIGRAVITY_PROJECT: Exchange = Exchange::new(Liveness::unary(secs(30)), Redirect::Error, Surface::FetchSignal);
 
+/// [`ANTIGRAVITY_PROJECT`] with `wait` left of the onboarding's one 30 s budget (`provisionProject`'s `remaining()`,
+/// `antigravity-oauth-login.mjs:186-207`).
+pub const fn antigravity_project_within(wait: Duration) -> Exchange {
+    Exchange::new(Liveness::unary(wait), Redirect::Error, Surface::FetchSignal)
+}
+
 /// Devin's unary RPCs (`devinUnary`, `devin-wire-transport.mjs:469`): a raw `fetch` with `redirect: 'error'` (`:453`)
 /// and only the caller's own signal, so no timer of its own and the shared dispatcher's ceiling like [`DEVIN_STREAM`].
 /// (The login's code exchange, `devin-auth.mjs:176` `AbortSignal.timeout` 30_000, is [`TOKEN_EXCHANGE`].)

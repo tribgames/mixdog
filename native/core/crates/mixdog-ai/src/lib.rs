@@ -52,6 +52,8 @@ pub fn reset_process_state() {
     providers::compat::schema::reset_warned();
     providers::first_byte::FirstByteSettings::reset_process();
     providers::grok::reset_process_state();
+    providers::custom::responses::reset_rejected();
+    providers::openai::cache_key::reset_lane_assignments();
     // The calling scope's scripts (the seams are per replay scope, `random::run_scoped`).
     random::script(Vec::new());
     random::script_jitter(Vec::new());

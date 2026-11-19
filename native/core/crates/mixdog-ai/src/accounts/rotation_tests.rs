@@ -308,15 +308,18 @@ async fn full_plan_meters_refuse_a_roster_only_where_they_apply_and_state_no_cre
 }
 
 /// A refusal is classified against the same service as admission: a full plan meter makes a plain 429 quota evidence
-/// where the meters describe the destination, and says nothing where they do not.
+/// where the meters describe the destination, and says nothing where they do not. The full meter is the reading the
+/// refusal itself takes: one stored before the send would keep the account from being chosen at all.
 #[tokio::test]
 async fn a_refusal_takes_quota_evidence_from_plan_meters_only_where_they_apply() {
     mixdog_rt::testing::tokens();
     for (applies, evidence) in [(true, Some(true)), (false, None)] {
         let dir = tempfile::tempdir().unwrap();
-        let (rotation, s) = rotation(&dir, clock()).await;
-        let full = QuotaWindowInput { label: "7D".into(), used_pct: Some(100.0), reset_at: Some(1_900_000_000_000), ..QuotaWindowInput::default() };
-        s.record_usage(PROVIDER, ID_A, vec![full]).await.unwrap();
+        let s = store(&dir);
+        s.register(PROVIDER, ID_A, "A", false).await.unwrap();
+        s.register(PROVIDER, ID_B, "B", false).await.unwrap();
+        let probe = Arc::new(FullReading { store: s.clone(), full: ID_A, measured: Mutex::default() });
+        let rotation = AccountRotation::new(s.clone(), probe, clock());
         let mut send = ctx();
         send.plan_meters_apply = applies;
         let script = Script::new(vec![(ID_A, vec![Err(refusal(ErrorKind::RateLimited, 429))]), (ID_B, vec![Ok("answer")])]);

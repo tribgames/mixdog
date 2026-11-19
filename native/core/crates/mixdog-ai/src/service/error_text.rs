@@ -719,6 +719,61 @@ fn kind_copy(kind: &str) -> Option<(&'static str, &'static str)> {
     KIND_COPY.iter().find(|(k, _, _)| *k == kind).map(|(_, presentation, summary)| (*presentation, *summary))
 }
 
+const REJECTED_SUMMARY: &str = "The provider rejected this request";
+const REJECTED_LINE_LIMIT: usize = 300;
+
+/// The refusal with its HTTP status and the provider's own first line of text (already redacted by
+/// `safe_error_details`), so the cause is visible. Text that already carries the summary is kept as it is.
+fn rejected_summary(status: u32, clean: &str) -> String {
+    let mut status = status;
+    let mut line = first_readable_line(clean);
+    // Text that already carries the summary (a failure presented once before) is taken apart and put together again, so its
+    // status, its cap and its redaction are the same as a first presentation's.
+    if let Some(rest) = line.strip_prefix(REJECTED_SUMMARY) {
+        let carried = re!(r"^\s*(?:\(HTTP ([0-9]+)\))?\s*[:.]?\s*((?s:.*))$").captures(rest).map(|c| (c.get(1).and_then(|m| m.as_str().parse::<u32>().ok()), c[2].trim().to_owned()));
+        let (carried_status, text) = carried.unwrap_or((None, String::new()));
+        if status == 0 {
+            status = carried_status.unwrap_or(0);
+        }
+        line = text;
+    }
+    let line = if line.chars().count() > REJECTED_LINE_LIMIT {
+        format!("{}…", line.chars().take(REJECTED_LINE_LIMIT - 1).collect::<String>().trim_end())
+    } else {
+        line
+    };
+    match (status, line.is_empty()) {
+        (0, true) => format!("{REJECTED_SUMMARY}."),
+        (0, false) => format!("{REJECTED_SUMMARY}: {line}"),
+        (status, true) => format!("{REJECTED_SUMMARY} (HTTP {status})."),
+        (status, false) => format!("{REJECTED_SUMMARY} (HTTP {status}): {line}"),
+    }
+}
+
+/// Departure from Node (issue #374), for the Node-recorded twins: Node presents every refused request as the bare
+/// `The provider rejected this request.`; the core adds the HTTP status and the provider's own first line, so the cause
+/// is visible. Whether `core` is that presentation (or its `Error: ` line) of a failure Node presented as `node`: the
+/// status shown is the recorded `status` or one the failure's recorded text `said` names, and the line shown is text the
+/// failure itself said.
+#[cfg(all(test, node_twin))]
+pub(crate) fn is_rejected_with_cause(node: &str, core: &str, status: u32, said: &str) -> bool {
+    let (node, core) = match (node.strip_prefix("Error: "), core.strip_prefix("Error: ")) {
+        (Some(node), Some(core)) => (node, core),
+        _ => (node, core),
+    };
+    if node != format!("{REJECTED_SUMMARY}.") {
+        return false;
+    }
+    let Some(shown) = re!(r"^The provider rejected this request(?: \(HTTP ([0-9]+)\))?(?:\.|: (.+))$").captures(core) else {
+        return false;
+    };
+    let status_shown = match shown.get(1).map(|m| m.as_str()) {
+        Some(shown) => shown == status.to_string() || said.contains(shown),
+        None => status == 0,
+    };
+    status_shown && shown.get(2).is_none_or(|line| said.contains(line.as_str()))
+}
+
 fn describe_error(view: &ErrorView) -> Presentation {
     let Unwrapped { raw, message, status: text_status, code: text_code } = unwrap_error(view);
     let clean = safe_error_details(&message);
@@ -745,7 +800,7 @@ fn describe_error(view: &ErrorView) -> Presentation {
     {
         ("authentication", "Provider authentication failed".into())
     } else if rejected_429 {
-        ("request", "The provider rejected this request.".into())
+        ("request", rejected_summary(status, &clean))
     } else if matches!(descriptor.kind.as_str(), "invalid_request" | "unknown" | "request_too_large")
         && re!(r"(?i)image.*dimensions.*exceed|image.*(?:too large|maximum.*(?:size|dimension))|many-image requests|An attached image exceeds the provider limit").is_match(&clean)
     {
@@ -770,8 +825,8 @@ fn describe_error(view: &ErrorView) -> Presentation {
         (presentation, summary.into())
     } else if let Some(transport) = transport {
         ("connection", transport.strip_suffix('.').unwrap_or(&transport).to_owned())
-    } else if rejected_429 || status == 400 || status == 422 || code == "invalid_request_error" || clean == "The provider rejected this request." {
-        ("request", "The provider rejected this request.".into())
+    } else if rejected_429 || status == 400 || status == 422 || code == "invalid_request_error" || clean.starts_with(REJECTED_SUMMARY) {
+        ("request", rejected_summary(status, &clean))
     } else {
         let line = first_readable_line(&clean);
         ("unknown", if line.is_empty() { "Something went wrong.".into() } else { line })
@@ -780,7 +835,8 @@ fn describe_error(view: &ErrorView) -> Presentation {
     if summary.is_empty() {
         summary = "Something went wrong.".into();
     }
-    if utf16_len(&summary) > SUMMARY_LIMIT {
+    // A rejected request carries the provider's own line, capped on its own (`REJECTED_LINE_LIMIT`).
+    if kind != "request" && utf16_len(&summary) > SUMMARY_LIMIT {
         summary = format!("{}…", slice_utf16(&summary, SUMMARY_LIMIT - 1).trim_end());
     }
     Presentation { kind, summary, provider_kind: descriptor.kind, retry_after_ms }
@@ -1076,8 +1132,13 @@ mod tests {
         assert_eq!(cases.len(), 94);
         for case in cases {
             let (view, options) = (view_of(case), options_of(case));
-            assert_eq!(present_error_text(&view, &options), case["text"].as_str().unwrap(), "{}", case["error"]);
-            assert_eq!(error_line(&view, &options), case["line"].as_str().unwrap(), "{}", case["error"]);
+            let status = case["descriptor"]["status"].as_u64().unwrap_or(0) as u32;
+            let said = case["error"]["message"].as_str().unwrap_or("");
+            for (core, node) in [(present_error_text(&view, &options), case["text"].as_str().unwrap()), (error_line(&view, &options), case["line"].as_str().unwrap())] {
+                if !super::is_rejected_with_cause(node, &core, status, said) {
+                    assert_eq!(core, node, "{}", case["error"]);
+                }
+            }
         }
     }
 }

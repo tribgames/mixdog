@@ -184,7 +184,8 @@ fn live_roster() -> Value {
         ("claude-sonnet-5-5-high", "Claude Sonnet 5.5 (High)"), ("claude-sonnet-5-5-medium", "Claude Sonnet 5.5 (Medium)"), ("claude-sonnet-5-5-low", "Claude Sonnet 5.5 (Low)"),
         ("claude-opus-5-5-high", "Claude Opus 5.5 (High)"), ("claude-opus-5-5-medium", "Claude Opus 5.5 (Medium)"), ("claude-opus-5-5-low", "Claude Opus 5.5 (Low)"),
         ("gemini-4-hydrogen-high", "Gemini 4 Hydrogen (High)"), ("gemini-4-hydrogen-medium", "Gemini 4 Hydrogen (Medium)"), ("gemini-4-hydrogen-low", "Gemini 4 Hydrogen (Low)"),
-        ("gemini-4-argon-high", "Gemini 4 Argon (High)"), ("gemini-4-argon-medium", "Gemini 4 Argon (Medium)"), ("gemini-4-argon-low", "Gemini 4 Argon (Low)"),
+        ("gemini-4-neon-high", "Gemini 4 Neon (High)"), ("gemini-4-neon-medium", "Gemini 4 Neon (Medium)"), ("gemini-4-neon-low", "Gemini 4 Neon (Low)"), ("gemini-4-neon-xhigh", "Gemini 4 Neon (XHigh)"),
+          ("gemini-4-argon-high", "Gemini 4 Argon (High)"), ("gemini-4-argon-medium", "Gemini 4 Argon (Medium)"), ("gemini-4-argon-low", "Gemini 4 Argon (Low)"),
         ("gemini-3.8-flash-high", "Gemini 3.8 Flash (High)"), ("gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)"), ("gemini-3.8-flash-low", "Gemini 3.8 Flash (Low)"),
         ("gpt-oss-120b-medium", "GPT-OSS 120B (Medium)"), ("gemini-3-flash", "Gemini 3 Flash"), ("gemini-2.5-pro", "Gemini 2.5 Pro"),
     ];
@@ -195,6 +196,42 @@ fn live_roster() -> Value {
     models.insert("gemini-4-carbon-disabled".into(), json!({ "displayName": "Gemini 4 Carbon", "maxTokens": 1_048_576, "disabled": true, "tagTitle": "Unavailable" }));
     models.insert("model-hidden-from-users".into(), json!({ "displayName": "Hidden Model", "maxTokens": 32_768, "isInternal": true }));
     json!({ "models": models })
+}
+
+/// An XHigh row is the fourth effort of its model, and the old standalone id still resolves.
+#[test]
+fn an_xhigh_row_is_the_fourth_effort_of_its_model() {
+    let records = antigravity_records(live_roster().to_string().as_bytes(), &Levels(ThinkingControl::Unspecified)).expect("listed");
+    assert_eq!(records.iter().filter(|r| r.id.contains("neon")).count(), 1);
+    let neon = records.iter().find(|r| r.id == "gemini-4-neon").expect("one Neon row");
+    assert_eq!(neon.reasoning_levels, ["low", "medium", "high", "xhigh"]);
+    assert_eq!(resolve_wire(&records, "gemini-4-neon", Some("xhigh")), ("gemini-4-neon-xhigh".to_owned(), None));
+    assert_eq!(resolve_wire(&records, "gemini-4-neon-xhigh", Some("high")), ("gemini-4-neon-xhigh".to_owned(), None));
+}
+
+/// A session pinned to the old standalone XHigh id sends that wire id once and no thinkingLevel of its own, with a
+/// tier map, a restored v2 cache that still holds the standalone row, or no roster at all.
+#[tokio::test]
+async fn a_session_pinned_to_the_old_xhigh_id_sends_no_second_effort() {
+    let mut standalone = ModelRecord::new("gemini-4-neon-xhigh");
+    standalone.wire = Some(WireIds::One("gemini-4-neon-xhigh".into()));
+    standalone.reasoning_levels = vec!["low".into(), "medium".into(), "high".into()];
+    let merged = antigravity_records(live_roster().to_string().as_bytes(), &Levels(ThinkingControl::Unspecified)).expect("listed");
+    for roster in [merged, vec![standalone], Vec::new()] {
+        for explicit in [Some("high"), None] {
+            let http = Scripted::new(vec![(400, json!({"error": {"code": 400}}).to_string())]);
+            let adapter = antigravity_adapter(http.clone(), "p", traits()).with_roster(&roster);
+            let mut pinned = request("gemini-4-neon-xhigh", "high", Some("high"));
+            if explicit.is_none() {
+                pinned.options.effort = None;
+            }
+            let _ = adapter.attempt(Arc::new(pinned)).await;
+            let body: Value = serde_json::from_slice(&http.sent()[0].body).unwrap();
+            assert_eq!(body["model"], "gemini-4-neon-xhigh");
+            let config = &body["request"]["generationConfig"];
+            assert!(config.get("thinkingConfig").is_none_or(|c| c.get("thinkingLevel").is_none()), "{config}");
+        }
+    }
 }
 
 /// A row the service marks disabled or internal is not a model: it answers 404 when asked for, so the catalog never offers it.
@@ -217,7 +254,7 @@ const HOUR_MS: i64 = 3_600_000;
 #[test]
 fn the_offline_fallback_holds_only_models_the_live_roster_serves() {
     let records = antigravity_records(live_roster().to_string().as_bytes(), &Levels(ThinkingControl::Unspecified)).expect("listed");
-    for (id, wires) in crate::catalog::ANTIGRAVITY_FALLBACK {
+    for (id, _, wires) in crate::catalog::ANTIGRAVITY_FALLBACK {
         let record = records.iter().find(|r| r.id == id).unwrap_or_else(|| panic!("the fallback row {id} is not in the live roster"));
         let served: Vec<String> = match &record.wire { Some(WireIds::One(w)) => vec![w.clone()], Some(WireIds::Tiers(t)) => t.iter().map(|(_, w)| w.clone()).collect(), None => vec![] };
         for wire in wires {
@@ -225,7 +262,7 @@ fn the_offline_fallback_holds_only_models_the_live_roster_serves() {
         }
     }
     for retired in ["gemini-3.1-pro", "claude-opus-4-6-thinking", "claude-sonnet-4-6"] {
-        assert!(!crate::catalog::ANTIGRAVITY_FALLBACK.iter().any(|(id, wires)| *id == retired || wires.contains(&retired)), "{retired} is retired");
+        assert!(!crate::catalog::ANTIGRAVITY_FALLBACK.iter().any(|(id, _, wires)| *id == retired || wires.contains(&retired)), "{retired} is retired");
     }
     assert!(records.iter().any(|r| r.id == DEFAULT_ANTIGRAVITY_MODEL), "the default model is served");
 }

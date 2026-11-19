@@ -193,18 +193,25 @@ async fn a_rejected_token_is_refreshed_once_and_asked_again() {
     assert_eq!(*r.source.forced.lock().unwrap(), vec![false, true]);
 }
 
+/// Codex's stored meters are not bound to the sign-in that measured them, so a refused credential's reading must go. A
+/// provider whose meters are bound (`uses_bound_plan_evidence`, anthropic-oauth among them) keeps its reading: another
+/// sign-in's stamp never matches it, so it steers nothing that credential did not measure.
 #[tokio::test]
 async fn a_credential_refused_after_refresh_drops_the_recorded_quota() {
+    const WHAM: &str = "https://chatgpt.com/backend-api/wham/usage";
     let r = rig().await;
-    r.http.queue(ANTHROPIC_URL, Ok((200, five_hour(100))));
-    r.usage.fetch_snapshot(&route(), true).await.unwrap();
-    r.http.queue(ANTHROPIC_URL, Ok((403, String::new())));
-    r.http.queue(ANTHROPIC_URL, Ok((403, String::new())));
-    assert!(r.usage.fetch_snapshot(&route(), true).await.is_none());
-    assert!(r.store.pool("anthropic-oauth").await.unwrap().account(ID).unwrap().usage.is_none());
+    r.store.register("openai-oauth", ID, "A", false).await.unwrap();
+    let route = RouteInfo { provider: "openai-oauth".into(), model: "gpt-x".into(), account_id: ID.into() };
+    r.http.queue(WHAM, Ok((200, r#"{"rate_limit":{"primary_window":{"used_percent":100,"reset_at":4070908800}}}"#.into())));
+    r.usage.fetch_snapshot(&route, true).await.unwrap();
+    assert!(r.store.pool("openai-oauth").await.unwrap().account(ID).unwrap().usage.is_some());
+    r.http.queue(WHAM, Ok((403, String::new())));
+    r.http.queue(WHAM, Ok((403, String::new())));
+    assert!(r.usage.fetch_snapshot(&route, true).await.is_none());
+    assert!(r.store.pool("openai-oauth").await.unwrap().account(ID).unwrap().usage.is_none());
     // An empty answer is remembered: no request until the negative entry ages out.
-    assert!(r.usage.fetch_snapshot(&route(), false).await.is_none());
-    assert_eq!(r.http.urls().len(), 3);
+    assert!(r.usage.fetch_snapshot(&route, false).await.is_none());
+    assert_eq!(r.http.urls().iter().filter(|url| *url == WHAM).count(), 3);
 }
 
 #[tokio::test]

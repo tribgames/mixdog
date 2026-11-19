@@ -201,7 +201,8 @@ async fn a_cancelled_claude_send_ends_as_node_ends_it() {
                     )
                     .await;
                     assert!(early.is_none(), "{name}: the send ended before its retry wait: {early:?}");
-                    assert_eq!(active(), 1, "{name}: the send keeps its admission slot through the wait");
+                    // The wait holds no capacity: the broker gives the slot back to the lane for it (`permit.suspend()`).
+                    assert_eq!(active(), 0, "{name}: the send gives its admission slot back for the wait");
                     tokio::time::pause();
                     let at = tokio::time::Instant::now();
                     cancel.cancel();

@@ -69,7 +69,7 @@ fn plain_text(value: &str) -> String {
 }
 
 /// `200k`, `1m`, `1000000` as a token count; 0 for anything else.
-fn context_window_of(value: &str) -> u64 {
+pub(super) fn context_window_of(value: &str) -> u64 {
     let text = js_trim(value).to_lowercase();
     let Some(caps) = CONTEXT_VALUE.captures(&text) else { return 0 };
     let scale = match caps.get(2) {

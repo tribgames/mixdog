@@ -373,6 +373,7 @@ pub fn scan(buffer: &str, is_known: &dyn Fn(&str) -> bool, last: bool, harmony: 
 }
 
 /// `createLeakGuard`: the rolling window over a stream's text.
+#[derive(Clone)]
 pub struct LeakGuard {
     known: HashSet<String>,
     harmony: bool,

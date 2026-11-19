@@ -47,6 +47,8 @@ use super::codec::DEFAULT_CLI_VERSION;
 
 pub const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 pub const TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
+/// The hosted page whose redirect shows the authorization code (`OAUTH_MANUAL_REDIRECT_URI`).
+const MANUAL_REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
 pub const AUTHORIZE_URL: &str = "https://claude.com/cai/oauth/authorize";
 pub const SCOPES: [&str; 6] = [
     "org:create_api_key",
@@ -791,6 +793,37 @@ impl PkceProvider for AnthropicLogin {
         authorize_url(request.redirect_uri, request.code_challenge, request.state)
     }
 
+    /// The hosted page that shows the code to paste (`OAUTH_MANUAL_REDIRECT_URI`), for a browser that cannot reach the
+    /// loopback listener or a listener that could not start.
+    fn manual_authorize_url(&self, request: &AuthorizeRequest<'_>) -> Option<String> {
+        // The token request repeats this login's state whichever URL the user opened.
+        *self.state.lock().unwrap_or_else(PoisonError::into_inner) = request.state.to_owned();
+        Some(authorize_url(MANUAL_REDIRECT_URI, request.code_challenge, request.state))
+    }
+
+    /// `_parseOAuthCodeInput`: a pasted callback URL names the redirect it came from; `code#state` is the hosted page's
+    /// code; a bare code belongs to the loopback redirect.
+    fn parse_pasted(&self, text: &str, redirect_uri: &str, state: &str) -> Result<(String, String), crate::oauth::CallbackError> {
+        use crate::oauth::CallbackError;
+        let text = mixdog_js::js_trim(text);
+        let pair = |name: &str, url: &Url| url.query_pairs().find(|(key, _)| key == name).map(|(_, value)| value.into_owned()).unwrap_or_default();
+        let (code, pasted_state, issued_for) = match Url::parse(text).ok().filter(|url| !pair("code", url).is_empty() || !pair("state", url).is_empty()) {
+            Some(url) => (pair("code", &url), pair("state", &url), format!("{}{}", url.origin().ascii_serialization(), url.path())),
+            None => {
+                let (code, pasted_state) = text.split_once('#').unwrap_or((text, ""));
+                let issued_for = if pasted_state.is_empty() { redirect_uri } else { MANUAL_REDIRECT_URI };
+                (code.to_owned(), pasted_state.to_owned(), issued_for.to_owned())
+            }
+        };
+        if !pasted_state.is_empty() && pasted_state != state {
+            return Err(CallbackError::StateMismatch);
+        }
+        if code.trim().is_empty() {
+            return Err(CallbackError::Malformed);
+        }
+        Ok((code, issued_for))
+    }
+
     fn callback_pages(&self) -> CallbackPages {
         pages::ANTHROPIC
     }
@@ -889,5 +922,57 @@ mod expiry_tests {
         assert_eq!(both.expires_at, 1_893_456_000_000);
         assert!(both.extra.get("expires_at").is_none());
         assert_eq!(read(r#""expiresAt":null,"expires_at":1893456000"#).expires_at, 1_893_456_000_000);
+    }
+}
+
+#[cfg(test)]
+mod hosted_paste_tests {
+    use super::*;
+    use crate::oauth::CredentialIo;
+    use crate::oauth::PkceLoginFlow;
+    use mixdog_core_api::domain::login::LoginFlow;
+    use mixdog_core_api::domain::login::LoginInput;
+    use mixdog_core_api::domain::login::LoginState;
+    use mixdog_core_api::domain::login::LoginTarget;
+
+    struct Recorder(Mutex<Vec<WireRequest>>);
+
+    struct Empty;
+
+    #[async_trait]
+    impl crate::transport::BodyStream for Empty {
+        async fn next(&mut self) -> Option<Result<bytes::Bytes, mixdog_core_api::domain::provider::TransportFault>> {
+            None
+        }
+    }
+
+    #[async_trait]
+    impl HttpSend for Recorder {
+        async fn send(&self, request: WireRequest, _: crate::transport::Exchange) -> Result<crate::transport::HttpResponse, ProviderError> {
+            self.0.lock().unwrap().push(request);
+            Ok(crate::transport::HttpResponse { status: 400, headers: vec![], body: Box::new(Empty) })
+        }
+    }
+
+    /// With the loopback port taken, the hosted page's `code#state` is exchanged with this login's own state and the
+    /// hosted redirect: the token request is what the server would check.
+    #[tokio::test]
+    async fn a_pasted_code_posts_this_logins_state_and_the_hosted_redirect() {
+        let _held = tokio::net::TcpListener::bind(("127.0.0.1", 54545)).await;
+        let dir = tempfile::tempdir().unwrap();
+        let rt = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(dir.path().join("anthropic-oauth.json"), CredentialIo { read: rt.interactive_io, write: rt.durability_io });
+        let http = Arc::new(Recorder(Mutex::default()));
+        let flow = PkceLoginFlow::new(LoginTarget::Provider("anthropic-oauth".into()), Arc::new(AnthropicLogin::new(file, http.clone())));
+        let session = flow.start().await.expect("a taken port is not a failed sign-in");
+        let LoginState::Authorize { url, .. } = session.started() else { panic!("authorize first") };
+        let state = Url::parse(&url).unwrap().query_pairs().find(|(k, _)| k == "state").unwrap().1.into_owned();
+        session.provide(LoginInput::AuthorizationCode(format!("the-code#{state}"))).await.unwrap();
+        while session.next().await.is_some() {}
+        let post = http.0.lock().unwrap()[0].clone();
+        let body: Value = serde_json::from_slice(&post.body).unwrap();
+        assert_eq!(body["state"], json!(state));
+        assert_eq!(body["code"], "the-code");
+        assert_eq!(body["redirect_uri"], MANUAL_REDIRECT_URI);
     }
 }

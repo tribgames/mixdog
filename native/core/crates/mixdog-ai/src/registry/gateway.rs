@@ -980,7 +980,7 @@ mod tests {
         let profile = CompatProfile::xai();
         let config = CompatConfig::for_profile(&profile);
         let chat = CompatChatCodec::new(profile.clone(), config.clone());
-        let account = CompatAdapter::new(chat, Arc::new(Nothing), None).with_configured_effort(Some("high".into()));
+        let account = CompatAdapter::new(chat, Arc::new(Nothing), Some(Arc::new(Key))).with_configured_effort(Some("high".into()));
         let http = CompatResponsesCodec::new(profile, config, TransportKind::Http1);
         let socket = http.xai_websocket();
         for (requested, expected) in [(None, "high"), (Some("low"), "low")] {

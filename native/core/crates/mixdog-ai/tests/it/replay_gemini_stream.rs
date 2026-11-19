@@ -133,6 +133,17 @@ fn call_of(call: &mixdog_core_api::domain::provider::ToolCall) -> Exact {
 
 pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: SET, run: every_case_consumes_as_nodes }];
 
+const UNFINISHED_CALL_DEPARTURE: &str = "a stream cut while a native call is unfinished (willContinue) marks the tool input cut, so nothing \
+     replays over the half-sent call; Node reports pendingToolUse false";
+
+/// The case's served chunks, joined.
+fn served_text(case: &crate::provider_case::Case) -> String {
+    crate::provider_cases::plain(&case.input)["served"]["chunks"]
+        .as_array()
+        .map(|chunks| chunks.iter().filter_map(serde_json::Value::as_str).collect())
+        .unwrap_or_default()
+}
+
 #[tokio::test(start_paused = true)]
 async fn every_case_consumes_as_nodes() {
     let set = CaseSet::load(SET);
@@ -149,8 +160,23 @@ async fn every_case_consumes_as_nodes() {
                     assert_response(&what, &recorded, &events);
                 }
                 "error" => {
-                    let left = Left { error: error.as_ref(), cancelled: false, exhausted: false, events: &events, attempts: None };
                     assert!(error.is_some(), "{what}: the core ended cleanly: {events:?}");
+                    // Departure: a stream cut while a native call is still unfinished (`willContinue`) marks the tool input
+                    // cut (`GeminiDecoder::stamp_failure`), so nothing replays over the half-sent call; Node's error says
+                    // `pendingToolUse: false` there. Checked against that rule, then compared as Node's.
+                    let node_pending = match recorded.raw() {
+                        Exact::Error { props, .. } => props.iter().find(|(k, _)| k == "pendingToolUse").map(|(_, v)| v.clone()),
+                        _ => None,
+                    };
+                    let unfinished_call = served_text(case).contains("\"willContinue\":true");
+                    let mut shown = error.clone();
+                    if node_pending == Some(Exact::Bool(false)) && unfinished_call {
+                        let cut = shown.as_mut().expect("an error");
+                        assert!(cut.exposure.tool_input_cut, "{what}: an unfinished native call marks the tool input cut");
+                        cut.exposure.tool_input_cut = false;
+                        set.departed(id, UNFINISHED_CALL_DEPARTURE);
+                    }
+                    let left = Left { error: shown.as_ref(), cancelled: false, exhausted: false, events: &events, attempts: None };
                     recorded.assert_error(&what, ErrorSide::Send(&left));
                 }
                 "progress" => recorded.assert_eq(

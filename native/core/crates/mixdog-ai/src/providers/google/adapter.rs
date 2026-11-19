@@ -262,12 +262,13 @@ impl GoogleAdapter {
         let roster = self.roster.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let (model, effort) = models::resolve_wire(&roster, &request.model, request.options.effort.as_deref());
         drop(roster);
-        if model == request.model && effort == request.options.effort {
+        let pinned = models::xhigh_pin(&request.model);
+        if model == request.model && effort == request.options.effort && !pinned {
             return request;
         }
         let mut routed = (*request).clone();
         routed.model = model;
-        if effort != routed.options.effort {
+        if effort != routed.options.effort || pinned {
             if effort.is_none()
                 && let Some(Value::Object(params)) = routed.options.model_parameters.as_mut()
             {
@@ -531,7 +532,40 @@ struct GeminiSend {
     cached: Option<Cached>,
 }
 
+/// `hasLongAdvice` (`gemini-retry-policy.mjs`): a server wait over 300 s on a kind a retry could change.
+fn long_advice(failure: &ProviderError) -> bool {
+    failure.retry_after.is_some_and(|wait| wait > super::policy::GEMINI_RETRY_ADVICE_LIMIT) && !failure.kind.is_deterministic()
+}
+
+/// The Gemini ladder ends its recovery on long advice, before or after the response opened (`runGeminiStreamAttempts`
+/// marks it provider-terminal): no retry, no non-streaming re-issue, no loop ladder after it.
+fn end_on_long_advice(failure: &mut ProviderError) {
+    if long_advice(failure) {
+        failure.recovery_exhausted = true;
+        failure.recovery_terminal = true;
+    }
+}
+
+/// `canFallbackNonStreaming` of the Gemini API: nothing of the failed stream reached the caller, no call was cut or
+/// dispatched, it is transient, stalled or a truncated stream, and no long advice ended the recovery.
+fn unary_recoverable(failure: &ProviderError) -> bool {
+    let exposed = failure.unsafe_to_retry
+        || failure.exposure.text_emitted
+        || failure.exposure.tool_dispatched
+        || failure.exposure.tool_input_cut;
+    let transient = matches!(failure.kind, ErrorKind::Transient | ErrorKind::Overloaded)
+        || failure.timed_out
+        || failure.transport == Some(mixdog_core_api::domain::provider::TransportFault::TruncatedStream);
+    !exposed
+        && !failure.recovery_terminal
+        && !long_advice(failure)
+        && failure.code.as_deref() != Some("no_response_text")
+        && !failure.kind.is_deterministic()
+        && transient
+}
+
 fn unary_failure(mut error: ProviderError) -> ProviderError {
+    end_on_long_advice(&mut error);
     if error.reauth_required || matches!(error.kind, ErrorKind::Policy | ErrorKind::Auth | ErrorKind::Permission) {
         error.recovery_terminal = true;
     }
@@ -588,9 +622,7 @@ impl ProviderAdapter for GoogleAdapter {
     /// Vertex AI passes no `onRetry`, so it raises no `reconnecting`. Antigravity (antigravity-transport.mjs:185) and
     /// Vertex AI's Claude (vertex-ai.mjs:516) and open models raise it under their own ladders.
     fn send_stages(&self, model: &str) -> SendStages {
-        let gemini_ladder = !matches!(self.codec.target(), Target::Antigravity { .. })
-            && self.codec.maas_model(model).is_none()
-            && self.codec.claude_model(model).is_none();
+        let gemini_ladder = self.gemini_ladder(model);
         if !self.direct_gemini(model) {
             // Antigravity's attempt notes `model_thinking` once its request is on the wire (antigravity-transport.mjs:236).
             let model_thinking = matches!(self.codec.target(), Target::Antigravity { .. });
@@ -622,22 +654,9 @@ impl ProviderAdapter for GoogleAdapter {
     /// `canFallbackNonStreaming` (retry-classification.mjs:402) of a stream-phase failure: nothing reached the caller,
     /// no call was cut or dispatched, and it is transient, stalled or a truncated stream.
     fn recovers_spent(&self, model: &str, failure: &ProviderError) -> bool {
-        let exposed = failure.unsafe_to_retry
-            || failure.exposure.text_emitted
-            || failure.exposure.tool_dispatched
-            || failure.exposure.tool_input_cut;
-        let transient = matches!(failure.kind, ErrorKind::Transient | ErrorKind::Overloaded)
-            || failure.timed_out
-            || failure.transport == Some(mixdog_core_api::domain::provider::TransportFault::TruncatedStream);
         self.gemini_unary_supported(model)
-            && (self.direct_gemini(model)
-                || failure.delivery == DeliveryState::Accepted
-                    && failure.retry_after.is_none_or(|wait| wait <= super::policy::GEMINI_RETRY_ADVICE_LIMIT))
-            && !exposed
-            && !failure.recovery_terminal
-            && failure.code.as_deref() != Some("no_response_text")
-            && !failure.kind.is_deterministic()
-            && transient
+            && (self.direct_gemini(model) || failure.delivery == DeliveryState::Accepted)
+            && unary_recoverable(failure)
     }
 
     /// `[gemini] stream failed (<code, else message>); recovered via non-streaming generateContent` (gemini.mjs), as
@@ -671,7 +690,8 @@ impl ProviderAdapter for GoogleAdapter {
             cache.keyed(key).can_reattach(&cached.state, &ask)
         });
         let attach = cached.as_ref().map(|c| Attach { name: &c.name, state: &c.state });
-        let mut wire = self.codec.wire_at(&request, &inner, attach, global)?;
+        let streamed = self.codec.wire_at(&request, &inner, attach, global)?;
+        let mut wire = streamed.clone();
         wire.url = wire.url.replacen(":streamGenerateContent?alt=sse", ":generateContent", 1);
         // One generation total over the head and the whole body: the recovery's attempt begins in it, and a head arriving
         // does not reset it.
@@ -690,9 +710,20 @@ impl ProviderAdapter for GoogleAdapter {
             return Err(ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted));
         };
         let mut decoder = self.codec.gemini_decoder(&request);
+        // A direct Gemini answer that ends `CONTINUATION` is the first hop of a long decode, whose next hops go back to the
+        // stream with its token (`_doSend` resends through `_streamViaRest` whichever way a hop was answered).
+        let continuation = match (&key, self.direct_gemini(&request.model)) {
+            (Some(key), true) => Some(self.continuation(&request, streamed, key)?),
+            _ => None,
+        };
         // Decode the entire answer before returning any events: a refused unary answer must not dispatch tools.
-        let events = decoder.unary(payload).map_err(unary_failure)?;
+        let (events, token) = if continuation.is_some() {
+            decoder.unary_hop(payload).map_err(unary_failure)?
+        } else {
+            (decoder.unary(payload).map_err(unary_failure)?, None)
+        };
         let mut stream = GoogleStream::with_decoder(Box::new(EmptyBody), Decoder::Gemini(Box::new(decoder)));
+        stream.gemini_ladder = self.gemini_ladder(&request.model);
         stream.require_answer(&request);
         stream.publish_usage();
         if let Some(redirect) = redirect {
@@ -702,7 +733,13 @@ impl ProviderAdapter for GoogleAdapter {
             stream.queue.push_back(Ok(StreamEvent::ProviderState(state)));
         }
         stream.push(events);
-        stream.ended = true;
+        match token {
+            Some(token) => {
+                stream.continuation = continuation;
+                stream.continue_with(token).await;
+            }
+            None => stream.ended = true,
+        }
         Ok(Box::new(stream))
     }
 
@@ -744,6 +781,7 @@ impl ProviderAdapter for GoogleAdapter {
         // `_servedModel` announces, and claims the once-per-process notice, before the request is built or sent:
         // a send that fails still showed it, and a later one does not show it again.
         let notice = redirect.as_ref().and_then(Redirect::announce);
+        let model = request.model.clone();
         match self.attempt_served(request).await {
             Ok(mut stream) => {
                 // The result's `model` is the served one, which the ledger books and the turn reports.
@@ -758,6 +796,9 @@ impl ProviderAdapter for GoogleAdapter {
             Err(mut error) => {
                 if let Some(StreamEvent::Notice { message, warn }) = notice {
                     error.notices.push((message, warn));
+                }
+                if self.gemini_ladder(&model) {
+                    end_on_long_advice(&mut error);
                 }
                 Err(error)
             }
@@ -804,9 +845,171 @@ struct Exchanged {
     cached: Option<Cached>,
     /// The attempt of the submission that answered: its phase clock, which its stream publishes the response's boundaries on.
     attempt: AttemptHandle,
+    /// The request the answering exchange sent, as the codec built it (credentials not yet added).
+    wire: Option<WireRequest>,
+}
+
+/// `GEMINI_MAX_CONTINUATION_HOPS` (`gemini.mjs`): the requests one long-decode turn may make.
+const MAX_CONTINUATION_HOPS: u32 = 32;
+
+/// The wait before a continued hop is sent again, on the runtime's clock as every window of a provider is.
+async fn retry_wait(delay: std::time::Duration) {
+    mixdog_rt::Deadline::after(delay).bound(std::future::pending::<()>()).await;
+}
+
+fn continuation_limit() -> ProviderError {
+    let mut err = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
+    err.code = Some("CONTINUATION_LIMIT".into());
+    err.message = format!("Gemini long decode exceeded {MAX_CONTINUATION_HOPS} continuation hops");
+    err
+}
+
+/// The resend of a long-decode turn (`gemini.mjs` `_doSend` loop): the same body plus the hop's continuation token, as a
+/// fresh attempt of the same send, on the credential the first hop used.
+struct Continuation {
+    driver: ModelDriver,
+    call: ModelCall,
+    /// The hop's non-streaming re-issue (`_recoverGeminiNonStreaming`), under the recovery window.
+    unary: ModelCall,
+    wire: WireRequest,
+    authorization: Authorization,
+    request: Arc<ModelRequest>,
+    /// The Gemini ladders each hop runs on its own (`_streamViaRest` runs `runGeminiStreamAttempts` per hop).
+    policy: RetryPolicy,
+    /// The hops requested, the first included.
+    sent: u32,
+    /// The hop being read, once the turn has continued.
+    hop: Option<Hop>,
+}
+
+/// One continued hop: its token, the decoder as the hop began, and the hop's own attempt ladders.
+struct Hop {
+    token: String,
+    start: Box<GeminiDecoder>,
+    /// The hop showed output: a failure of it is past its own replay boundary.
+    shown: bool,
+    connect: mixdog_core_api::domain::retry::RetryState,
+    stream: mixdog_core_api::domain::retry::RetryState,
+}
+
+impl Continuation {
+    /// The next hop, from `start`, the decoder after the hop that ended with `token`.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    fn begin(&mut self, token: String, start: GeminiDecoder) -> Result<(), ProviderError> {
+        use mixdog_core_api::domain::retry::{RetryClass, RetryState};
+        if self.sent >= MAX_CONTINUATION_HOPS {
+            return Err(continuation_limit());
+        }
+        self.sent += 1;
+        let model = self.request.model.clone();
+        self.hop = Some(Hop {
+            token,
+            start: Box::new(start),
+            shown: false,
+            connect: RetryState::new(RetryClass::Request, model.clone()),
+            stream: RetryState::new(RetryClass::Midstream, model),
+        });
+        Ok(())
+    }
+
+    /// The hop's own verdict on its failure (`midstream`: after its response opened): the wait before it is sent again, or
+    /// `None` when the failure ends the turn. A hop that showed output is never resent.
+    fn retry(&mut self, err: &ProviderError, midstream: bool) -> Option<std::time::Duration> {
+        use mixdog_core_api::domain::retry::{RetryDecider, Verdict};
+        let hop = self.hop.as_mut().filter(|hop| !hop.shown)?;
+        // The turn's exposure is the earlier hops'; this hop exposed nothing.
+        let mut own = err.clone();
+        own.exposure = mixdog_core_api::domain::provider::Exposure::default();
+        let state = if midstream { &mut hop.stream } else { &mut hop.connect };
+        let decision = crate::retry::StandardRetryDecider.verdict(&own, state, &self.policy, crate::retry::random_samples());
+        *state = decision.next;
+        match decision.verdict {
+            Verdict::Retry { delay, .. } => Some(delay),
+            _ => None,
+        }
+    }
+
+    /// The streamed request with the hop's token.
+    fn hop_wire(&self) -> WireRequest {
+        let token = self.hop.as_ref().map(|hop| hop.token.clone()).unwrap_or_default();
+        let mut body: Value = serde_json::from_slice(&self.wire.body).unwrap_or(Value::Null);
+        body["continuationToken"] = Value::String(token);
+        let mut wire = self.wire.clone();
+        wire.body = serde_json::to_vec(&body).unwrap_or_default();
+        wire
+    }
+
+    /// A refused head, with the credential redacted, as the route's typed failure.
+    async fn refused(&self, response: HttpResponse, label: &'static str) -> ProviderError {
+        let rejected = match response.read_all().await {
+            Ok(rejected) => rejected,
+            Err(err) => return err,
+        };
+        let carried: Vec<&str> = self.authorization.headers.iter().map(|(_, v)| v.as_str()).collect();
+        let text = String::from_utf8_lossy(&rejected.body).into_owned();
+        let mut rejected = rejected;
+        rejected.body = crate::oauth::scrub::scrub_oauth_secrets(&text, &carried).into_bytes();
+        super::error::classify(&rejected, &super::error::ErrorDialect::gemini(label), std::time::SystemTime::now())
+    }
+
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn send(&self) -> Result<(Box<dyn BodyStream>, AttemptHandle), ProviderError> {
+        let wire = self.hop_wire();
+        let (response, attempt) = self.driver.send(&self.call, GoogleAdapter::authorized(&wire, &self.authorization), MODEL_STREAM_FETCH).await?;
+        self.request.options.send_identity.raise_stage("transport");
+        if !response.is_success() {
+            return Err(self.refused(response, "Gemini REST streamGenerateContent").await);
+        }
+        Ok((response.body, attempt))
+    }
+
+    /// The hop re-issued once as one `generateContent` call with its token (`_restGenerateContent`): the answer, or `None`
+    /// when it fails or carries no candidate.
+    async fn recover(&self) -> Option<Value> {
+        let mut wire = self.hop_wire();
+        wire.url = wire.url.replacen(":streamGenerateContent?alt=sse", ":generateContent", 1);
+        let (response, _) = self.driver.send(&self.unary, GoogleAdapter::authorized(&wire, &self.authorization), MODEL_STREAM_FETCH).await.ok()?;
+        if !response.is_success() {
+            return None;
+        }
+        let answered = response.read_all().await.ok()?;
+        let payload: Value = serde_json::from_slice(&answered.body).ok()?;
+        payload.get("candidates").and_then(Value::as_array).is_some_and(|c| !c.is_empty()).then_some(payload)
+    }
+}
+
+/// The next step of a continued hop.
+enum HopStep {
+    /// Send the hop.
+    Open,
+    /// The hop failed, before its response opened or after (`midstream`).
+    Failed(ProviderError, bool),
 }
 
 impl GoogleAdapter {
+    /// The long decode of a direct Gemini send whose first hop went out as `wire` (the streamed request) on `key`.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    fn continuation(&self, request: &Arc<ModelRequest>, wire: WireRequest, key: &str) -> Result<Continuation, ProviderError> {
+        Ok(Continuation {
+            driver: self.driver.clone(),
+            call: self.model_call(request, false),
+            unary: self.model_call(request, true),
+            wire,
+            authorization: ApiKeyAuth::authorization(key.to_owned())?,
+            request: Arc::clone(request),
+            policy: self.policy.clone(),
+            sent: 1,
+            hop: None,
+        })
+    }
+
+    /// A Gemini model on the Gemini API or Vertex AI: the sends `runGeminiStreamAttempts` runs.
+    fn gemini_ladder(&self, model: &str) -> bool {
+        !matches!(self.codec.target(), Target::Antigravity { .. })
+            && self.codec.maas_model(model).is_none()
+            && self.codec.claude_model(model).is_none()
+    }
+
     /// A send to `model` on the Gemini API itself (`GeminiProvider`), not one of its other engines.
     fn direct_gemini(&self, model: &str) -> bool {
         matches!(self.codec.target(), Target::Gemini { .. }) && self.codec.maas_model(model).is_none() && self.codec.claude_model(model).is_none()
@@ -871,7 +1074,7 @@ impl GoogleAdapter {
             if global {
                 (response, attempt) = self.dispatch_on(&self.maas_driver, request, &self.codec.maas_wire(request, &model, true)?, false).await?;
             }
-            return Ok(Exchanged { response, queue, global, attempt, cached: None });
+            return Ok(Exchanged { response, queue, global, attempt, cached: None, wire: None });
         }
         // Claude (`_sendClaude`): an Anthropic request through streamRawPredict, no explicit cache.
         if let Some(model) = self.codec.claude_model(&request.model) {
@@ -880,7 +1083,7 @@ impl GoogleAdapter {
             if global {
                 (response, attempt) = self.dispatch(request, &self.claude_fitted(request, &model, true).await?).await?;
             }
-            return Ok(Exchanged { response, queue, global, attempt, cached: None });
+            return Ok(Exchanged { response, queue, global, attempt, cached: None, wire: None });
         }
         // State changes reach the session only as stream events: Node persists
         // `providerState` from a delivered result alone (`ask-turn-settle.mjs:147`),
@@ -892,10 +1095,11 @@ impl GoogleAdapter {
             queue.push_back(Ok(StreamEvent::ProviderState(state)));
         }
         let mut global = matches!(self.codec.target(), Target::Vertex { .. }) && self.uses_global(request);
-        let (mut response, mut attempt) = {
+        let mut wire = {
             let attach = cached.as_ref().map(|c| Attach { name: &c.name, state: &c.state });
-            self.dispatch_with_key(request, &self.codec.wire_at(request, &inner, attach, global)?, key, false).await?
+            self.codec.wire_at(request, &inner, attach, global)?
         };
+        let (mut response, mut attempt) = self.dispatch_with_key(request, &wire, key, false).await?;
         // A cache the server refuses (gone, evicted, mismatched) is forgotten
         // here and in the session, and the request runs once without it: a 400/404
         // whose error names the cached content (`isGeminiCachedContentError`,
@@ -912,7 +1116,8 @@ impl GoogleAdapter {
             // Node drops only the `gemini` key; the other provider keys stay.
             let rest = request.options.provider_state.as_ref().map(|s| s.rest.clone()).unwrap_or_default();
             queue.push_back(Ok(StreamEvent::ProviderState(ProviderState { gemini: None, rest })));
-            (response, attempt) = self.dispatch_with_key(request, &self.codec.wire(request, &inner, None)?, key, false).await?;
+            wire = self.codec.wire(request, &inner, None)?;
+            (response, attempt) = self.dispatch_with_key(request, &wire, key, false).await?;
         }
         // A region from the environment that lacks the model (404) is retried
         // once on global (`vertex-ai.mjs:325-327`).
@@ -923,9 +1128,10 @@ impl GoogleAdapter {
                 self.global_sends.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
                     .insert(group.clone(), (request.model.clone(), tier));
             }
-            (response, attempt) = self.dispatch(request, &self.codec.wire_at(request, &inner, None, true)?).await?;
+            wire = self.codec.wire_at(request, &inner, None, true)?;
+            (response, attempt) = self.dispatch(request, &wire).await?;
         }
-        Ok(Exchanged { response, queue, global, attempt, cached })
+        Ok(Exchanged { response, queue, global, attempt, cached, wire: Some(wire) })
     }
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
@@ -964,7 +1170,7 @@ impl GoogleAdapter {
                 }
             }
         }
-        let Exchanged { response, queue, global, attempt, cached } = sent;
+        let Exchanged { response, queue, global, attempt, cached, wire } = sent;
         if !response.is_success() {
             let rejected = self.scrubbed(response.read_all().await?);
             return Err(self.codec.classify_for(&rejected, &request, global));
@@ -978,8 +1184,15 @@ impl GoogleAdapter {
         } else {
             Decoder::Gemini(Box::new(self.codec.gemini_decoder(&request)))
         };
-        let mut stream = GoogleStream::with_decoder(response.body, decoder).with_attempt(attempt);
+        let mut stream = GoogleStream::with_decoder(response.body, decoder).with_attempt(attempt.clone());
+        stream.gemini_ladder = self.gemini_ladder(&request.model);
         stream.queue = queue;
+        // Only the Gemini API itself long-decodes (`this._isDirectGeminiApi`).
+        if self.direct_gemini(&request.model)
+            && let (Some(wire), Some(key)) = (wire, &key)
+        {
+            stream.continuation = Some(self.continuation(&request, wire, key)?);
+        }
         // `gemini.mjs`'s answer check: an empty answer right after a tool result is the model's answer.
         stream.require_answer(&request);
         Ok(stream)
@@ -1088,6 +1301,10 @@ pub struct GoogleStream {
     answer_required: bool,
     after_tool_result: bool,
     produced_output: bool,
+    /// The long-decode resend of a direct Gemini send.
+    continuation: Option<Continuation>,
+    /// The send runs the Gemini ladder, whose recovery a long server wait ends ([`end_on_long_advice`]).
+    gemini_ladder: bool,
 }
 
 impl GoogleStream {
@@ -1106,6 +1323,8 @@ impl GoogleStream {
             answer_required: false,
             after_tool_result: false,
             produced_output: false,
+            continuation: None,
+            gemini_ladder: false,
         }
     }
 
@@ -1119,11 +1338,18 @@ impl GoogleStream {
         self.answer_required = true;
         self.after_tool_result =
             request.messages.iter().rev().find(|m| m.role != Role::System).is_some_and(|m| m.role == Role::Tool);
+        // The turn-wide check above judges the first hop; each continued hop is judged on its own answer.
+        if let Decoder::Gemini(decoder) = &mut self.decoder {
+            decoder.judge_hops(self.after_tool_result);
+        }
     }
 
     fn fail(&mut self, mut err: ProviderError) {
         if let Decoder::Gemini(decoder) = &self.decoder {
             decoder.stamp_failure(&mut err);
+        }
+        if self.gemini_ladder {
+            end_on_long_advice(&mut err);
         }
         self.ended = true;
         self.queue.push_back(Err(err));
@@ -1137,12 +1363,173 @@ impl GoogleStream {
         }
     }
 
+    /// A failure that ends the turn. After a continued hop, what the earlier hops showed is past the replay boundary
+    /// (`carryGeminiHopsIntoFailure`), so the broker's retry and recovery see it.
+    fn fail_turn(&mut self, mut err: ProviderError) {
+        if self.continuation.as_ref().is_some_and(|c| c.hop.is_some()) {
+            let turn = self.decoder.wire().exposure();
+            err.exposure.text_emitted |= turn.text_emitted;
+            err.exposure.tool_dispatched |= turn.tool_dispatched;
+            err.unsafe_to_retry |= turn.text_emitted || turn.tool_dispatched;
+        }
+        self.fail(err);
+    }
+
+    /// A failure of the response being read: a continued hop takes it under its own ladders; any other ends the turn.
+    async fn failed(&mut self, err: ProviderError) {
+        if self.continuation.as_ref().is_some_and(|c| c.hop.is_some()) {
+            self.advance(HopStep::Failed(err, true)).await;
+        } else {
+            self.fail_turn(err);
+        }
+    }
+
+    /// The hop after the one that ended with `token`: begun from the decoder as it stands, then sent.
+    async fn continue_with(&mut self, token: String) {
+        let start = self.hop_start();
+        match self.continuation.as_mut().expect("a long decode").begin(token, start) {
+            Ok(()) => self.advance(HopStep::Open).await,
+            Err(err) => self.fail_turn(err),
+        }
+    }
+
+    /// The decoder back where the hop began; the discarded attempt's usage is booked apart, else carried in the turn.
+    fn restart_hop(&mut self) {
+        if let (Decoder::Gemini(decoder), Some(continuation)) = (&mut self.decoder, self.continuation.as_ref())
+            && let Some(hop) = continuation.hop.as_ref()
+        {
+            let sent = &continuation.request.options.send_identity;
+            decoder.restart_hop(&hop.start, |usage, model| crate::registry::accounted::note_abandoned_usage(usage, model, sent));
+            // The observation follows the restored decoding down as well as up, to none when it holds none.
+            crate::registry::accounted::reset_attempt_usage(decoder.settle_usage());
+        }
+    }
+
+    /// Drives a continued hop until its response opens or the turn ends (`_streamViaRest` per hop): its request ladder
+    /// before the response opens, its stream ladder after, which also re-asks an unusable answer, and once both are spent
+    /// the one non-streaming re-issue with the token.
+    async fn advance(&mut self, mut step: HopStep) {
+        loop {
+            step = match step {
+                HopStep::Open => {
+                    let continuation = self.continuation.as_mut().expect("a continued hop");
+                    match continuation.send().await {
+                        Ok((body, attempt)) => {
+                            if let Some(hop) = continuation.hop.as_mut() {
+                                // Each opening of the hop's stream starts a fresh request ladder (`runGeminiStreamAttempts`).
+                                hop.connect = mixdog_core_api::domain::retry::RetryState::new(
+                                    mixdog_core_api::domain::retry::RetryClass::Request,
+                                    continuation.request.model.clone(),
+                                );
+                            }
+                            self.body = body;
+                            self.attempt = Some(attempt);
+                            return;
+                        }
+                        Err(err) => HopStep::Failed(err, false),
+                    }
+                }
+                HopStep::Failed(err, midstream) => {
+                    match self.continuation.as_mut().and_then(|c| c.retry(&err, midstream)) {
+                        Some(delay) => {
+                            if midstream {
+                                self.restart_hop();
+                            }
+                            retry_wait(delay).await;
+                            HopStep::Open
+                        }
+                        None => {
+                            let Some(token) = self.spent(err).await else { return };
+                            let start = self.hop_start();
+                            match self.continuation.as_mut().expect("a long decode").begin(token, start) {
+                                Ok(()) => HopStep::Open,
+                                Err(err) => {
+                                    self.fail_turn(err);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+        }
+    }
+
+    fn hop_start(&self) -> GeminiDecoder {
+        match &self.decoder {
+            Decoder::Gemini(decoder) => (**decoder).clone(),
+            Decoder::Other(_) => unreachable!("only a Gemini decoder long-decodes"),
+        }
+    }
+
+    /// A continued hop whose ladders are spent. Its last answer is judged as final; a failure that showed nothing and that
+    /// no long advice ended is re-issued once without streaming (`_recoverGeminiNonStreaming`). The token of an answer that
+    /// continues, or `None` once the turn ended or failed here.
+    async fn spent(&mut self, mut err: ProviderError) -> Option<String> {
+        let Decoder::Gemini(decoder) = &mut self.decoder else {
+            self.fail_turn(err);
+            return None;
+        };
+        if decoder.hop_invalid() {
+            // The re-asks are spent: the hop's answer is judged as final, which an unusable one fails.
+            decoder.last_ask();
+            let decoded = decoder.finish();
+            self.publish_usage();
+            match decoded {
+                Ok(events) => {
+                    self.ended = true;
+                    self.push(events);
+                }
+                Err(err) => self.fail_turn(err),
+            }
+            return None;
+        }
+        let mut own = err.clone();
+        own.exposure = mixdog_core_api::domain::provider::Exposure::default();
+        let shown = self.continuation.as_ref().and_then(|c| c.hop.as_ref()).is_none_or(|hop| hop.shown);
+        if shown || !unary_recoverable(&own) {
+            self.fail_turn(err);
+            return None;
+        }
+        self.restart_hop();
+        // The rollback booked the failed attempt's usage on its own; the turn's failure carries what is left.
+        err.partial_usage = None;
+        err.partial_model = None;
+        let continuation = self.continuation.as_ref().expect("a continued hop");
+        let Some(payload) = continuation.recover().await else {
+            err.recovery_exhausted = true;
+            self.fail_turn(err);
+            return None;
+        };
+        let Decoder::Gemini(decoder) = &mut self.decoder else { unreachable!("checked above") };
+        // The re-issued answer is the hop's: never re-asked, and judged by the merged turn's finish alone
+        // (`geminiIncompleteError`), so a malformed finish fails and an empty `STOP` completes with the earlier text.
+        let decoded = decoder.unary_hop(payload);
+        self.publish_usage();
+        match decoded {
+            Ok((events, token)) => {
+                self.ended = token.is_none();
+                self.push(events);
+                token
+            }
+            Err(err) => {
+                self.fail_turn(err);
+                None
+            }
+        }
+    }
+
     fn push(&mut self, events: Vec<StreamEvent>) {
         // The decoder's events are the attempt's boundaries, and the driver follows the deadlines they install: a decoded
         // payload ends the payload wait and starts the first-output one; semantic output ends that and starts the idle window,
         // which only later semantic output renews. A chunk that carries none (a role-only or metadata one) is a payload and
         // nothing more, so no number of them renews or replaces the first-output window. A wire whose decoder reports no chunks
         // (Claude and open models) is read by its own events.
+        if let Some(hop) = self.continuation.as_mut().and_then(|c| c.hop.as_mut())
+            && events.iter().any(|event| !matches!(event, StreamEvent::ChunkProgress(_) | StreamEvent::ProviderKeepalive | StreamEvent::Usage(_)))
+        {
+            hop.shown = true;
+        }
         if let Some(attempt) = &self.attempt {
             let chunked = events.iter().any(|event| matches!(event, StreamEvent::ChunkProgress(_)));
             if chunked || events.iter().any(|event| !matches!(event, StreamEvent::ProviderKeepalive)) {
@@ -1192,30 +1579,47 @@ impl ModelStream for GoogleStream {
                     self.publish_usage();
                     match decoded {
                         Ok(events) => self.push(events),
-                        Err(err) => self.fail(err),
+                        Err(err) => self.failed(err).await,
                     }
                 }
                 Some(Err(fault)) => {
                     // A phase deadline of the driver ended the body: its one failure, as the adapter classified it.
                     let exposure = self.decoder.wire().exposure();
-                    if let Some(err) = self.body.expired(exposure) {
-                        self.fail(err);
-                        continue;
-                    }
-                    let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
-                    // Node reads the body through `fetch` (gemini-rest-stream), whose socket failure is undici's.
-                    err.message = crate::transport::link::TERMINATED.to_owned();
-                    err.exposure = exposure;
-                    err.connection = self.body.connection();
-                    self.fail(err);
+                    let err = self.body.expired(exposure).unwrap_or_else(|| {
+                        let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
+                        // Node reads the body through `fetch` (gemini-rest-stream), whose socket failure is undici's.
+                        err.message = crate::transport::link::TERMINATED.to_owned();
+                        err.exposure = exposure;
+                        err.connection = self.body.connection();
+                        err
+                    });
+                    self.failed(err).await;
                 }
                 None => {
-                    self.ended = true;
+                    if let (Decoder::Gemini(decoder), true) = (&mut self.decoder, self.continuation.is_some()) {
+                        match decoder.end_hop() {
+                            Err(err) => {
+                                self.publish_usage();
+                                self.failed(err).await;
+                                continue;
+                            }
+                            Ok((events, Some(token))) => {
+                                self.publish_usage();
+                                self.push(events);
+                                self.continue_with(token).await;
+                                continue;
+                            }
+                            Ok((events, None)) => self.push(events),
+                        }
+                    }
                     let decoded = self.decoder.wire().finish();
                     self.publish_usage();
                     match decoded {
-                        Ok(events) => self.push(events),
-                        Err(err) => self.fail(err),
+                        Ok(events) => {
+                            self.ended = true;
+                            self.push(events);
+                        }
+                        Err(err) => self.failed(err).await,
                     }
                 }
             }
@@ -1229,3 +1633,7 @@ impl ModelStream for GoogleStream {
     /// A leaf: `next` awaits nothing after the wire's terminal event.
     fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
 }
+
+#[cfg(test)]
+#[path = "continuation_tests.rs"]
+mod continuation_tests;

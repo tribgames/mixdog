@@ -223,6 +223,8 @@ pub struct CursorAdapter {
     policy: RetryPolicy,
     keepalive: KeepaliveSchedule,
     catalog: ArcSwapOption<Vec<CursorModel>>,
+    /// The conversations a throttle touched, by scope.
+    rotated: Arc<Conversations>,
     /// The rows the last listing stored, which `getCachedModelInfo` answers.
     rows: crate::catalog::RowStore,
     placeholder: CursorCodecStub,
@@ -248,6 +250,7 @@ impl CursorAdapter {
             policy: retry_policy(),
             keepalive: KeepaliveSchedule::SPEC,
             catalog: ArcSwapOption::empty(),
+            rotated: Arc::default(),
             rows: crate::catalog::RowStore::default(),
             placeholder: CursorCodecStub,
         }
@@ -260,8 +263,16 @@ impl CursorAdapter {
             return Ok((*models).clone());
         }
         let (models, fallback) = self.discover_models(access_token).await;
-        if !fallback {
-            self.catalog.store(Some(Arc::new(models.clone())));
+        // The picker may have installed a live catalog while this send was fetching: it is newer than anything this
+        // discovery found, and better than the static list, so it answers first.
+        if fallback {
+            return Ok(self.catalog.load_full().map_or(models, |installed| (*installed).clone()));
+        }
+        // A cold fill never replaces a catalog installed while it was fetching; the fallback is never kept.
+        let none: Option<Arc<Vec<CursorModel>>> = None;
+        let previous = self.catalog.compare_and_swap(&none, Some(Arc::new(models.clone())));
+        if let Some(newer) = Option::<Arc<Vec<CursorModel>>>::clone(&*previous) {
+            return Ok((*newer).clone());
         }
         Ok(models)
     }
@@ -330,9 +341,20 @@ impl CursorAdapter {
                 effort: request.options.effort.as_deref(),
                 fast: request.options.fast,
                 route,
-                selected_context_window: None,
+                selected_context_window: selected_context_window(route),
             },
         )
+    }
+
+    /// The scope a request's conversation belongs to; `None` for a call that owns no session.
+    fn scope_of(request: &ModelRequest) -> Option<&str> {
+        let options = &request.options;
+        [&options.transport_scope, &options.session_id, &options.prompt_cache_key].into_iter().find_map(|scope| scope.as_deref())
+    }
+
+    /// The conversation id a scope sends: the derived one until a throttle rotated it.
+    fn conversation_of(&self, scope: &str) -> String {
+        self.rotated.id_for(scope)
     }
 
     async fn open(&self, request: &Arc<ModelRequest>, token: &str) -> Result<Box<CursorStream>, ProviderError> {
@@ -342,13 +364,7 @@ impl CursorAdapter {
         // `_dispatchChat` raises `requesting` once, ahead of the run's in-place retries and after the catalog was read
         // and the model chosen (cursor.mjs:656).
         request.options.send_identity.raise_requesting_once();
-        let scope = request
-            .options
-            .transport_scope
-            .clone()
-            .or_else(|| request.options.session_id.clone())
-            .or_else(|| request.options.prompt_cache_key.clone())
-            .unwrap_or_else(|| format!("cursor-call:{}", random_uuid()));
+        let scope = Self::scope_of(request).map_or_else(|| format!("cursor-call:{}", random_uuid()), str::to_owned);
         let codec = CursorCodec::new(
             request,
             CursorTarget {
@@ -356,7 +372,7 @@ impl CursorAdapter {
                 access_token: token.to_owned(),
                 client_version: self.client_version.clone(),
                 selection,
-                conversation_id: conversation_id(&scope),
+                conversation_id: self.conversation_of(&scope),
             },
         )?;
         let wire = codec.encode(request)?;
@@ -366,7 +382,11 @@ impl CursorAdapter {
             let response = head.read_all().await?;
             return Err(codec.classify(&response));
         }
-        Ok(Box::new(CursorStream::new(head.body, sink, codec.cursor_decoder(), token.to_owned())))
+        let mut stream = CursorStream::new(head.body, sink, codec.cursor_decoder(), token.to_owned());
+        if let Some(scope) = Self::scope_of(request) {
+            stream.throttle = Some((self.rotated.clone(), scope.to_owned()));
+        }
+        Ok(Box::new(stream))
     }
 }
 #[async_trait]
@@ -378,6 +398,8 @@ impl ModelListing for CursorAdapter {
         // The static list answers this call only: `_loadCursorCatalog` keeps no catalog from it, so `getCachedModelInfo`
         // has nothing of it either.
         if !fallback {
+            // The sends read the catalog this listing refreshed (`_loadCursorCatalog` is one cache for both).
+            self.catalog.store(Some(Arc::new(models)));
             self.rows.replace(rows.iter().map(|row| std::sync::Arc::new(crate::catalog::stored_row(&self.id, row.clone()))).collect());
         }
         Ok(rows)
@@ -386,6 +408,10 @@ impl ModelListing for CursorAdapter {
 #[async_trait]
 impl ProviderAdapter for CursorAdapter {
     fn release_send(&self, _group: &str) {}
+    /// The scope is over: its conversation's throttle record goes with it.
+    fn release_session(&self, session_id: &str) {
+        self.rotated.release(session_id);
+    }
     fn id(&self) -> &ProviderId {
         &self.id
     }
@@ -442,9 +468,26 @@ impl ProviderAdapter for CursorAdapter {
                     continue;
                 }
             }
+            // Cursor can pin `resource_exhausted` to one conversation id: the retry that follows a throttle starts a
+            // fresh one (`cursor-wire.mjs` restart with reason `throttle`).
+            if error.status == Some(429)
+                && let Some(scope) = Self::scope_of(&request)
+            {
+                self.rotated.throttled(scope);
+            }
             return Err(with_failure_hint(error));
         }
     }
+}
+
+/// `session.selectedContextWindow`: the window of the route's saved `context` choice, which decides Max mode.
+fn selected_context_window(route: Option<&serde_json::Map<String, Value>>) -> Option<u64> {
+    let route = route?;
+    route
+        .get("selectedContextWindow")
+        .and_then(Value::as_u64)
+        .or_else(|| route.get("context").and_then(Value::as_str).map(listing::context_window_of))
+        .filter(|window| *window > 0)
 }
 impl crate::catalog::CachedModelInfo for CursorAdapter {
     fn cached_row(&self, model: &str) -> Option<std::sync::Arc<serde_json::Value>> {
@@ -505,6 +548,44 @@ struct CursorStream {
     heartbeat_at: std::time::Instant,
     /// The access token the run was opened with: a server error that echoes it is redacted.
     secret: String,
+    /// The conversations of the adapter and the scope this run belongs to, when it has one.
+    throttle: Option<(Arc<Conversations>, String)>,
+}
+
+/// The conversation ids Cursor's throttles rotated, by scope (`conversation.id = crypto.randomUUID()` of the `throttle`
+/// restart): a scope keeps its derived id until a throttle ends one of its runs, and the retry after it sends a fresh one.
+#[derive(Default)]
+struct Conversations(std::sync::Mutex<std::collections::HashMap<String, Conversation>>);
+
+#[derive(Default)]
+struct Conversation {
+    rotated: Option<String>,
+    throttled: bool,
+}
+
+impl Conversations {
+    fn lock(&self) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, Conversation>> {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The id the next run of `scope` sends.
+    fn id_for(&self, scope: &str) -> String {
+        let mut all = self.lock();
+        let Some(entry) = all.get_mut(scope) else { return conversation_id(scope) };
+        if std::mem::take(&mut entry.throttled) {
+            entry.rotated = Some(random_uuid());
+        }
+        entry.rotated.clone().unwrap_or_else(|| conversation_id(scope))
+    }
+
+    fn throttled(&self, scope: &str) {
+        self.lock().entry(scope.to_owned()).or_default().throttled = true;
+    }
+
+    /// The scope ended.
+    fn release(&self, scope: &str) {
+        self.lock().remove(scope);
+    }
 }
 #[async_trait]
 impl ModelStream for CursorStream {
@@ -554,6 +635,7 @@ impl CursorStream {
         let heartbeat_at = std::time::Instant::now() + CLIENT_HEARTBEAT;
         Self {
             secret,
+            throttle: None,
             body,
             sink,
             decoder,
@@ -572,6 +654,13 @@ impl CursorStream {
     fn fail(&mut self, mut err: ProviderError) {
         self.ended = true;
         err.message = crate::oauth::scrub::scrub_oauth_secrets(&err.message, &[&self.secret]);
+        // A throttle that ends the run after output (a `resource_exhausted` end frame) is retried by the broker like one
+        // that refused it: the retry must not reuse the conversation id Cursor pinned it to.
+        if err.status == Some(429)
+            && let Some((conversations, scope)) = &self.throttle
+        {
+            conversations.throttled(scope);
+        }
         self.queue.push_back(Err(err));
     }
 

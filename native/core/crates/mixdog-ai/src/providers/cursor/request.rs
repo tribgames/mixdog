@@ -625,6 +625,45 @@ mod tests {
             assert_eq!(offered, want, "{id}");
         }
     }
+    /// Departure: Node's slimming drops an annotation key wherever it stands, so a property named `title` (or `default`,
+    /// ...) vanished from the tool's arguments; the core keeps property names
+    /// (`request_context_keeps_property_names_and_literal_enum_values`). The core's schema is compared with those
+    /// properties taken out where the slimming reaches ([`slim_schema`]'s depth).
+    #[cfg(node_twin)]
+    fn without_annotation_named_properties(value: &Value, depth: usize) -> Value {
+        if depth > 12 {
+            return value.clone();
+        }
+        let Some(map) = value.as_object() else {
+            return value.clone();
+        };
+        let schemas = |items: &[Value], depth| Value::Array(items.iter().map(|schema| without_annotation_named_properties(schema, depth)).collect());
+        Value::Object(
+            map.iter()
+                .map(|(key, child)| {
+                    let child = match (key.as_str(), child) {
+                        ("properties" | "patternProperties" | "$defs" | "definitions" | "dependentSchemas", Value::Object(entries)) => Value::Object(
+                            entries
+                                .iter()
+                                // Node slims the name table itself as a node one level down, so past the limit it keeps its names.
+                                .filter(|(name, _)| depth >= 12 || !SCHEMA_ANNOTATIONS.contains(&name.as_str()))
+                                .map(|(name, schema)| (name.clone(), without_annotation_named_properties(schema, depth + 2)))
+                                .collect(),
+                        ),
+                        ("prefixItems" | "anyOf" | "oneOf" | "allOf", Value::Array(items)) => schemas(items, depth + 2),
+                        (
+                            "items" | "additionalProperties" | "propertyNames" | "contains" | "not" | "if" | "then" | "else"
+                            | "unevaluatedItems" | "unevaluatedProperties",
+                            _,
+                        ) => without_annotation_named_properties(child, depth + 1),
+                        _ => child.clone(),
+                    };
+                    (key.clone(), child)
+                })
+                .collect(),
+        )
+    }
+
     /// The tools a run offers against `fixtures/providers/cursor-tools/cases.json` (recorded by
     /// `record-cursor-tools.mjs` from the real `acceptedWireTools`, `toOpenAITools`,
     /// `selectToolsForChoice` and `buildToolDefinitions`): the OpenAI rule first (a broken schema
@@ -674,7 +713,7 @@ mod tests {
             for (got, want) in offered.iter().zip(want) {
                 assert_eq!(got.name, want["name"].as_str().unwrap(), "{id}");
                 assert_eq!(got.description, want["description"].as_str().unwrap(), "{id}: {}", got.name);
-                assert_eq!(got.input_schema.to_string(), want["inputSchemaJson"].as_str().unwrap(), "{id}: {}", got.name);
+                assert_eq!(without_annotation_named_properties(&got.input_schema, 0).to_string(), want["inputSchemaJson"].as_str().unwrap(), "{id}: {}", got.name);
             }
             let reports = seen.lock().unwrap();
             let want = case["excluded"].as_array().expect("excluded");

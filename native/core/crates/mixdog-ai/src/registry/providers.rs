@@ -735,11 +735,12 @@ mod tests {
     #[test]
     fn a_fresh_route_admits_the_live_opencode_alias_without_reviving_a_cold_provider() {
         let registry = registry();
-        let adapter = crate::registry::multiwire::tests::refusing("opencode-go-oauth", 400, "x");
+        let adapter: Arc<dyn ProviderAdapter> = crate::registry::multiwire::tests::refusing("opencode-go-oauth", 400, "x");
         assert!(registry.registered_for_route("opencode-go").is_none());
-        ProviderRegistry::register(&mut registry.state(), "opencode-go-oauth", adapter, None);
+        ProviderRegistry::register(&mut registry.state(), "opencode-go-oauth", adapter.clone(), None);
         let admitted = registry.registered_for_route("opencode-go").expect("retired route is served by its replacement");
-        assert_eq!(admitted.id().as_str(), "opencode-go-oauth");
+        // The fixture's own id is fixed: the instance shows which registration admitted the route.
+        assert!(Arc::ptr_eq(&admitted, &adapter), "served by the opencode-go-oauth registration");
 
         let gated = crate::registry::multiwire::tests::refusing("gated", 400, "x");
         ProviderRegistry::register(&mut registry.state(), "gated", gated, None);

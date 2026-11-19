@@ -809,7 +809,9 @@ mod tests {
         let schema = json!({
             "type": "object",
             "$defs": {"a b/c~d": {"type": "string", "enum": ["ok"]}},
-            "properties": {"value": {"$ref": "#%2F$defs%2Fa%20b%7E1c%7E0d"}}
+            // Ajv reads a fragment as a JSON pointer only when it starts with `/` (an encoded `%2F` is an anchor): the
+            // escapes inside the pointer are encoded, so they mean `~1`/`~0` only once the fragment is expanded.
+            "properties": {"value": {"$ref": "#/$defs/a%20b%7E1c%7E0d"}}
         });
         let schema = wire_input_schema(&schema, Rule::OpenAi).unwrap();
         assert_eq!(gemini_parameters(&schema).unwrap(), json!({

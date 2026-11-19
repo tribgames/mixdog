@@ -169,6 +169,20 @@ pub(crate) struct BodyConfig<'a> {
     /// A user-defined (`custom-*`) endpoint (`AnthropicConfig::custom_endpoint`): server-side fallback and fast speed
     /// are decided from Claude ids, first-party knowledge never applied to it (`buildAnthropicApiRequest` `isCustom`).
     pub custom_endpoint: bool,
+    /// `ANTHROPIC_MSG_SLOTS` as the request reads it.
+    pub message_slots: Option<String>,
+}
+
+/// `resolveAnthropicMessageCacheSlots`: `ANTHROPIC_MSG_SLOTS=0` turns the message-tail breakpoint off, any other
+/// number (or none that parses) leaves it on. Read like `Number.parseInt(raw, 10)`: the leading integer counts.
+fn message_slots_allow_tail(raw: Option<&str>) -> bool {
+    let text = raw.map_or("", str::trim_start);
+    let sign = usize::from(text.starts_with(['+', '-']));
+    let digits = text[sign..].bytes().take_while(u8::is_ascii_digit).count();
+    match text[..sign + digits].parse::<i64>() {
+        Ok(cap) if cap >= 0 => cap > 0,
+        _ => true,
+    }
 }
 
 /// Model families (after `model_key`, with the major version) that take the
@@ -792,6 +806,7 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
     let mut messages = lower(history);
     if let Some(ttl) = cache.messages
         && reserved < MAX_CACHE_BREAKPOINTS
+        && message_slots_allow_tail(cfg.message_slots.as_deref())
     {
         match request.options.shared_cache_prefix_count.filter(|count| *count > 0) {
             None => mark_message_tail(&mut messages, ttl),
@@ -903,4 +918,20 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
             mid_conversation_effort: updates.is_some(),
         },
     })
+}
+
+#[cfg(test)]
+mod message_slot_tests {
+    use super::message_slots_allow_tail;
+
+    /// `ANTHROPIC_MSG_SLOTS=0` disables message-tail caching; a positive or unparsable value leaves it on
+    /// (`anthropic-request-utils.mjs:252-256`).
+    #[test]
+    fn a_zero_message_slot_cap_turns_the_tail_breakpoint_off() {
+        assert!(!message_slots_allow_tail(Some("0")));
+        assert!(!message_slots_allow_tail(Some(" 0x")));
+        for on in [None, Some(""), Some("1"), Some("4"), Some("-1"), Some("many")] {
+            assert!(message_slots_allow_tail(on), "{on:?}");
+        }
+    }
 }

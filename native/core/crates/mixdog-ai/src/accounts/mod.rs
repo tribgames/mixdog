@@ -633,11 +633,9 @@ impl AccountStore {
             .into_iter()
             .take(12)
             .map(|w| {
-                // `models` wins; `except` is kept only when non-empty and no
-                // `models` were given.
+                // `except` carves a separately metered subset out of `models`, so it is kept beside them.
                 let models = model_tokens(w.models);
-                let except = model_tokens(w.except)
-                    .filter(|e| models.is_none() && !e.is_empty());
+                let except = model_tokens(w.except).filter(|e| !e.is_empty());
                 Window {
                     label: slice_utf16(&w.label, 40),
                     used_pct: w.used_pct.filter(|p| p.is_finite()),

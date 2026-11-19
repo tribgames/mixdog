@@ -81,8 +81,14 @@ fn parse_arguments(raw: &str) -> JsonValue {
     })
 }
 
+/// A count or cost as a gateway sends it, a number or a numeric string (`Number(value)`, `reportedCostUsd`): OpenRouter
+/// sends `cost` and its token counts as strings. An empty string is no value.
 fn number(value: Option<&JsonValue>) -> Option<f64> {
-    value?.as_f64().filter(|n| n.is_finite())
+    let n = match value? {
+        JsonValue::String(text) if !mixdog_js::js_trim(text).is_empty() => mixdog_js::string_to_number(text),
+        other => other.as_f64()?,
+    };
+    n.is_finite().then_some(n)
 }
 
 fn first_positive_else_finite(candidates: &[Option<f64>]) -> f64 {
@@ -722,5 +728,23 @@ impl WireDecoder for ChatDecoder {
 
     fn exposure(&self) -> Exposure {
         self.exposure_now()
+    }
+}
+
+#[cfg(test)]
+mod number_tests {
+    use super::*;
+
+    /// OpenRouter sends `cost` and the cached-token count as numeric strings (`usage-primitives.mjs:24-26`): they are
+    /// read, not dropped; an empty string stays "not reported".
+    #[test]
+    fn cost_and_cached_tokens_sent_as_numeric_strings_are_read() {
+        let usage = usage_from(
+            &json!({"prompt_tokens": "100", "completion_tokens": 5, "cost": "0.0025", "prompt_tokens_details": {"cached_tokens": "40"}}),
+            CostField::UsdDecimal,
+        );
+        assert_eq!((usage.input_tokens, usage.cache_read_tokens), (100, 40));
+        assert_eq!(usage.cost, Some(UsdTicks(25_000_000)));
+        assert_eq!(usage_from(&json!({"cost": " "}), CostField::UsdDecimal).cost, None);
     }
 }

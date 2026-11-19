@@ -166,6 +166,7 @@ impl Drop for ModelAttempt {
 }
 
 /// The transport an adapter sends model exchanges through.
+#[derive(Clone)]
 pub struct ModelDriver {
     transport: Arc<dyn HttpSend>,
 }

@@ -1538,8 +1538,9 @@ async fn an_error_keeps_the_events_decoded_before_it_whatever_the_chunking() {
     assert!(events.iter().any(|e| matches!(e, StreamEvent::Usage(_))), "usage delivered");
     assert!(events.iter().any(|e| matches!(e, StreamEvent::ToolCallDone(_))), "tool call delivered");
     assert!(err.exposure.tool_dispatched, "the error reports the dispatch");
-    // An error frame carries no partial usage in Node (`_anthropicSseError`, anthropic-sse.mjs:138; only a cut stream
-    // gets the turn's partial fields): as Node's recorded in-stream error after output shows.
+    // Departure: an error frame carries no partial usage in Node (`_anthropicSseError`, anthropic-sse.mjs:138; only a cut
+    // stream gets the turn's partial fields), as Node's recorded in-stream error after output shows. The core's carries
+    // the usage the attempt reported before it (`AnthropicStream::fail`), so the failed attempt is billed.
     let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/claude-floors/golden.json")).expect("fixture");
     let after_output = golden["fallback"]
         .as_array()
@@ -1548,7 +1549,12 @@ async fn an_error_keeps_the_events_decoded_before_it_whatever_the_chunking() {
         .find(|s| s["name"] == "a_rejection_after_output_reached_the_caller_is_not_replayed_and_switches_nothing_off_on_anthropic")
         .expect("the recorded error after output");
     let recorded = &after_output["sends"][0]["outcome"]["error"]["partialUsage"];
-    assert_eq!(err.partial_usage.as_deref().map(floor_fallback::node_usage).unwrap_or(Value::Null), *recorded);
+    assert_eq!(*recorded, Value::Null);
+    let reported = events.iter().rev().find_map(|e| match e {
+        StreamEvent::Usage(usage) => Some(floor_fallback::node_usage(usage)),
+        _ => None,
+    });
+    assert_eq!(err.partial_usage.as_deref().map(floor_fallback::node_usage), reported);
 
     // The same stream cut at every byte boundary, and one byte at a time.
     for cut in 1..body.len() {

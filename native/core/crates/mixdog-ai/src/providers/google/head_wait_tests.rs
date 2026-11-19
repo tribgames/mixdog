@@ -454,3 +454,57 @@ async fn the_authorization_resend_is_a_fresh_attempt_with_the_whole_window() {
     let ctx = asked.options.send_identity.attempt_context();
     assert_eq!((ctx.id, ctx.window), (started[1], Duration::from_secs(285)), "the resend has the whole window");
 }
+/// Answers each request with the next canned SSE body and keeps the request bodies it saw.
+struct Scripted {
+    bodies: std::sync::Mutex<std::collections::VecDeque<&'static str>>,
+    seen: Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
+}
+
+struct Chunk(Option<Bytes>);
+
+#[async_trait]
+impl BodyStream for Chunk {
+    async fn next(&mut self) -> Option<Result<Bytes, TransportFault>> {
+        self.0.take().map(Ok)
+    }
+}
+
+#[async_trait]
+impl HttpSend for Scripted {
+    async fn send(&self, wire: WireRequest, _: Exchange) -> Result<HttpResponse, ProviderError> {
+        self.seen.lock().unwrap().push(wire.body);
+        let body = self.bodies.lock().unwrap().pop_front().expect("a scripted answer");
+        Ok(HttpResponse { status: 200, headers: vec![], body: Box::new(Chunk(Some(Bytes::from_static(body.as_bytes())))) })
+    }
+}
+
+/// `gemini.mjs` long decode: a `CONTINUATION` finish with a token is answered by resending the same body plus the token,
+/// and the turn is the text of every hop, finished by the last one, with every hop's usage billed.
+#[tokio::test]
+async fn a_direct_gemini_continuation_is_resent_with_its_token_until_the_last_hop() {
+    use mixdog_core_api::domain::provider::StreamEvent;
+    let first = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"one \"}]},\"finishReason\":\"CONTINUATION\",\"continuationToken\":\"tok-1\"}],\"usageMetadata\":{\"promptTokenCount\":10,\"candidatesTokenCount\":2}}\n\n";
+    let last = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"two\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":12,\"candidatesTokenCount\":3}}\n\n";
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let http = Scripted { bodies: std::sync::Mutex::new([first, last].into()), seen: seen.clone() };
+    let adapter = super::gemini("k", Arc::new(http), Arc::new(CatalogGoogleTraits(Vec::new())));
+    let mut stream = adapter.attempt(request("gemini-3.6-flash")).await.expect("the first hop answers");
+    let (mut text, mut usage, mut completed) = (String::new(), None, false);
+    while let Some(event) = stream.next().await {
+        match event.expect("no hop fails") {
+            StreamEvent::TextDelta(delta) => text.push_str(&delta),
+            StreamEvent::Usage(total) => usage = Some(total),
+            StreamEvent::Completed { .. } => completed = true,
+            _ => {}
+        }
+    }
+    assert_eq!(text, "one two");
+    assert!(completed);
+    let usage = usage.expect("usage");
+    assert_eq!((usage.input_tokens, usage.output_tokens), (22, 5));
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 2);
+    let second: serde_json::Value = serde_json::from_slice(&seen[1]).unwrap();
+    assert_eq!(second["continuationToken"], "tok-1");
+    assert!(serde_json::from_slice::<serde_json::Value>(&seen[0]).unwrap().get("continuationToken").is_none());
+}

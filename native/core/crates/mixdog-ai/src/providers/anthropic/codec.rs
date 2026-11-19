@@ -270,6 +270,7 @@ pub(crate) fn vertex_body(caps: &super::caps::CapsLookup, request: &ModelRequest
         gateway_effort: None,
         custom_reasoning: None,
         custom_endpoint: false,
+        message_slots: std::env::var("ANTHROPIC_MSG_SLOTS").ok(),
     };
     let built = build_body(&cfg, &sent)?;
     let body = serde_json::from_slice(&built.bytes).expect("a built body is a JSON object");
@@ -369,6 +370,7 @@ impl AnthropicCodec {
             official_url: self.config.official_origin(),
             beta_headers: !self.config.disable_beta_headers,
             fast_mode: &self.config.fast_mode,
+            message_slots: std::env::var("ANTHROPIC_MSG_SLOTS").ok(),
         };
         let built = build_body(&cfg, request)?;
         let beta = if self.config.custom_endpoint {

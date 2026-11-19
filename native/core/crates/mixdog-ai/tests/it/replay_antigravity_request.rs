@@ -519,6 +519,13 @@ fn value(case: &Case, a: &mut Answers) -> Exact {
 #[cfg(node_twin)]
 pub const REPLAYS: &[crate::provider_case::Replay] = &[crate::provider_case::Replay { set: "antigravity-request", run: every_case_builds_as_nodes }];
 
+/// The computer tool's field texts the core has changed since Node recorded this set: the core's text, then Node's.
+#[cfg(node_twin)]
+const COMPUTER_TEXT_SINCE_RECORDING: [(&str, &str); 1] = [(
+    "Total returned accessibility + OCR element budget. state defaults to 80; som and ax default to 200.",
+    "Total returned accessibility + OCR element budget. state defaults to 80.",
+)];
+
 /// Run in the replay's own scope (`run_scoped`): its scripted draws are its own.
 #[cfg(node_twin)]
 #[test]
@@ -534,7 +541,13 @@ fn every_case() {
     mixdog_ai::reset_process_state();
     // Node's process had loaded the computer tool, whose constructor registers its per-action union
     // (`advertiseActionInputUnion`); the core's computer tool registers the same union file.
-    let union = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../mixdog-tools/src/desktop/defs/computer.union.json")).expect("the computer union");
+    let mut union = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../mixdog-tools/src/desktop/defs/computer.union.json")).expect("the computer union");
+    // Departure: the core's computer tool has reworded a field since the recording; Node's process registered the union
+    // with the text it had then, so that text is put back here (each rewording found once, or the departure is stale).
+    for (now, recorded) in COMPUTER_TEXT_SINCE_RECORDING {
+        assert_eq!(union.matches(now).count(), 1, "the computer union still says {now:?}");
+        union = union.replacen(now, recorded, 1);
+    }
     mixdog_ai::providers::action_input::advertise_action_input_union(&serde_json::from_str(&union).expect("a JSON union"));
     // Each build drew its request (and session) uuid from the recording process's `crypto.randomUUID()`, in order over the
     // whole recording: the core's draws are those uuids, computed as the recorder's world drew them.
