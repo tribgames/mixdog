@@ -59,7 +59,7 @@ pub(crate) fn tool_error(server: &McpServer, error: CallError) -> ToolError {
             e.outcome_unknown = true;
             e
         }
-        CallError::Rpc(RpcError::Closed(_) | RpcError::Transport(_)) => {
+        CallError::Rpc(RpcError::Closed(_) | RpcError::Transport(..)) => {
             let mut e = ToolError::new(ToolErrorCode::OutcomeUnknown, message);
             e.outcome_unknown = true;
             e

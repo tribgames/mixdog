@@ -254,8 +254,8 @@ struct Run<'a> {
     browser_opened: bool,
     /// `flow.identity`: who the last token answer names.
     identity: Option<crate::oauth::account::Identity>,
-    /// The `resource_metadata` of the request's challenge.
-    hint: Option<String>,
+    /// The challenge of the refused request: its `resource_metadata` and `scope`.
+    challenge: crate::oauth::protocol::Challenge,
     redirect_url: String,
     callbacks: mpsc::UnboundedSender<Callback>,
     stopper: Stopper,
@@ -266,7 +266,7 @@ impl McpOAuth {
         self: &Arc<Self>,
         mode: AccountMode,
         transactional: bool,
-        hint: Option<String>,
+        challenge: crate::oauth::protocol::Challenge,
         ctl: &Control,
     ) -> Result<Option<String>, Stop> {
         ctl.emit(LoginState::Starting);
@@ -327,7 +327,7 @@ impl McpOAuth {
             state,
             browser_opened: false,
             identity: None,
-            hint,
+            challenge,
             redirect_url,
             callbacks,
             stopper: stopper.clone(),
@@ -528,9 +528,10 @@ impl Run<'_> {
         let mut discovery = match self.creds.discovery.clone().filter(|d| !d.authorization_server_url.is_empty()) {
             Some(cached) => cached,
             None => {
-                let mut found = self.abort.guard(oauth.protocol.discover(&server, self.hint.as_deref())).await?;
+                let hint = self.challenge.resource_metadata_url.clone();
+                let mut found = self.abort.guard(oauth.protocol.discover(&server, hint.as_deref())).await?;
                 // The SDK keeps the challenge's URL, not the one it derived itself.
-                found.resource_metadata_url = self.hint.clone();
+                found.resource_metadata_url = hint;
                 found
             }
         };
@@ -544,10 +545,13 @@ impl Run<'_> {
         self.creds.discovery = Some(discovery.clone());
         let issuer = discovery.authorization_server_url.clone();
         let resource = static_client.is_none().then(|| discovery.resource(&server));
-        let scope = static_client
-            .as_ref()
-            .filter(|c| !c.scopes.is_empty())
-            .map(|c| c.scopes.join(" "))
+        // The scope the refusal asked for comes first (`auth(provider, { scope })` before the client's own).
+        let scope = self
+            .challenge
+            .scope
+            .clone()
+            .filter(|s| !s.is_empty())
+            .or_else(|| static_client.as_ref().filter(|c| !c.scopes.is_empty()).map(|c| c.scopes.join(" ")))
             .or_else(|| discovery.resource_scopes());
 
         // Client information stamped for another authorization server reads back as nothing.

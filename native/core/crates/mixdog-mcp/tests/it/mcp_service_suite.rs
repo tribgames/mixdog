@@ -407,6 +407,21 @@ async fn a_sign_in_that_waits_for_the_browser_is_announced_and_one_that_cannot_s
     assert_eq!(call(&f, "mcp/beginMcpOAuthLogin", json!({"name": "demo"})).await.unwrap_err(), "MCP server \"demo\" does not use OAuth sign-in");
 }
 
+/// A switched-off account of an enabled connector server is never signed in: the request is refused before any sign-in
+/// starts, while its enabled sibling signs in.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_disabled_account_is_never_signed_in() {
+    let servers = json!({"linear": {"connector": "linear", "url": "https://mcp.linear.app/mcp", "accounts": [
+        {"name": "work", "url": "https://mcp.linear.app/mcp", "enabled": false},
+        {"name": "home", "url": "https://mcp.linear.app/mcp"},
+    ]}});
+    let f = fixture(servers, Vec::new(), false, "pending", false);
+    assert_eq!(call(&f, "mcp/beginMcpOAuthLogin", json!({"name": "work"})).await.unwrap_err(), "MCP server is disabled: work");
+    assert!(f.log.lock().unwrap().is_empty(), "no sign-in started: {:?}", f.log.lock().unwrap());
+    call(&f, "mcp/beginMcpOAuthLogin", json!({"name": "home"})).await.unwrap();
+    assert_eq!(*f.log.lock().unwrap(), ["begin:home:"]);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_closed_session_service_refuses_an_announced_call_before_anything_runs() {
     let f = fixture(json!({"remote": {"type": "http", "url": "https://x.example/mcp"}}), Vec::new(), true, "pending", true);

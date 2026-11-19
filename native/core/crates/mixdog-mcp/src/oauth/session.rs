@@ -40,6 +40,7 @@ use super::callback::parse_pasted;
 use super::protocol::ClientCredentials;
 use super::protocol::Discovery;
 use super::protocol::Protocol;
+use super::protocol::Challenge;
 use super::protocol::TokenError;
 use super::protocol::parse_challenge;
 use super::shared::OAuthError;
@@ -198,6 +199,9 @@ pub struct McpOAuth {
     active_login: Mutex<Option<CancellationToken>>,
     /// The explicit version committed by a switch and the entry it replaced.
     switched_from: Mutex<Option<(u64, Option<Entry>)>>,
+    /// The `WWW-Authenticate` value (empty when it had none) of the response that last refused a request to this
+    /// connection's endpoint; cleared by the next answered request.
+    refusal: Mutex<Option<String>>,
 }
 
 /// The secret-store account of a sign-in: a digest of its key, nothing else.
@@ -236,6 +240,7 @@ impl McpOAuth {
             held: Mutex::new(HashSet::new()),
             active_login: Mutex::new(None),
             switched_from: Mutex::new(None),
+            refusal: Mutex::new(None),
         }))
     }
 
@@ -246,6 +251,12 @@ impl McpOAuth {
 
     pub fn binding(&self) -> &OAuthBinding {
         &self.binding
+    }
+
+    /// The challenge of the response that last refused a request of this connection's own transport (a 401, or a 403
+    /// asking for more scope), unless a request was answered since: what an explicit sign-in starts from (`authorizedFetch`).
+    pub fn refusal_challenge(&self) -> Option<String> {
+        self.refusal.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Every token this connection held, for scrubbing errors and results.
@@ -485,7 +496,7 @@ impl McpOAuth {
 
     /// The sign-in flow of this server, as the login mechanism runs it.
     pub fn login_flow(self: &Arc<Self>, server: &str, mode: AccountMode) -> McpLoginFlow {
-        McpLoginFlow { oauth: Arc::clone(self), target: LoginTarget::McpServer(server.to_owned()), mode, transactional: false, hint: None }
+        McpLoginFlow { oauth: Arc::clone(self), target: LoginTarget::McpServer(server.to_owned()), mode, transactional: false, challenge: Challenge::default() }
     }
 
     /// A sign-in beside the stored one, in any mode (an account of a multi-account connector):
@@ -509,6 +520,8 @@ impl Authorizer for McpOAuth {
     }
 
     async fn renew(&self, rejected: Option<String>, challenge: Option<String>) -> Result<(), TransportError> {
+        // A refusal without a challenge is still one: it is kept as an empty value.
+        *self.refusal.lock().unwrap_or_else(|e| e.into_inner()) = Some(challenge.clone().unwrap_or_default());
         let mut cache = self.lock_cache().await;
         // A store that never answered is not a sign-in that needs renewing by the user.
         let renewed = match self.load_locked(&mut cache).await {
@@ -518,6 +531,16 @@ impl Authorizer for McpOAuth {
         };
         self.credential.sign_in_required.store(matches!(renewed, Err(OAuthError::ReauthenticationRequired)), Ordering::SeqCst);
         renewed.map_err(Into::into)
+    }
+
+    /// The renewed token was refused too: that last refusal's challenge is the one the sign-in must answer.
+    fn refused_after_renewal(&self, _attempted: Option<&str>, challenge: Option<&str>) {
+        *self.refusal.lock().unwrap_or_else(|e| e.into_inner()) = Some(challenge.unwrap_or_default().to_owned());
+    }
+
+    /// The endpoint answered: whatever it refused before no longer stands.
+    fn answered(&self, _sent: Option<&str>) {
+        self.refusal.lock().unwrap_or_else(|e| e.into_inner()).take();
     }
 }
 
@@ -553,15 +576,16 @@ pub struct McpLoginFlow {
     target: LoginTarget,
     mode: AccountMode,
     transactional: bool,
-    /// The `resource_metadata` URL of the `WWW-Authenticate` challenge that asked for the sign-in.
-    hint: Option<String>,
+    /// The `WWW-Authenticate` challenge that asked for the sign-in.
+    challenge: Challenge,
 }
 
 impl McpLoginFlow {
-    /// The challenge of the request the server refused: discovery asks the resource metadata URL it names.
+    /// The challenge of the request the server refused, all of it (`auth(provider, { serverUrl, ...challenge })`): discovery
+    /// asks the resource metadata URL it names, and the authorization asks for the scope it names.
     #[must_use]
     pub fn with_challenge(mut self, challenge: Option<&str>) -> Self {
-        self.hint = parse_challenge(challenge).resource_metadata_url;
+        self.challenge = parse_challenge(challenge);
         self
     }
 }
@@ -601,9 +625,9 @@ impl LoginFlow for McpLoginFlow {
             cancel,
             pending: Mutex::new(None),
         });
-        let (oauth, mode, transactional, hint, task_control) = (Arc::clone(&self.oauth), self.mode, self.transactional, self.hint.clone(), Arc::clone(&control));
+        let (oauth, mode, transactional, challenge, task_control) = (Arc::clone(&self.oauth), self.mode, self.transactional, self.challenge.clone(), Arc::clone(&control));
         mixdog_rt::spawn("mcp.oauth.login", mixdog_rt::TaskClass::Work, async move {
-            let last = match oauth.run_login(mode, transactional, hint, &task_control).await {
+            let last = match oauth.run_login(mode, transactional, challenge, &task_control).await {
                 Ok(account) => LoginState::Done { account },
                 Err(Stop::Cancelled) => LoginState::Cancelled,
                 Err(Stop::Expired) => LoginState::Failed(LoginFailure::Expired),

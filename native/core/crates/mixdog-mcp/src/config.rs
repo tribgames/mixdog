@@ -4,11 +4,14 @@
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use mixdog_core_api::domain::approval::ActionKind;
 use mixdog_js::js_trim;
 use mixdog_js::string_to_number;
+use mixdog_js::to_number;
+use mixdog_js::value_to_string;
 use mixdog_js::utf16_len;
 use serde_json::Value;
 use url::Url;
@@ -32,6 +35,8 @@ pub enum TransportConfig {
         /// The complete child environment.
         env: BTreeMap<String, String>,
         cwd: Option<String>,
+        /// The `stderr` option of the child (`pipe` by default; `ignore` leaves no pipe).
+        stderr: String,
     },
     /// Streamable HTTP.
     Http {
@@ -47,6 +52,8 @@ pub enum TransportConfig {
         url: Url,
         headers: BTreeMap<String, String>,
     },
+    /// `autoDetect`: Streamable HTTP to the loopback port a local service advertises.
+    AutoDetect(AutoDetectTarget),
 }
 
 /// A client secret held in memory; never printed.
@@ -141,7 +148,37 @@ fn quiet(value: Option<&std::ffi::OsStr>) -> bool {
 /// Names and ids only: any word with an `@` (a mail address) is replaced. A record is one line: white space runs, newlines of a
 /// stderr tail included, become one space (`oneLine`, as the core's other daemon-log writers do).
 pub(crate) fn daemon_line(line: &str) {
-    mixdog_rt::node_stderr!("{}", one_line_redacted(line));
+    if let Some(log) = daemon_log() {
+        log.line(line);
+    }
+}
+
+/// Lines waiting for a [`LogQueue`]'s writer; a line beyond this is dropped rather than wait.
+const LOG_QUEUE_LINES: usize = 1024;
+
+/// Log lines written on a thread of their own. [`line`](Self::line) never waits for the writer (a full queue drops the line),
+/// so a sink that blocks holds up no caller: no pipe reader, connect or close. The thread ends when the queue is dropped.
+pub struct LogQueue(std::sync::mpsc::SyncSender<String>);
+
+impl LogQueue {
+    /// The queue and its writer thread; `None` when the thread cannot be started.
+    pub fn start(write: impl Fn(&str) + Send + 'static) -> Option<Arc<Self>> {
+        let (queue, lines) = std::sync::mpsc::sync_channel::<String>(LOG_QUEUE_LINES);
+        std::thread::Builder::new().name("mcp-log".to_owned()).spawn(move || lines.into_iter().for_each(|line| write(&line))).ok()?;
+        Some(Arc::new(Self(queue)))
+    }
+
+    /// Queues `line` as one record without mail addresses (see [`daemon_line`]).
+    pub fn line(&self, line: &str) {
+        let _ = self.0.try_send(one_line_redacted(line));
+    }
+}
+
+/// The queue of the daemon log (the process's Node stderr sink).
+pub fn daemon_log() -> Option<Arc<LogQueue>> {
+    static QUEUE: std::sync::LazyLock<Option<Arc<LogQueue>>> =
+        std::sync::LazyLock::new(|| LogQueue::start(|line: &str| mixdog_rt::node_stderr!("{}", line)));
+    QUEUE.clone()
 }
 
 fn one_line_redacted(line: &str) -> String {
@@ -184,6 +221,10 @@ pub enum ConfigError {
     UnknownType,
     #[error("need type (stdio/http/sse/ws), url (http), or command (stdio)")]
     NoTransport,
+    #[error("Unknown autoDetect target: \"{0}\"")]
+    UnknownAutoDetect(String),
+    #[error("autoDetect server \"{0}\": live service advert missing")]
+    AutoDetectAdvertMissing(String),
     #[error("stdio server requires \"command\"")]
     MissingCommand,
     #[error("{0} server requires \"url\"")]
@@ -233,6 +274,165 @@ pub fn transport_kind(entry: &Value) -> Result<TransportKind, ConfigError> {
         return Ok(TransportKind::Http);
     }
     Err(ConfigError::NoTransport)
+}
+
+/// `AUTO_DETECT_PORTS`: the services an `autoDetect` entry names, with their advert and endpoint.
+const AUTO_DETECT_PORTS: [(&str, &str, &str); 1] = [("mixdog-memory", "memory", "/mcp")];
+
+/// The service advert an `autoDetect` server connects through (`autoDetectAdvert`), with the identity it had when it was
+/// read: a connect it refuses distrusts exactly this advert ([`mark_service_unreachable`]).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct AutoDetectAdvert {
+    pub service: &'static str,
+    pub port: u16,
+    /// `updatedAt` and `pid`: a service restarted on the same port re-stamps them.
+    updated_at: i64,
+    pid: Option<i64>,
+}
+
+/// `_DISTRUST_TTL_MS`: a distrusted advert is trusted again after this, restarted or not.
+const DISTRUST_TTL: Duration = Duration::from_secs(30);
+
+/// `_unreachablePorts`: per service, the advert a refused connect proved dead and when.
+static UNREACHABLE: std::sync::LazyLock<std::sync::Mutex<HashMap<&'static str, (AutoDetectAdvert, std::time::Instant)>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// `markServiceUnreachable`: `advert` refused a connection (nothing listens: a pid-live advert of a recycled pid), so it
+/// is not used again until its service re-advertises or the distrust ages out.
+pub fn mark_service_unreachable(advert: &AutoDetectAdvert) {
+    UNREACHABLE.lock().unwrap_or_else(|e| e.into_inner()).insert(advert.service, (advert.clone(), std::time::Instant::now()));
+}
+
+/// `isConnRefuseError` on the system error code of a failure: only "nothing is listening / the socket died" distrusts an
+/// advert, never a timeout or an HTTP answer.
+pub fn connection_refused(code: &str) -> bool {
+    matches!(code, "ECONNREFUSED" | "ECONNRESET" | "ENOTFOUND" | "EHOSTUNREACH" | "ENETUNREACH")
+}
+
+/// `readLiveServiceAdvert`'s distrust check: `advert` is the one a refused connect marked, and its service has neither
+/// re-advertised since nor outlived the distrust.
+fn distrusted(advert: &AutoDetectAdvert) -> bool {
+    let mut all = UNREACHABLE.lock().unwrap_or_else(|e| e.into_inner());
+    let Some((marked, at)) = all.get(advert.service) else { return false };
+    if marked.port != advert.port {
+        return false;
+    }
+    let restarted = advert.updated_at > marked.updated_at || advert.pid != marked.pid;
+    if restarted || at.elapsed() > DISTRUST_TTL {
+        all.remove(advert.service);
+        return false;
+    }
+    true
+}
+
+/// `isPidAlive`: a positive integer pid of a running process.
+fn live_pid(pid: &Value) -> bool {
+    let pid = to_number(pid);
+    pid.fract() == 0.0 && pid > 0.0 && pid <= f64::from(i32::MAX) && mixdog_statefile::process_exists(pid as u32)
+}
+
+/// `resolveRuntimeRoot`: `MIXDOG_RUNTIME_ROOT`, else the default root under the temporary folder, chosen once for the
+/// process (`cachedDefaultRoot`).
+fn runtime_root(env: &Env) -> std::path::PathBuf {
+    static DEFAULT: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    match env.get("MIXDOG_RUNTIME_ROOT").map(|root| root.trim()).filter(|root| !root.is_empty()) {
+        Some(root) => std::path::PathBuf::from(root),
+        None => DEFAULT.get_or_init(|| default_runtime_root(&std::env::temp_dir())).clone(),
+    }
+}
+
+#[cfg(windows)]
+fn default_runtime_root(tmp: &std::path::Path) -> std::path::PathBuf {
+    tmp.join("mixdog")
+}
+
+/// The per-user `mixdog-<uid>`, unless the legacy shared `mixdog` is this user's private root with a live daemon in it.
+#[cfg(unix)]
+fn default_runtime_root(tmp: &std::path::Path) -> std::path::PathBuf {
+    // SAFETY: `getuid` has no preconditions and cannot fail.
+    let uid = unsafe { libc::getuid() };
+    let legacy = tmp.join("mixdog");
+    if live_legacy_root(&legacy, uid) { legacy } else { tmp.join(format!("mixdog-{uid}")) }
+}
+
+/// `lstatSync(path)`: the entry itself, a link not followed.
+#[cfg(unix)]
+fn lstat(path: &std::path::Path) -> Option<libc::stat> {
+    use std::os::unix::ffi::OsStrExt;
+    let path = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    // SAFETY: an all-zero `stat` is a valid value of the plain C struct.
+    let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: `stat` is a valid out-parameter and `path` a NUL-terminated string that outlives the call.
+    (unsafe { libc::lstat(path.as_ptr(), &mut stat) } == 0).then_some(stat)
+}
+
+/// `safeLiveLegacyRoot`: a real directory owned by `uid` and writable by no one else, whose `daemon.json` is a real file
+/// owned by `uid`, private to it, naming a live pid.
+#[cfg(unix)]
+fn live_legacy_root(root: &std::path::Path, uid: u32) -> bool {
+    let owned = |stat: &libc::stat, kind: libc::mode_t, open: libc::mode_t| {
+        (stat.st_mode & libc::S_IFMT) == kind && stat.st_uid == uid && (stat.st_mode & open) == 0
+    };
+    let discovery = root.join("daemon.json");
+    if !lstat(root).is_some_and(|dir| owned(&dir, libc::S_IFDIR, 0o022)) || !lstat(&discovery).is_some_and(|file| owned(&file, libc::S_IFREG, 0o077)) {
+        return false;
+    }
+    let Some(bytes) = mixdog_statefile::read_content(&discovery).ok().flatten() else { return false };
+    serde_json::from_slice::<Value>(&bytes).ok().and_then(|daemon| daemon.get("pid").cloned()).is_some_and(|pid| live_pid(&pid))
+}
+
+/// The `autoDetect` target an entry names, as any message or status shows it: credential shapes typed there are scrubbed.
+pub fn auto_detect_target(entry: &Value) -> String {
+    scrub(&value_to_string(&entry["autoDetect"]), &[])
+}
+
+/// The service an `autoDetect` entry connects to (`AUTO_DETECT_PORTS`), under the runtime root it advertises in.
+fn auto_detect_transport(entry: &Value, env: &Env) -> Result<TransportConfig, ConfigError> {
+    let target = auto_detect_target(entry);
+    let Some((_, service, endpoint)) = AUTO_DETECT_PORTS.iter().find(|(key, _, _)| *key == target) else {
+        return Err(ConfigError::UnknownAutoDetect(target));
+    };
+    Ok(TransportConfig::AutoDetect(AutoDetectTarget { root: runtime_root(env), service, endpoint }))
+}
+
+/// An `autoDetect` server's service, whose advert is read at each connect (`createMcpTransport`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct AutoDetectTarget {
+    pub root: std::path::PathBuf,
+    pub service: &'static str,
+    pub endpoint: &'static str,
+}
+
+impl AutoDetectTarget {
+    /// `resolveAutoDetectUrl`: the loopback URL of the live service advert `<runtime root>/discovery/<service>.json`
+    /// (`readServicePort` without `requirePid`: an advert whose pid is set must name a live process), and the advert.
+    pub fn resolve(&self, name: &str) -> Result<(Url, AutoDetectAdvert), ConfigError> {
+        let missing = || ConfigError::AutoDetectAdvertMissing(name.to_owned());
+        let path = self.root.join("discovery").join(format!("{}.json", self.service));
+        let bytes = mixdog_statefile::read_content(&path).ok().flatten().ok_or_else(missing)?;
+        let raw: Value = serde_json::from_slice(&bytes).map_err(|_| missing())?;
+        let port = raw.get("port").map(to_number).filter(|p| p.fract() == 0.0 && *p > 0.0 && *p < 65536.0).ok_or_else(missing)?;
+        let identity = |value: &Value| {
+            let number = to_number(value);
+            if number.is_finite() { number as i64 } else { 0 }
+        };
+        let advert = AutoDetectAdvert {
+            service: self.service,
+            port: port as u16,
+            updated_at: raw.get("updatedAt").map_or(0, identity),
+            pid: raw.get("pid").filter(|p| !p.is_null()).map(identity),
+        };
+        if distrusted(&advert) {
+            return Err(missing());
+        }
+        if let Some(pid) = raw.get("pid").filter(|p| !p.is_null())
+            && !live_pid(pid)
+        {
+            return Err(missing());
+        }
+        let url = Url::parse(&format!("http://127.0.0.1:{}{}", advert.port, self.endpoint)).map_err(|_| missing())?;
+        Ok((url, advert))
+    }
 }
 
 fn truthy(value: Option<&Value>) -> bool {
@@ -578,9 +778,11 @@ impl McpServerConfig {
         if !entry.is_object() {
             return Err(ConfigError::NotAnObject);
         }
-        let kind = transport_kind(entry)?;
+        let auto = truthy(entry.get("autoDetect"));
+        let kind = if auto { TransportKind::Http } else { transport_kind(entry)? };
         let mut missing = Vec::new();
         let transport = match kind {
+            _ if auto => auto_detect_transport(entry, env)?,
             TransportKind::Stdio => {
                 let command = entry
                     .get("command")
@@ -605,6 +807,7 @@ impl McpServerConfig {
                         .get("cwd")
                         .and_then(Value::as_str)
                         .map(|c| expand_env(c, env, &mut missing)),
+                    stderr: entry.get("stderr").and_then(Value::as_str).unwrap_or("pipe").to_owned(),
                 }
             }
             TransportKind::Http | TransportKind::Sse | TransportKind::WebSocket => {
@@ -632,7 +835,10 @@ impl McpServerConfig {
             .and_then(Value::as_str)
             .filter(|id| crate::connectors::connector(id).is_some())
             .map(str::to_owned);
-        let accounts = crate::connector_model::accounts_of(entry)
+        let stored_accounts = crate::connector_model::accounts_of(entry);
+        // `createMcpTransport`: an http/sse server whose accounts are all switched off is neither connected nor routed to.
+        let all_disabled = !auto && matches!(kind, TransportKind::Http | TransportKind::Sse) && !stored_accounts.is_empty() && !stored_accounts.iter().any(crate::connector_model::account_enabled);
+        let accounts = stored_accounts
             .into_iter()
             .filter(crate::connector_model::account_enabled)
             .map(|account| {
@@ -645,7 +851,7 @@ impl McpServerConfig {
             })
             .collect::<Result<Vec<_>, ConfigError>>()?;
         let oauth = match &transport {
-            TransportConfig::Http { url, .. } | TransportConfig::Sse { url, .. } if accounts.is_empty() && !has_configured_auth(entry) => {
+            TransportConfig::Http { url, .. } | TransportConfig::Sse { url, .. } if accounts.is_empty() && !auto && !has_configured_auth(entry) => {
                 Some(crate::connectors::oauth_binding(name, entry, url, connector.as_deref()))
             }
             _ => None,
@@ -715,7 +921,7 @@ impl McpServerConfig {
             roots_follow_scope: entry.get("_mixdogRootsFollowScope").and_then(Value::as_bool) == Some(true),
             project_root,
             warnings,
-            blocked: None,
+            blocked: all_disabled.then(|| format!("Every account of \"{name}\" is disabled")),
             accounts,
             shutdown_grace: DEFAULT_SHUTDOWN_GRACE,
             outbound_kinds: string_map(entry.get("outbound"))
@@ -728,26 +934,110 @@ impl McpServerConfig {
         })
     }
 
-    /// Header values and URL query values that must never reach a model-visible message.
+    /// Header values, URL query values and, for a stdio server, the values of its environment variables named as
+    /// credentials: what must never reach a model-visible message or a log.
     pub fn secret_values(&self) -> Vec<String> {
+        static CREDENTIAL_NAME: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+            regex::Regex::new(r"(?i)auth|cookie|token|secret|pass(word|wd)?|api[-_]?key|private[-_]?key|signature|credential|session|(^|[-_])key$")
+                .expect("a valid pattern")
+        });
         let mut out = Vec::new();
-        if let TransportConfig::Http { url, headers }
-        | TransportConfig::Sse { url, headers }
-        | TransportConfig::WebSocket { url, headers } = &self.transport
-        {
-            out.extend(headers.values().filter(|v| utf16_len(v) >= 4).cloned());
-            out.extend(url.query_pairs().map(|(_, v)| v.into_owned()).filter(|v| utf16_len(v) >= 4));
+        match &self.transport {
+            TransportConfig::Http { url, headers } | TransportConfig::Sse { url, headers } | TransportConfig::WebSocket { url, headers } => {
+                out.extend(headers.values().filter(|v| utf16_len(v) >= 4).cloned());
+                out.extend(url.query_pairs().map(|(_, v)| v.into_owned()).filter(|v| utf16_len(v) >= 4));
+            }
+            // Every value of a credential-named variable, however short: it is the server's own secret, not a URL part.
+            TransportConfig::Stdio { env, .. } => {
+                out.extend(env.iter().filter(|(name, value)| CREDENTIAL_NAME.is_match(name) && !value.is_empty()).map(|(_, value)| value.clone()));
+            }
+            TransportConfig::AutoDetect(_) => {}
         }
         out
     }
 }
 
-/// `text` with every one of `secrets` replaced by `[redacted]`.
+/// `text` with every one of `secrets` replaced by `[redacted]`, and the credential shapes of a URL (user info, secret query
+/// parameters) whoever wrote them (`scrubMcpConnectionMessage`).
+///
+/// A secret of [`EMBEDDED_SECRET_CHARS`] or more is replaced wherever it occurs. A shorter one is replaced only where it
+/// stands as a whole value ([`stands_whole`]): `pw` in `password=pw` or `login pw failed`, never in `pwned`, and a `2`
+/// never in `-32000` or `2.0`.
 pub fn scrub(text: &str, secrets: &[String]) -> String {
-    secrets
-        .iter()
-        .filter(|s| !s.is_empty())
-        .fold(text.to_owned(), |acc, s| acc.replace(s.as_str(), "[redacted]"))
+    redact(text, 0, text.len(), &secret_ranges(text, secrets))
+}
+
+/// Secrets at least this long are redacted inside any text; shorter ones only as a whole value.
+const EMBEDDED_SECRET_CHARS: usize = 8;
+
+/// The byte ranges of `text` that [`scrub`] replaces, found in `text` as written, sorted and merged where they overlap:
+/// every occurrence of a secret (a short one only as a whole value), the user info of a URI of any scheme, and the value of
+/// a credential-named query parameter. The end of `text` is taken as the end of a value: for text that may continue, a
+/// short secret at its very end is in a range until what follows shows otherwise, so nothing of it is let out undecided.
+pub(crate) fn secret_ranges(text: &str, secrets: &[String]) -> Vec<std::ops::Range<usize>> {
+    static USERINFO: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)\b[a-z][a-z0-9+.-]*://([^/\s@]+)@").expect("a valid pattern"));
+    static QUERY: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r#"(?i)[?&](?:access_token|api[_-]?key|auth|secret|signature|token)=([^&\s'"]+)"#).expect("a valid pattern")
+    });
+    let mut ranges = Vec::new();
+    for secret in secrets.iter().filter(|s| !s.is_empty()) {
+        let whole = secret.chars().count() < EMBEDDED_SECRET_CHARS;
+        let mut from = 0;
+        while let Some(found) = text[from..].find(secret.as_str()) {
+            let (at, end) = (from + found, from + found + secret.len());
+            if !whole || stands_whole(text, at, end) {
+                ranges.push(at..end);
+            }
+            from = at + text[at..].chars().next().map_or(1, char::len_utf8);
+        }
+    }
+    for pattern in [&*USERINFO, &*QUERY] {
+        ranges.extend(pattern.captures_iter(text).filter_map(|c| c.get(1)).map(|m| m.range()));
+    }
+    ranges.sort_by_key(|r| r.start);
+    let mut merged: Vec<std::ops::Range<usize>> = Vec::with_capacity(ranges.len());
+    for range in ranges {
+        match merged.last_mut() {
+            Some(last) if range.start < last.end => last.end = last.end.max(range.end),
+            _ => merged.push(range),
+        }
+    }
+    merged
+}
+
+/// `text[from..to]` with each part of it inside one of `ranges` (sorted, disjoint) replaced by `[redacted]`.
+pub(crate) fn redact(text: &str, from: usize, to: usize, ranges: &[std::ops::Range<usize>]) -> String {
+    let mut out = String::with_capacity(to - from);
+    let mut copied = from;
+    for range in ranges.iter().filter(|r| r.end > from && r.start < to) {
+        let start = range.start.max(from);
+        out.push_str(&text[copied..start]);
+        out.push_str("[redacted]");
+        copied = range.end.min(to);
+    }
+    out.push_str(&text[copied..to]);
+    out
+}
+
+/// What may stand next to a value: white space, quotes, brackets and the separators of assignments, lists and URLs (the `@`
+/// that ends a URL's user info included).
+fn delimits(c: char) -> bool {
+    c.is_whitespace() || "=:,;&?/|@'\"`()[]{}<>".contains(c)
+}
+
+/// Whether `text[at..end]` stands as a whole value: a delimiter (or the start) before it, and after it a delimiter, the
+/// end, or a sentence's `.`/`!` followed by white space or the end.
+fn stands_whole(text: &str, at: usize, end: usize) -> bool {
+    let before = text[..at].chars().next_back().is_none_or(delimits);
+    let mut next = text[end..].chars();
+    let after = match next.next() {
+        None => true,
+        Some(c) if delimits(c) => true,
+        Some('.' | '!') => next.next().is_none_or(char::is_whitespace),
+        Some(_) => false,
+    };
+    before && after
 }
 
 #[cfg(test)]
@@ -945,6 +1235,122 @@ mod tests {
         let TransportConfig::Http { headers, .. } = cfg.transport else { panic!() };
         assert_eq!(headers.get("Authorization").map(String::as_str), cfg!(windows).then_some("Bearer abc"));
         assert_eq!(headers.get("X-H").map(String::as_str), cfg!(windows).then_some("hv"));
+    }
+
+    /// The advert is read at each resolve, not once with the config: a server configured before its service started, or
+    /// whose service moved to another port, finds the advert on disk now.
+    #[test]
+    fn an_auto_detect_entry_connects_to_the_port_advertised_now() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("discovery");
+        std::fs::create_dir_all(&dir).unwrap();
+        let e = env(&[("MIXDOG_RUNTIME_ROOT", root.path().to_str().unwrap())]);
+        let cfg = McpServerConfig::from_entry("memory", &json!({"autoDetect": "mixdog-memory"}), &e).unwrap();
+        assert!(cfg.oauth.is_none());
+        let TransportConfig::AutoDetect(target) = &cfg.transport else { panic!() };
+        assert_eq!(target.resolve("memory").unwrap_err(), ConfigError::AutoDetectAdvertMissing("memory".to_owned()));
+        std::fs::write(dir.join("memory.json"), r#"{"port": 4321, "updatedAt": 1}"#).unwrap();
+        assert_eq!(target.resolve("memory").unwrap().0.as_str(), "http://127.0.0.1:4321/mcp");
+        std::fs::write(dir.join("memory.json"), r#"{"port": 4323, "updatedAt": 2}"#).unwrap();
+        assert_eq!(target.resolve("memory").unwrap().0.as_str(), "http://127.0.0.1:4323/mcp");
+        let unknown = McpServerConfig::from_entry("x", &json!({"autoDetect": "nope"}), &e).unwrap_err();
+        assert_eq!(unknown.to_string(), "Unknown autoDetect target: \"nope\"");
+    }
+
+    /// A credential typed as the target is not repeated by the error.
+    #[test]
+    fn an_unknown_auto_detect_target_is_reported_scrubbed() {
+        let entry = json!({"autoDetect": "https://user:hunter2@host.example/x?token=abc123"});
+        let error = McpServerConfig::from_entry("x", &entry, &env(&[])).unwrap_err().to_string();
+        assert_eq!(error, "Unknown autoDetect target: \"https://[redacted]@host.example/x?token=[redacted]\"");
+    }
+
+    /// The advert a refused connect marked is not trusted again until its service re-advertises (`markServiceUnreachable`).
+    #[test]
+    fn a_refused_advert_is_distrusted_until_its_service_re_advertises() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("discovery");
+        std::fs::create_dir_all(&dir).unwrap();
+        let advert = |updated: u64| std::fs::write(dir.join("memory.json"), format!(r#"{{"port": 4322, "updatedAt": {updated}}}"#)).unwrap();
+        advert(1);
+        let e = env(&[("MIXDOG_RUNTIME_ROOT", root.path().to_str().unwrap())]);
+        let entry = json!({"autoDetect": "mixdog-memory"});
+        let cfg = McpServerConfig::from_entry("memory", &entry, &e).unwrap();
+        let TransportConfig::AutoDetect(target) = &cfg.transport else { panic!() };
+        let (_, resolved) = target.resolve("memory").unwrap();
+        assert!(connection_refused("ECONNREFUSED"));
+        assert!(!connection_refused("ETIMEDOUT"));
+        mark_service_unreachable(&resolved);
+        assert_eq!(target.resolve("memory").unwrap_err(), ConfigError::AutoDetectAdvertMissing("memory".to_owned()));
+        advert(2);
+        assert_eq!(target.resolve("memory").unwrap().0.as_str(), "http://127.0.0.1:4322/mcp");
+    }
+
+    /// `resolveRuntimeRoot`: the legacy shared root is used only while it is this user's private root with a live daemon.
+    #[cfg(unix)]
+    #[test]
+    fn the_legacy_runtime_root_is_used_while_it_is_private_and_live() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        // SAFETY: `getuid` has no preconditions and cannot fail.
+        let isolated = tmp.path().join(format!("mixdog-{}", unsafe { libc::getuid() }));
+        let legacy = tmp.path().join("mixdog");
+        assert_eq!(default_runtime_root(tmp.path()), isolated, "no legacy root");
+        std::fs::create_dir(&legacy).unwrap();
+        std::fs::set_permissions(&legacy, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let daemon = legacy.join("daemon.json");
+        std::fs::write(&daemon, format!(r#"{{"pid": {}}}"#, std::process::id())).unwrap();
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(default_runtime_root(tmp.path()), legacy, "a private root with a live daemon");
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(default_runtime_root(tmp.path()), isolated, "a discovery file others can read");
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o600)).unwrap();
+        std::fs::write(&daemon, r#"{"pid": 2147483647}"#).unwrap();
+        assert_eq!(default_runtime_root(tmp.path()), isolated, "a dead daemon");
+    }
+
+    /// A stdio server's credential-named variables are its secrets; its other settings are not.
+    #[test]
+    fn a_stdio_servers_credential_variables_are_its_secrets() {
+        let entry = json!({"command": "c", "env_vars": [], "env": {"OPENAI_API_KEY": "sk-abcdef", "GITHUB_TOKEN": "ghp_123456", "PG_PASSWORD": "pw", "MODE": "production"}});
+        let secrets = McpServerConfig::from_entry("s", &entry, &env(&[])).unwrap().secret_values();
+        for secret in ["sk-abcdef", "ghp_123456", "pw"] {
+            assert!(secrets.contains(&secret.to_owned()), "{secret:?} of every length is a secret: {secrets:?}");
+        }
+        assert!(!secrets.contains(&"production".to_owned()), "{secrets:?}");
+    }
+
+    #[test]
+    fn an_enabled_server_whose_accounts_are_all_disabled_does_not_connect() {
+        let entry = json!({"url": "https://x", "connector": "gmail", "accounts": [{"name": "a", "url": "https://a.example/mcp", "enabled": false}]});
+        let cfg = McpServerConfig::from_entry("hub", &entry, &env(&[])).unwrap();
+        assert_eq!(cfg.blocked.as_deref(), Some("Every account of \"hub\" is disabled"));
+    }
+
+    /// A short credential is redacted wherever it stands as a value, and ordinary text that merely holds its characters
+    /// (an error code, a version, a longer word) is left as it was; a long one is redacted inside any text.
+    #[test]
+    fn a_short_secret_is_redacted_as_a_value_and_never_inside_other_text() {
+        let secrets = ["2".to_owned(), "pw".to_owned(), "sk-live-0123456789".to_owned()];
+        let untouched = "MCP error -32000: Connection closed; jsonrpc 2.0; pwned at 12:30";
+        assert_eq!(scrub(untouched, &secrets), untouched);
+        assert_eq!(
+            scrub("password=pw; login pw failed. (pw) \"pw\" retry 2 of 3, key=xsk-live-0123456789y", &secrets),
+            "password=[redacted]; login [redacted] failed. ([redacted]) \"[redacted]\" retry [redacted] of 3, key=x[redacted]y"
+        );
+        assert_eq!(scrub("the password is pw.", &secrets), "the password is [redacted].");
+        assert_eq!(scrub("the password is pw", &secrets), "the password is [redacted]");
+        // The user info of any URI scheme, and a short secret the `@` of user info ends.
+        let pg = ["abc123".to_owned()];
+        assert_eq!(scrub("connect postgres://user:abc123@db.example:5432/app failed", &pg), "connect postgres://[redacted]@db.example:5432/app failed");
+        assert_eq!(scrub("as user:abc123@db.example", &pg), "as user:[redacted]@db.example");
+        assert_eq!(scrub("mongodb+srv://u:p@cluster.example/x", &[]), "mongodb+srv://[redacted]@cluster.example/x");
+    }
+
+    #[test]
+    fn credential_shaped_url_parts_are_scrubbed_from_any_text() {
+        let text = scrub("fetch https://user:pw@host/p?token=abc&x=1 failed", &[]);
+        assert_eq!(text, "fetch https://[redacted]@host/p?token=[redacted]&x=1 failed");
     }
 }
 

@@ -206,6 +206,8 @@ pub struct McpServer {
     died: ArcSwapOption<Ready>,
     /// One failure-driven reconnect at a time (`reconnects.run(registryKey, …)`).
     reconnecting: tokio::sync::Semaphore,
+    /// The service advert the last connect of an `autoDetect` server dialled: the one a refused connect distrusts.
+    advert: Mutex<Option<crate::config::AutoDetectAdvert>>,
     /// Test seam: the transport that serves a server whose identity (`config`) is a remote one, so a replay can drive the real
     /// call path of a server the core never reaches over the network.
     #[cfg(feature = "test-support")]
@@ -511,6 +513,7 @@ impl McpServer {
             scope_root: Arc::default(),
             died: ArcSwapOption::empty(),
             reconnecting: tokio::sync::Semaphore::new(1),
+            advert: Mutex::new(None),
             #[cfg(feature = "test-support")]
             stand_in: None,
         })
@@ -661,11 +664,24 @@ impl McpServer {
             }
             Err(error) => {
                 let client = opened.lock().unwrap_or_else(|e| e.into_inner()).take();
-                // A failed handshake carries what the server wrote to stderr (`runBoundedHandshake`).
                 let mut message = error.to_string();
+                // A pid-live advert whose port refuses the connect is a corpse (a recycled pid): the next connect does
+                // not trust it again (`runBoundedHandshake`).
+                let code = match &error {
+                    ConnectError::Transport(error) => error.os_code(),
+                    ConnectError::Rpc(RpcError::Transport(_, code)) => *code,
+                    _ => None,
+                };
+                if let Some(advert) = self.advert.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+                    && code.is_some_and(crate::config::connection_refused)
+                {
+                    crate::config::mark_service_unreachable(advert);
+                }
+                // A failed handshake carries what the server wrote to stderr (`runBoundedHandshake`), read once the
+                // closed transport's stream ended, its last unterminated line included.
                 if let Some(client) = client {
-                    message = append_stderr_tail(&message, &client.transport().stderr_tail());
                     client.close().await;
+                    message = append_stderr_tail(&message, &client.transport().stderr_tail());
                 }
                 let cause = scrub(&message, &self.secrets);
                 crate::config::daemon_line(&format!("[mcp-server] name={} connect failed: {cause}", self.name()));
@@ -687,7 +703,7 @@ impl McpServer {
         #[cfg(not(feature = "test-support"))]
         let transport = &self.config.transport;
         match transport {
-            TransportConfig::Stdio { command, args, env, cwd } => {
+            TransportConfig::Stdio { command, args, env, cwd, stderr } => {
                 let (transport, rx) = StdioTransport::spawn(
                     self.io.spawn,
                     StdioSpec {
@@ -696,9 +712,22 @@ impl McpServer {
                         env,
                         cwd: cwd.as_deref(),
                         shutdown_grace: self.config.shutdown_grace,
+                        name: self.name(),
+                        secrets: &self.secrets,
+                        stderr,
+                        log: if crate::config::log_quiet() { None } else { crate::config::daemon_log() },
                     },
                 )
                 .await?;
+                Ok((Arc::new(transport), rx))
+            }
+            // The advert is read at each connect (`createMcpTransport`): a service restarted on another port is found.
+            TransportConfig::AutoDetect(target) => {
+                let resolved = target.resolve(self.name());
+                let advert = resolved.as_ref().ok().map(|(_, advert)| advert.clone());
+                *self.advert.lock().unwrap_or_else(|e| e.into_inner()) = advert;
+                let (url, _) = resolved.map_err(|error| TransportError::Other(error.to_string()))?;
+                let (transport, rx) = HttpTransport::new(url, &std::collections::BTreeMap::new(), None)?;
                 Ok((Arc::new(transport), rx))
             }
             TransportConfig::Http { url, headers } => {
@@ -1072,7 +1101,7 @@ impl McpServer {
         };
         let tail = match &first {
             CallError::Rpc(RpcError::Closed(tail)) => Some(tail.clone()),
-            CallError::Rpc(RpcError::Transport(_)) => Some(String::new()),
+            CallError::Rpc(RpcError::Transport(..)) => Some(String::new()),
             _ => None,
         };
         let Some(tail) = tail.filter(|_| !cancel.is_cancelled()) else {

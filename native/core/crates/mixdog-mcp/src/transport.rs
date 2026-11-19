@@ -53,6 +53,10 @@ pub enum TransportError {
     Http { status: u16, body: String },
     #[error("request failed: {0}")]
     Request(String),
+    /// A request whose socket failed with a system error, shown as [`Request`](Self::Request) is, with the error's code
+    /// (`ECONNREFUSED`) beside it.
+    #[error("request failed: {message}")]
+    Socket { message: String, code: &'static str },
     #[error("the {0} transport is not supported")]
     Unsupported(&'static str),
     /// The server needs a sign-in that cannot be completed without the user.
@@ -60,6 +64,16 @@ pub enum TransportError {
     AuthRequired,
     #[error("{0}")]
     Other(String),
+}
+
+impl TransportError {
+    /// The system error code of a failed socket, if that is what failed.
+    pub fn os_code(&self) -> Option<&'static str> {
+        match self {
+            Self::Socket { code, .. } => Some(*code),
+            _ => None,
+        }
+    }
 }
 
 /// Authorization of requests to one remote server (MCP OAuth). The token is sent only to the
@@ -76,7 +90,8 @@ pub trait Authorizer: Send + Sync {
     /// success.
     fn answered(&self, _sent: Option<&str>) {}
     /// The token ttempted was refused, renewed, and the renewed one was refused too.
-    fn refused_after_renewal(&self, _attempted: Option<&str>) {}
+    /// `challenge` is the `WWW-Authenticate` value of that last refusal.
+    fn refused_after_renewal(&self, _attempted: Option<&str>, _challenge: Option<&str>) {}
 
     fn sign_in_required(&self) -> bool { false }
 }

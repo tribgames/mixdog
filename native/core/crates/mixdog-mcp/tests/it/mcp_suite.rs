@@ -75,6 +75,28 @@ async fn call(server: &Arc<McpServer>, tool: &str, args: Value) -> Result<String
     let out = server.call_tool("t1", tool, args, &CancellationToken::new(), None).await?;
     Ok(text_of(&out.parts))
 }
+/// An `autoDetect` server reads its service's advert at each connect (`createMcpTransport`), so a service that started or
+/// moved since the config was read is found; an advert whose port refuses the connect is not trusted again.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_auto_detect_server_reads_the_advert_at_each_connect() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("runtime");
+    std::fs::create_dir_all(root.join("discovery")).unwrap();
+    let env = [("MIXDOG_RUNTIME_ROOT".to_owned(), root.display().to_string())].into_iter().collect();
+    let config = McpServerConfig::from_entry("memory", &json!({"autoDetect": "mixdog-memory"}), &env).unwrap();
+    let spiller = Spiller::new(dir.path().join("artifacts"), io().durability);
+    let server = McpServer::new(config, io(), spiller, OutputPolicy::default(), None);
+    let missing = server.connect().await.unwrap_err().to_string();
+    assert!(missing.contains("live service advert missing"), "{missing}");
+    let closed_port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    std::fs::write(root.join("discovery").join("memory.json"), format!(r#"{{"port": {closed_port}, "updatedAt": 1}}"#)).unwrap();
+    let refused = server.connect().await.unwrap_err().to_string();
+    assert!(!refused.contains("advert missing"), "the advert written since is dialled: {refused}");
+    let distrusted = server.connect().await.unwrap_err().to_string();
+    assert!(distrusted.contains("live service advert missing"), "the refused advert is not trusted again: {distrusted}");
+    server.close().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn lists_every_page_and_calls_a_tool() {
     let dir = tempfile::tempdir().unwrap();
@@ -356,6 +378,7 @@ async fn a_hung_or_missing_server_never_blocks_another() {
         args: Vec::new(),
         env: std::env::vars().collect(),
         cwd: None,
+        stderr: "pipe".to_owned(),
     };
     hub.apply(vec![config("good", json!({"timeoutMs": 0, "outbound": {"echo": "message"}})), config("busy", json!({"timeoutMs": 0})), missing]);
     for name in ["good", "busy", "missing"] {

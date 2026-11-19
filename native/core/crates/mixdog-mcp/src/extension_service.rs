@@ -277,8 +277,6 @@ impl PluginsService {
     }
 
     async fn update_plugin(&self, params: &Value, thread: Option<&str>) -> Result<Value, CoreError> {
-        // Windows refuses to rename a directory holding an open recursive skill watch, so drop the
-        // watchers before the root is swapped.
         self.host.invalidate_skills();
         let key = plugin_key(field(params, "plugin")).map_err(|m| domain_error("plugins", m))?;
         let admin = Arc::clone(&self.admin);

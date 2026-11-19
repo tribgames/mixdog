@@ -51,7 +51,7 @@ serde_yaml = { workspace = true }
 sha1 = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt", "sync", "time", "process", "io-util", "macros", "net"] }
+tokio = { workspace = true, features = ["rt", "sync", "time", "process", "io-util", "macros", "net", "signal"] }
 tokio-tungstenite = { workspace = true, features = ["connect", "handshake", "rustls-tls-native-roots"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }

@@ -42,6 +42,7 @@ use crate::config::transport_kind;
 use crate::connector_accounts::AccountHealth;
 use crate::connector_accounts::Health;
 use crate::connector_accounts::in_use_account;
+use crate::connector_model::AccountTarget;
 use crate::connector_model::account_enabled;
 use crate::connector_model::account_server;
 use crate::connector_model::account_servers;
@@ -543,7 +544,7 @@ pub fn skill_watch_targets(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf
                     Ok(config) => out.push(config),
                     Err(error) => {
                         if cfg.get("enabled") != Some(&Value::Bool(false)) {
-                            bad.insert(name.clone(), error.to_string());
+                            bad.insert(name.clone(), crate::config::scrub(&error.to_string(), &[]));
                         }
                     }
                 }
@@ -904,20 +905,41 @@ impl ScopeConfigs for GlueConfigs {
         }
     }
 }
+/// Why server or account `name` of `servers` may not be signed in: it, or the connector server holding it, is switched off.
+fn disabled_for_sign_in(servers: &Map<String, Value>, name: &str) -> Option<String> {
+    let off = |cfg: &Value| cfg.get("enabled") == Some(&Value::Bool(false));
+    match account_target(servers, name) {
+        Some(target) if off(&target.cfg) => Some(format!("MCP server is disabled: {}", target.server_name)),
+        Some(target) if !crate::connector_model::account_enabled(&target.account) => Some(format!("MCP server is disabled: {name}")),
+        Some(_) => None,
+        None => servers.get(name).filter(|cfg| off(cfg)).map(|_| format!("MCP server is disabled: {name}")),
+    }
+}
+
+/// The configuration server or account `name` of `servers` signs in with (named after it), and its account if it is
+/// one; refused when it, or the connector server holding it, is switched off or gone.
+fn sign_in_target(servers: &Map<String, Value>, name: &str) -> Result<(Option<AccountTarget>, Value), String> {
+    if let Some(refusal) = disabled_for_sign_in(servers, name) {
+        return Err(refusal);
+    }
+    let account = account_target(servers, name);
+    let mut named = match &account {
+        Some(target) => target.account_cfg.clone(),
+        None => servers.get(name).cloned().ok_or_else(|| format!("MCP server not configured: {name}"))?,
+    };
+    if let Some(map) = named.as_object_mut() {
+        map.insert("name".to_owned(), json!(name));
+    }
+    Ok((account, named))
+}
+
 #[async_trait]
 impl LoginBackend for Bridge {
     async fn start(&self, name: &str, mode: AccountMode, beside: bool) -> Result<Started, String> {
         let glue = self.0.upgrade().ok_or("the MCP runtime is gone")?;
+        // The catalog read here may be newer than the one the request was checked against.
         let catalog = glue.resolve_catalog().await;
-        let account = account_target(&catalog.servers, name);
-        let cfg = match &account {
-            Some(target) => target.account_cfg.clone(),
-            None => catalog.servers.get(name).cloned().ok_or_else(|| format!("MCP server not configured: {name}"))?,
-        };
-        let mut named = cfg.clone();
-        if let Some(map) = named.as_object_mut() {
-            map.insert("name".to_owned(), json!(name));
-        }
+        let (account, named) = sign_in_target(&catalog.servers, name)?;
         // 연결 / 다시 인증 of a signed-in server: its stored sign-in (refreshed as needed) is tried first.
         let signed_in = glue.oauth_value(&named).await.is_some_and(|s| s["signedIn"] == json!(true));
         if signed_in && mode != AccountMode::Switch {
@@ -927,8 +949,20 @@ impl LoginBackend for Bridge {
             }
         }
         // The server need not be connected: its sign-in is the one its credential key names (Node reads it from the config too).
-        let oauth = glue.oauth_of(&named).ok_or_else(|| format!("MCP server \"{name}\" does not use OAuth sign-in"))?;
-        let started = if beside || mode == AccountMode::Switch { oauth.login_flow_beside(name, mode).start().await } else { oauth.login_flow(name, mode).start().await };
+        let no_oauth = || format!("MCP server \"{name}\" does not use OAuth sign-in");
+        glue.oauth_of(&named).ok_or_else(no_oauth)?;
+        // `authorizedFetch`: the login starts from the challenge the server answers its own transport's request with now (a
+        // 403 asking for more scope included), so a server that is not signed in is asked once more, through that transport.
+        if !signed_in {
+            glue.reconnect_one(name).await;
+        }
+        // The account, or its connector server, may have been switched off while it reconnected: what signs in is what
+        // the configuration holds now, and nothing that was switched off is contacted.
+        let (_, named) = sign_in_target(&glue.resolve_catalog().await.servers, name)?;
+        // The connection just made holds the refusal of its own endpoint.
+        let oauth = glue.oauth_of(&named).ok_or_else(no_oauth)?;
+        let flow = if beside || mode == AccountMode::Switch { oauth.login_flow_beside(name, mode) } else { oauth.login_flow(name, mode) };
+        let started = flow.with_challenge(oauth.refusal_challenge().as_deref()).start().await;
         match started {
             Ok(session) => Ok(Started::Browser(session)),
             Err(mixdog_core_api::domain::login::LoginError::Failed(LoginFailure::Failed { message, .. })) => Err(message),
@@ -1007,8 +1041,8 @@ pub struct StatusInput<'a> {
 }
 
 fn transport_label(cfg: &Value) -> String {
-    if let Some(detect) = cfg.get("autoDetect").filter(|d| truthy(d)) {
-        return format!("autoDetect:{}", mixdog_js::value_to_string(detect));
+    if cfg.get("autoDetect").is_some_and(|d| truthy(d)) {
+        return format!("autoDetect:{}", crate::config::auto_detect_target(cfg));
     }
     match transport_kind(cfg) {
         Ok(TransportKind::Stdio) => "stdio",
@@ -1635,6 +1669,44 @@ mod probe_tests {
     use super::*;
     use tokio::io::AsyncReadExt;
     use tokio::io::AsyncWriteExt;
+
+    /// The status shows an unknown `autoDetect` target as its error does: scrubbed.
+    #[test]
+    fn an_auto_detect_target_is_shown_scrubbed() {
+        let cfg = json!({"autoDetect": "https://user:hunter2@host.example/x?token=abc123"});
+        let shown = "https://[redacted]@host.example/x?token=[redacted]";
+        assert_eq!(transport_label(&cfg), format!("autoDetect:{shown}"));
+        let error = McpServerConfig::from_entry("x", &cfg, &Env::new()).unwrap_err().to_string();
+        assert_eq!(error, format!("Unknown autoDetect target: \"{shown}\""));
+    }
+
+    /// The sign-in itself refuses a switched-off account or one whose connector server is switched off, whatever the
+    /// request was checked against.
+    #[test]
+    fn a_sign_in_refuses_a_disabled_account_or_parent() {
+        let servers = |enabled: bool| {
+            json!({"linear": {"connector": "linear", "enabled": enabled, "url": "https://mcp.linear.app/mcp", "accounts": [
+                {"name": "work", "url": "https://mcp.linear.app/mcp", "enabled": false},
+                {"name": "home", "url": "https://mcp.linear.app/mcp"},
+            ]}, "plain": {"url": "https://x.example/mcp", "enabled": false}})
+            .as_object()
+            .cloned()
+            .unwrap()
+        };
+        assert_eq!(disabled_for_sign_in(&servers(true), "work").as_deref(), Some("MCP server is disabled: work"));
+        assert_eq!(disabled_for_sign_in(&servers(true), "home"), None);
+        assert_eq!(disabled_for_sign_in(&servers(false), "home").as_deref(), Some("MCP server is disabled: linear"));
+        assert_eq!(disabled_for_sign_in(&servers(true), "plain").as_deref(), Some("MCP server is disabled: plain"));
+
+        // What the sign-in proceeds with is read again after its reconnect: an account switched off meanwhile is refused.
+        let (account, named) = sign_in_target(&servers(true), "home").unwrap();
+        assert_eq!(account.map(|a| a.server_name).as_deref(), Some("linear"));
+        assert_eq!((named["name"].as_str(), named["url"].as_str()), (Some("home"), Some("https://mcp.linear.app/mcp")));
+        let mut switched_off = servers(true);
+        switched_off["linear"]["accounts"][1]["enabled"] = json!(false);
+        assert_eq!(sign_in_target(&switched_off, "home").err().as_deref(), Some("MCP server is disabled: home"));
+        assert_eq!(sign_in_target(&servers(true), "gone").err().as_deref(), Some("MCP server not configured: gone"));
+    }
 
     /// The server answers the first request with a 401 and then never answers: the discovery that
     /// follows runs out of the one deadline, which is "no answer", not "offers no OAuth sign-in".

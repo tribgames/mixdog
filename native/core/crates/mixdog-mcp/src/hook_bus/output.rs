@@ -134,10 +134,10 @@ pub fn parse_handler_output(run: &HandlerRun, event: &str) -> Parsed {
         if EXIT2_BLOCK_EVENTS.contains(&event) {
             out.block = true;
             let stderr = limit_text(js_trim(&run.stderr).to_owned());
-            // A Stop block without a reason carries none: the agent loop ignores it with a warning.
+            // A Stop or SubagentStop block without a reason carries none: the agent loop ignores it with a warning.
             out.reason = if !stderr.is_empty() {
                 Some(stderr)
-            } else if event == "Stop" {
+            } else if stop_event(event) {
                 None
             } else {
                 Some(format!("blocked by {event} hook"))
@@ -190,8 +190,8 @@ pub fn parse_handler_output(run: &HandlerRun, event: &str) -> Parsed {
         let text = non_empty(json.get("reason")).or_else(|| out.reason.clone().filter(|r| !r.is_empty()));
         out.reason = match text {
             Some(t) => Some(limit_text(t)),
-            // A Stop block without a reason stays reasonless so the agent loop ignores it with a warning.
-            None if event == "Stop" => None,
+            // A Stop or SubagentStop block without a reason stays reasonless so the agent loop ignores it with a warning.
+            None if stop_event(event) => None,
             None => Some(format!("blocked by {event} hook")),
         };
     }
@@ -265,6 +265,11 @@ pub fn parse_handler_output(run: &HandlerRun, event: &str) -> Parsed {
         }
     }
     out
+}
+
+/// The events whose block continues a turn the model ended.
+fn stop_event(event: &str) -> bool {
+    matches!(event, "Stop" | "SubagentStop")
 }
 
 fn js_string(value: &Value) -> String {
@@ -402,11 +407,14 @@ mod tests {
     /// PreToolUse keeps its default.
     #[test]
     fn a_stop_block_without_a_reason_has_none() {
-        for out in [r#"{"decision":"block"}"#, r#"{"decision":"block","reason":""}"#] {
-            let parsed = parse_handler_output(&run(0, out, ""), "Stop");
-            assert!(parsed.block && parsed.reason.is_none(), "{out}: {parsed:?}");
+        for event in ["Stop", "SubagentStop"] {
+            for out in [r#"{"decision":"block"}"#, r#"{"decision":"block","reason":""}"#] {
+                let parsed = parse_handler_output(&run(0, out, ""), event);
+                assert!(parsed.block && parsed.reason.is_none(), "{event} {out}: {parsed:?}");
+            }
+            let parsed = parse_handler_output(&run(2, "", ""), event);
+            assert!(parsed.block && parsed.reason.is_none(), "{event}: {parsed:?}");
         }
-        assert!(parse_handler_output(&run(2, "", ""), "Stop").reason.is_none());
         assert_eq!(parse_handler_output(&run(0, r#"{"decision":"block","reason":"r"}"#, ""), "Stop").reason.as_deref(), Some("r"));
         assert_eq!(parse_handler_output(&run(0, r#"{"decision":"block"}"#, ""), "PreToolUse").reason.as_deref(), Some("blocked by PreToolUse hook"));
     }

@@ -60,8 +60,8 @@ impl Authorizer for NoticingAuthorizer {
     }
 
     /// The retry was refused again (oauth-request.mjs:131: `if (attemptedToken) signInExpired`).
-    fn refused_after_renewal(&self, attempted: Option<&str>) {
-        self.inner.refused_after_renewal(attempted);
+    fn refused_after_renewal(&self, attempted: Option<&str>, challenge: Option<&str>) {
+        self.inner.refused_after_renewal(attempted, challenge);
         if attempted.is_some() {
             self.notices.expired(&self.server);
         }

@@ -292,7 +292,12 @@ impl HookBus {
                 text("command")?;
                 let cwd = Path::new(payload.get("cwd").and_then(Value::as_str).unwrap_or_default());
                 let plugin_data = handler.plugin_data.clone().unwrap_or_else(|| self.data_dir.clone());
-                let ctx = CommandContext { project_dir: cwd, project_exists: loaded.project_exists, plugin_data_dir: &plugin_data, payload, event };
+                let report_detached = self.observer.clone().map(|observer| {
+                    let name = error_name.to_owned();
+                    Arc::new(move |error: String| observer.emit("hook:error", json!({"name": name, "error": format!("hook spawn failed: {error}")})))
+                        as runners::DetachedReport
+                });
+                let ctx = CommandContext { project_dir: cwd, project_exists: loaded.project_exists, plugin_data_dir: &plugin_data, payload, event, report_detached };
                 Some(self.commands.run(handler, &ctx).await)
             }
             "http" => {
@@ -431,6 +436,16 @@ impl HookBus {
         let mut payload = base_payload(event, session_id, cwd, common);
         payload.insert("agent_type".into(), agent_type.filter(|a| !a.is_empty()).map_or(Value::Null, |a| json!(a)));
         self.dispatch(event, Value::Object(payload), cwd).await;
+    }
+
+    /// `SubagentStop` fired by the worker's loop when its model ends the turn: the verdict, for the
+    /// loop to continue on a block like `Stop`. `stop_hook_active` is `true` on every continuation a
+    /// block already made in the turn.
+    pub async fn subagent_stop(&self, session_id: &str, agent_type: &str, cwd: &Path, common: &HookCommon, stop_hook_active: bool) -> Dispatched {
+        let mut payload = base_payload("SubagentStop", session_id, cwd, common);
+        payload.insert("agent_type".into(), if agent_type.is_empty() { Value::Null } else { json!(agent_type) });
+        payload.insert("stop_hook_active".into(), json!(stop_hook_active));
+        self.dispatch("SubagentStop", Value::Object(payload), cwd).await
     }
 
     /// `PreCompact` / `PostCompact` (the session's `preCompactHook` / `postCompactHook`):

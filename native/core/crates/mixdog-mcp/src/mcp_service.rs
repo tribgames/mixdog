@@ -923,9 +923,13 @@ impl McpService {
             if account.cfg.get("enabled") == Some(&Value::Bool(false)) {
                 return Err(format!("MCP server is disabled: {}", account.server_name));
             }
+            let account_name = account.account.as_ref().map(|a| text(field(a, "name"))).unwrap_or_default();
+            // A switched-off account is neither connected nor signed in (`connectorLiveAccountServers`).
+            if account.account.as_ref().is_some_and(|a| !crate::connector_model::account_enabled(a)) {
+                return Err(format!("MCP server is disabled: {account_name}"));
+            }
             // Beside the stored sign-in, whatever the mode: the account's server keeps running meanwhile.
             options.insert("beside".to_owned(), json!(true));
-            let account_name = account.account.as_ref().map(|a| text(field(a, "name"))).unwrap_or_default();
             return self.runtime.begin_login(&account_name, &Value::Object(options)).await;
         }
         options.shift_remove("beside");

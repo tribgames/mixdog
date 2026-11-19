@@ -380,3 +380,90 @@ async fn sign_in_connect_refresh_and_sign_out() {
     assert_eq!(separate.token().await.unwrap().as_deref(), Some("t1"));
     hub.close_all().await;
 }
+
+/// The sign-in follows the whole challenge the server refused its own transport's request with — a 403 asking for more
+/// scope as much as a 401 (`authorizedFetch`): its discovery asks the resource metadata that challenge names, and the
+/// authorization asks for the scope it names. A request answered afterwards clears the refusal.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sign_in_starts_from_the_challenge_of_the_refused_transport_request() {
+    let _seams = crate::oauth_seams().await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let base = format!("http://127.0.0.1:{port}");
+        loop {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let base = base.clone();
+            tokio::spawn(async move {
+                let (_, path, _, _) = read_request(&mut stream).await;
+                let json_header = [("content-type", "application/json".to_owned())];
+                match path.as_str() {
+                    "/scoped-metadata" => {
+                        let doc = json!({"resource": format!("{base}/mcp"), "authorization_servers": [base]});
+                        respond(&mut stream, "200 OK", &json_header, &doc.to_string()).await;
+                    }
+                    "/.well-known/oauth-authorization-server" => {
+                        let doc = json!({
+                            "issuer": base,
+                            "authorization_endpoint": format!("{base}/authorize"),
+                            "token_endpoint": format!("{base}/token"),
+                            "registration_endpoint": format!("{base}/register"),
+                            "code_challenge_methods_supported": ["S256"],
+                        });
+                        respond(&mut stream, "200 OK", &json_header, &doc.to_string()).await;
+                    }
+                    "/register" => respond(&mut stream, "201 Created", &json_header, &json!({"client_id": "cid"}).to_string()).await,
+                    _ => {
+                        let hint = format!("Bearer error=\"insufficient_scope\", scope=\"files\", resource_metadata=\"{base}/scoped-metadata\"");
+                        respond(&mut stream, "403 Forbidden", &[("www-authenticate", hint)], "").await;
+                    }
+                }
+            });
+        }
+    });
+
+    let tokens = mixdog_rt::testing::tokens();
+    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
+    let dir = tempfile::tempdir().unwrap();
+    let env = OAuthEnv { store: Arc::new(MemoryStore::default()), plugin_data: dir.path().to_path_buf(), io: io.durability };
+    let hub = McpHub::new(io, dir.path().join("artifacts"), OutputPolicy::default());
+    hub.set_oauth_env(env);
+    let entry = json!({"url": format!("http://127.0.0.1:{port}/mcp")});
+    hub.apply(vec![McpServerConfig::from_entry("acme", &entry, &Default::default()).unwrap()]);
+    let server = hub.server("acme").unwrap();
+    let mut states = server.subscribe();
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. })))
+        .await
+        .unwrap()
+        .unwrap();
+
+    let oauth = hub.oauth("acme").unwrap();
+    let challenge = oauth.refusal_challenge().expect("the refusal of the transport's request is kept");
+    assert!(challenge.contains("insufficient_scope"), "{challenge}");
+    let session = hub.login_flow("acme", AccountMode::Connect).unwrap().with_challenge(Some(&challenge)).start().await.unwrap();
+    let authorize = mixdog_rt::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            match session.next().await.expect("an authorize state") {
+                LoginState::Authorize { url, .. } => break Url::parse(&url).unwrap(),
+                LoginState::Starting => {}
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+    })
+    .await
+    .expect("the authorization page in 10 s");
+    let query: HashMap<String, String> = authorize.query_pairs().into_owned().collect();
+    assert_eq!(authorize.path(), "/authorize", "found through the metadata the 403 named");
+    assert_eq!(query.get("scope").map(String::as_str), Some("files"), "{authorize}");
+    oauth.answered(None);
+    assert_eq!(oauth.refusal_challenge(), None, "an answered request clears the refusal");
+
+    // A renewed token refused with another challenge: the explicit sign-in answers that last one.
+    let first = "Bearer scope=\"files\"";
+    let last = "Bearer error=\"insufficient_scope\", scope=\"files admin\"";
+    let _ = oauth.renew(Some("old".to_owned()), Some(first.to_owned())).await;
+    assert_eq!(oauth.refusal_challenge().as_deref(), Some(first));
+    oauth.refused_after_renewal(Some("old"), Some(last));
+    assert_eq!(oauth.refusal_challenge().as_deref(), Some(last), "the last refusal's challenge is kept");
+    hub.close_all().await;
+}

@@ -3,6 +3,7 @@
 #![allow(clippy::disallowed_methods, reason = "test fixtures write and inspect directories directly")]
 
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -22,12 +23,23 @@ use mixdog_rt::TaskClass;
 use mixdog_rt::ThreadKind;
 use tokio::sync::Notify;
 
-/// Refuses the first `refuse` submits (the lane is full), drops the next `drop_jobs` accepted
-/// jobs unrun (the lane lost them), and runs everything else inline.
+/// Refuses the first `refuse` submits (the lane is full), runs the next `pass` accepted jobs, then
+/// drops the next `drop_jobs` accepted jobs unrun (the lane lost them), and runs everything else
+/// inline, the next one after `between` (a change made between two jobs).
 struct FlakyLane {
     refuse: AtomicUsize,
+    pass: AtomicUsize,
     drop_jobs: AtomicUsize,
+    between: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     freed: Arc<Notify>,
+}
+
+impl FlakyLane {
+    /// Runs `change` after the next job (the scan a load starts with) and before the one after it (the read).
+    fn after_the_scan(&self, change: impl FnOnce() + Send + 'static) {
+        self.pass.store(1, Ordering::SeqCst);
+        *self.between.lock().unwrap() = Some(Box::new(change));
+    }
 }
 
 fn take(counter: &AtomicUsize) -> bool {
@@ -45,8 +57,15 @@ impl Backend for FlakyLane {
         if take(&self.refuse) {
             return Err(LaneFull { lane: job.lane() });
         }
+        if take(&self.pass) {
+            job.run();
+            return Ok(());
+        }
         if take(&self.drop_jobs) {
             return Ok(());
+        }
+        if let Some(change) = self.between.lock().unwrap().take() {
+            change();
         }
         job.run();
         Ok(())
@@ -74,7 +93,13 @@ fn catalog(data: &std::path::Path, root: &std::path::Path, tokens: &mixdog_rt::L
 
 #[tokio::test]
 async fn a_full_or_lossy_lane_is_waited_out_or_reported_never_hidden_as_empty_data() {
-    let lane = Arc::new(FlakyLane { refuse: AtomicUsize::new(0), drop_jobs: AtomicUsize::new(0), freed: Arc::new(Notify::new()) });
+    let lane = Arc::new(FlakyLane {
+        refuse: AtomicUsize::new(0),
+        pass: AtomicUsize::new(0),
+        drop_jobs: AtomicUsize::new(0),
+        between: Mutex::new(None),
+        freed: Arc::new(Notify::new()),
+    });
     let tokens = mixdog_rt::install(lane.clone()).unwrap();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("skills");
@@ -105,15 +130,23 @@ async fn a_full_or_lossy_lane_is_waited_out_or_reported_never_hidden_as_empty_da
     assert!(matches!(lossy.skills().await, Err(CatalogError::Dropped(_))));
     assert_eq!(lossy.skills().await.expect("the next scan succeeds").len(), 1);
 
+    // No watch covers these roots, so no list is kept and every load scans before it reads.
     // A read the lane drops is an error, not "not found".
+    lane.pass.store(1, Ordering::SeqCst);
     lane.drop_jobs.store(1, Ordering::SeqCst);
     assert!(matches!(lossy.load("demo", cwd).await, Err(CatalogError::Dropped(_))));
     assert!(matches!(lossy.load("demo", cwd).await, Ok(SkillLoad::Loaded(_))));
 
-    // A file that cannot be read is an error; one removed since the scan is "not found".
-    std::fs::remove_file(&file).unwrap();
-    std::fs::create_dir(&file).unwrap();
+    // A file that cannot be read since the scan is an error; one removed since the scan is "not found".
+    let unreadable = file.clone();
+    lane.after_the_scan(move || {
+        std::fs::remove_file(&unreadable).unwrap();
+        std::fs::create_dir(&unreadable).unwrap();
+    });
     assert!(matches!(lossy.load("demo", cwd).await, Err(CatalogError::Read(_))));
     std::fs::remove_dir(&file).unwrap();
+    std::fs::write(&file, "---\nname: demo\ndescription: d\n---\n\nbody\n").unwrap();
+    let removed = file.clone();
+    lane.after_the_scan(move || std::fs::remove_file(&removed).unwrap());
     assert!(matches!(lossy.load("demo", cwd).await, Ok(SkillLoad::NotFound)));
 }
