@@ -20,6 +20,7 @@ import type {
   SessionSnapshot,
 } from '../shared/contract';
 import { t } from './i18n';
+import { useConversationReleaseHold } from './conversation-release';
 import { hasSendablePromptContent, shouldStopComposerGeneration } from './renderer-logic.mjs';
 import type { CommandSurface as CommandSurfaceName, SettingsSection } from './slash-commands';
 import { touchPrimaryPointer } from './surface-input-focus';
@@ -501,6 +502,17 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     submissionRecoveryVersion,
     dropTargetRef,
   });
+  // A composer not at rest keeps the conversation: text, chips, a history
+  // recall whose original draft and chips live only in its seed, or a failed
+  // submission whose id is kept for an idempotent retry. A send in flight is
+  // the conversation's pending prompt.
+  useConversationReleaseHold(
+    () =>
+      draftRef.current.length > 0 ||
+      attachmentsRef.current.length > 0 ||
+      history.navigation.current.index >= 0 ||
+      submissionRetryRef.current !== null
+  );
   // Attachment, slash-usage and submission failures surface as error toasts;
   // the state is consumed so the same failure can raise a toast again.
   useEffect(() => {

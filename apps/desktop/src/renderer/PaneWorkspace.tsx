@@ -16,6 +16,7 @@ import { useMobileRemoteSurface } from './mobile-surface';
 import { DownloadSessionContext } from './project-file-download';
 import { PaneKeyContext } from './pane-key-context';
 import { SurfaceActiveContext } from './surface-activity';
+import { ConversationReleaseContext } from './conversation-release';
 import { registerComposerPresenter } from './composer-text-inbox';
 import { PaneSplitLayout } from './PaneSplitLayout';
 import {
@@ -284,7 +285,11 @@ export function PaneWorkspace({
   const { focusedLeafId } = workspace;
   const multi = workspace.leaves.length > 1;
   const { currentPaneSurfaces, paneSurfaceHandoffs } = usePaneSurfaceHandoffs(workspace.leaves);
-  const { conversationLeaves } = usePaneConversationOwners(workspace, paneSurfaceHandoffs, RETAINED_CONVERSATIONS);
+  const { conversationLeaves, releaseGateFor } = usePaneConversationOwners(
+    workspace,
+    paneSurfaceHandoffs,
+    RETAINED_CONVERSATIONS
+  );
   // Text sent to the composer (Settings → compose) lands in the focused
   // pane's conversation, brought to the front when a file or utility tab
   // parks it; a pane without one hands it to a pane that shows one. Retained
@@ -330,6 +335,7 @@ export function PaneWorkspace({
               timer. The context reaches past the frozen RetainedConversation,
               so every owner below releases what it holds the moment it hides. */}
           <SurfaceActiveContext.Provider value={!parked && !retained}>
+            <ConversationReleaseContext.Provider value={releaseGateFor(owner)}>
             <RetainedConversation retained={retained}>
               <PaneKeyContext.Provider value={leaf.id}>
                 {renderConversation(
@@ -342,6 +348,7 @@ export function PaneWorkspace({
                 )}
               </PaneKeyContext.Provider>
             </RetainedConversation>
+            </ConversationReleaseContext.Provider>
           </SurfaceActiveContext.Provider>
         </PersistentPanePortal>
       );

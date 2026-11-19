@@ -21,9 +21,11 @@ import {
   type QuestionAction,
   type QuestionDraft,
   type QuestionAnswer,
+  questionDraftAnswered,
   questionReducer,
   type QuestionState,
 } from './question-card-logic';
+import { useConversationReleaseHold } from './conversation-release';
 
 export type QuestionDecision = { approved: boolean; reason?: string; answers?: QuestionAnswer[] };
 
@@ -121,6 +123,9 @@ export function QuestionCard({
   // Enter / ← are keyboard hints; a touch-only phone has the buttons instead.
   const phone = usePhoneSurfaceMarked();
   if (draftsRef) draftsRef.current = stateRef.current.drafts;
+  // Picks or a typed answer not sent yet keep the conversation: every card
+  // answers for itself, a handed-off session's card included.
+  useConversationReleaseHold(() => stateRef.current.drafts.some(questionDraftAnswered));
   const apply = useCallback(
     (action: QuestionAction) => {
       stateRef.current = questionReducer(stateRef.current, action);

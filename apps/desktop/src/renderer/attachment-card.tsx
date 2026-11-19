@@ -16,6 +16,7 @@ import {
 } from './file-thumbnail-art';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
+import { sha256Hex } from './sha256';
 
 type AttachmentCardKind = 'image' | 'pasted' | 'text' | 'pdf' | 'office';
 
@@ -38,12 +39,20 @@ function attachmentCardType(
 // Rendered first pages of attached PDFs, by their base64 data: a card that
 // re-renders, or the same file in the composer and the sent message, reuses
 // one rasterization. Bounded; failures stay cached so they never retry in a loop.
+// Keyed by the attachment's trusted identity, else the SHA-256 of its data:
+// a key of the base64 itself kept every recent PDF's bytes alive after its
+// card and message were gone, and a short hash let one PDF show another's page.
 // Exported so tests can seed a page without rasterizing a PDF.
 const PDF_PAGE_CACHE_LIMIT = 12;
 export const pdfPages = new Map<string, Promise<string>>();
 
-function pdfFirstPage(data: string): Promise<string> {
-  let page = pdfPages.get(data);
+export function pdfPageKey(data: string, contentId?: string): Promise<string> {
+  return contentId ? Promise.resolve(`id:${contentId}`) : sha256Hex(data).then((digest) => `sha256:${digest}`);
+}
+
+async function pdfFirstPage(data: string, contentId: string | undefined): Promise<string> {
+  const key = await pdfPageKey(data, contentId);
+  let page = pdfPages.get(key);
   if (!page) {
     page = import('unpdf').then(({ renderPageAsImage }) =>
       renderPageAsImage(
@@ -52,7 +61,7 @@ function pdfFirstPage(data: string): Promise<string> {
         { width: 176, toDataURL: true }
       )
     );
-    pdfPages.set(data, page);
+    pdfPages.set(key, page);
     while (pdfPages.size > PDF_PAGE_CACHE_LIMIT) pdfPages.delete(pdfPages.keys().next().value!);
   }
   return page;
@@ -60,11 +69,11 @@ function pdfFirstPage(data: string): Promise<string> {
 
 /** First page of an attached PDF, rendered in the renderer (no file path
  *  exists for it); the drawn sheet stands in until it arrives or if it fails. */
-function PdfFirstPage({ data, tone }: { data: string; tone: FileTone }) {
+function PdfFirstPage({ data, contentId, tone }: { data: string; contentId?: string; tone: FileTone }) {
   const [page, setPage] = useState({ data: '', src: '' });
   useEffect(() => {
     let active = true;
-    pdfFirstPage(data).then(
+    pdfFirstPage(data, contentId).then(
       (src) => {
         if (active) setPage({ data, src });
       },
@@ -73,7 +82,7 @@ function PdfFirstPage({ data, tone }: { data: string; tone: FileTone }) {
     return () => {
       active = false;
     };
-  }, [data]);
+  }, [data, contentId]);
   return page.data === data && page.src ? (
     <span className="attachment-card-frame">
       <img className="file-page" src={page.src} alt="" />
@@ -112,6 +121,7 @@ export function AttachmentCard({
   tooltip,
   imageUrl,
   content,
+  contentId,
   meta,
   menu,
   onOpen,
@@ -128,6 +138,9 @@ export function AttachmentCard({
   /** What the thumbnail is drawn from: the text of a text or pasted card, the
    *  base64 data of a PDF. Without it the card shows the drawn sheet. */
   content?: string;
+  /** An identity that always names this same `content` (a sent attachment's
+   *  message and token); without one the content's SHA-256 stands for it. */
+  contentId?: string;
   meta?: string;
   /** Context-menu handlers from `useAttachmentContextMenu().menuProps`. */
   menu?: HTMLAttributes<HTMLElement>;
@@ -173,7 +186,7 @@ export function AttachmentCard({
           <ContentMinimap text={text} prose={type.prose} />
         </span>
       );
-    else if (kind === 'pdf' && content) thumbnail = <PdfFirstPage data={content} tone={type.tone} />;
+    else if (kind === 'pdf' && content) thumbnail = <PdfFirstPage data={content} contentId={contentId} tone={type.tone} />;
     if (!tooltip && meta) hover = pasted ? label : `${name} · ${meta}`;
     const parts = (
       <>

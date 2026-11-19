@@ -25,14 +25,19 @@ async function mountPhoneWorkspace(t, { phone = true } = {}) {
   };
   dom.window.cancelAnimationFrame = (id) => pendingFrames.delete(id);
   const host = document.getElementById('root');
-  const [{ PaneWorkspace }, { createPaneLeaf }, { useSurfaceActive }, { useComposerExternalDraft }] = await Promise.all(
-    [
-      import('./PaneWorkspace.tsx'),
-      import('./pane-layout.ts'),
-      import('./surface-activity.ts'),
-      import('./use-composer-external-draft.ts'),
-    ]
-  );
+  const [
+    { PaneWorkspace },
+    { createPaneLeaf },
+    { useSurfaceActive },
+    { useComposerExternalDraft },
+    { ConversationReleaseContext, useConversationReleaseHold },
+  ] = await Promise.all([
+    import('./PaneWorkspace.tsx'),
+    import('./pane-layout.ts'),
+    import('./surface-activity.ts'),
+    import('./use-composer-external-draft.ts'),
+    import('./conversation-release.ts'),
+  ]);
   const noop = () => {};
   // Each conversation's draft, and what the workspace was asked to show.
   const drafts = new Map();
@@ -43,8 +48,13 @@ async function mountPhoneWorkspace(t, { phone = true } = {}) {
   // Which conversations heard a window key: the composer's window listeners
   // (dictation, cards, menus) bind only while their conversation is shown.
   const heardKeys = [];
+  // Sessions whose conversation says it holds unfinished work, and each one's gate.
+  const unfinished = new Set();
+  const gates = new Map();
   function Conversation({ id, focused }) {
     renders.set(id, (renders.get(id) ?? 0) + 1);
+    gates.set(id, React.useContext(ConversationReleaseContext));
+    useConversationReleaseHold(() => unfinished.has(id));
     React.useLayoutEffect(() => {
       live.add(id);
       return () => live.delete(id);
@@ -81,6 +91,13 @@ async function mountPhoneWorkspace(t, { phone = true } = {}) {
   return {
     host,
     renders,
+    unfinished,
+    /** The session's conversation finished its work: its part re-asks, as a commit would. */
+    finish: (id) =>
+      act(async () => {
+        unfinished.delete(id);
+        gates.get(id)?.changed();
+      }),
     leafOf,
     drafts,
     workspaceCalls,
@@ -220,6 +237,57 @@ test('a desktop pane keeps its recent sessions mounted and switches back by visi
   await view.flushFrame();
   assert.deepEqual(view.mountedSessions(), ['a', 'c', 'd']);
   assert.equal(view.host.ownerDocument.querySelectorAll('.conversation-persistent-surface').length, 3);
+});
+
+test('an idle window gives back its retained conversations and keeps the shown one', async (t) => {
+  const view = await mountPhoneWorkspace(t, { phone: false });
+  const { _runIdleReclaimForTest } = await import('./idle-reclaim.ts');
+  const tabs = [A, B, C];
+  for (const active of [A, B, C]) {
+    await view.render(tabs, active);
+    await view.flushFrame();
+  }
+  assert.deepEqual(view.mountedSessions(), ['a', 'b', 'c']);
+  const shown = view.conversation('c');
+
+  await act(async () => _runIdleReclaimForTest());
+  assert.deepEqual(view.mountedSessions(), ['c'], 'the retained sessions unmount');
+  assert.equal(view.conversation('c'), shown, 'the shown session is not remounted');
+
+  await view.render(tabs, A);
+  await view.flushFrame();
+  assert.deepEqual(view.mountedSessions(), ['a', 'c'], 'switching on retains again');
+});
+
+test('a retained conversation holding unfinished work stays through idle until it is done', async (t) => {
+  const view = await mountPhoneWorkspace(t, { phone: false });
+  const { _runIdleReclaimForTest } = await import('./idle-reclaim.ts');
+  const tabs = [A, B, C];
+  for (const active of [A, B, C]) {
+    await view.render(tabs, active);
+    await view.flushFrame();
+  }
+  view.unfinished.add('a');
+  await act(async () => _runIdleReclaimForTest());
+  assert.deepEqual(view.mountedSessions(), ['a', 'c'], 'the idle one goes, the one holding work stays');
+  await view.finish('a');
+  assert.deepEqual(view.mountedSessions(), ['c'], 'released once it says it may be');
+});
+
+test('a held conversation shown again before it finishes is not released afterwards', async (t) => {
+  const view = await mountPhoneWorkspace(t, { phone: false });
+  const { _runIdleReclaimForTest } = await import('./idle-reclaim.ts');
+  const tabs = [A, B];
+  for (const active of [A, B]) {
+    await view.render(tabs, active);
+    await view.flushFrame();
+  }
+  view.unfinished.add('a');
+  await act(async () => _runIdleReclaimForTest());
+  await view.render(tabs, A);
+  await view.render(tabs, B);
+  await view.finish('a');
+  assert.deepEqual(view.mountedSessions(), ['a', 'b'], 'the pending release ended when it was shown');
 });
 
 test('a phone keeps the real composer mounted through a conversation entry and a cold switch', async (t) => {

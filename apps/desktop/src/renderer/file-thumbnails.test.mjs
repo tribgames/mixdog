@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
-import { AttachmentCard, pdfPages } from './attachment-card.tsx';
+import { AttachmentCard, pdfPageKey, pdfPages } from './attachment-card.tsx';
 import {
   codeMinimapLines,
   codeStrokes,
@@ -217,9 +217,108 @@ test('table summary keeps a quoted multiline field in one cell (CSV and TSV)', (
   });
 });
 
+/** Settles until `done()` holds (a digest resolves off the main thread). */
+async function settleUntil(done) {
+  for (let step = 0; step < 50 && !done(); step++) await settle();
+}
+
+const pageSrc = (dom) => dom.window.document.querySelector('img.file-page')?.getAttribute('src') ?? null;
+
+test("the PDF page cache does not keep the PDF's bytes once its card is gone", async () => {
+  const { root, restore } = mount({});
+  const content = `JVBERi0x${'A'.repeat(4096)}`;
+  const key = await pdfPageKey(content);
+  try {
+    await act(async () => root.render(React.createElement(AttachmentCard, { kind: 'pdf', name: 'big.pdf', content })));
+    await settleUntil(() => pdfPages.has(key));
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+  assert.ok(pdfPages.has(key), 'the page is cached');
+  assert.ok(
+    [...pdfPages.keys()].every((cached) => cached.length < 100),
+    'no key holds the base64 data'
+  );
+});
+
+test("two PDFs a short hash cannot tell apart never share a first page", async () => {
+  // Equal length and equal 32-bit FNV-1a: a length-plus-FNV key gave B the page of A.
+  const [first, second] = ['JVBERi0xq9cCAA', 'JVBERi0xmHADAA'];
+  assert.notEqual(await pdfPageKey(first), await pdfPageKey(second));
+  pdfPages.set(await pdfPageKey(first), Promise.resolve('data:image/png;base64,PAGE-A'));
+  const { dom, root, restore } = mount({});
+  try {
+    await act(async () =>
+      root.render(React.createElement(AttachmentCard, { kind: 'pdf', name: 'b.pdf', content: second }))
+    );
+    const key = await pdfPageKey(second);
+    await settleUntil(() => pdfPages.has(key));
+    await settle();
+    assert.notEqual(pageSrc(dom), 'data:image/png;base64,PAGE-A');
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+test('a PDF card with a trusted identity is cached under it, not under its bytes', async () => {
+  pdfPages.set(await pdfPageKey('', 'msg-7\0file-1'), Promise.resolve('data:image/png;base64,SENT'));
+  const { dom, root, restore } = mount({});
+  try {
+    await act(async () =>
+      root.render(
+        React.createElement(AttachmentCard, {
+          kind: 'pdf',
+          name: 'sent.pdf',
+          content: 'JVBERi0xsent',
+          contentId: 'msg-7\0file-1',
+        })
+      )
+    );
+    await settleUntil(() => pageSrc(dom) !== null);
+    assert.equal(pageSrc(dom), 'data:image/png;base64,SENT');
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+test("a sent PDF's card is cached under its message and token", async () => {
+  const [{ registerSentAttachments, sentAttachmentIdentity }, { TranscriptRow }] = await Promise.all([
+    import('./attachment-menu.ts'),
+    import('./transcript-row.tsx'),
+  ]);
+  const token = '[PDF #1: report.pdf]';
+  registerSentAttachments('sent-pdf-1', [
+    {
+      token,
+      kind: 'pdf',
+      name: 'report.pdf',
+      mimeType: 'application/pdf',
+      data: Buffer.from('%PDF-1.4 sent').toString('base64'),
+    },
+  ]);
+  pdfPages.set(
+    await pdfPageKey('', sentAttachmentIdentity('sent-pdf-1', token)),
+    Promise.resolve('data:image/png;base64,SENT-PAGE')
+  );
+  const { dom, root, restore } = mount({});
+  try {
+    await act(async () =>
+      root.render(React.createElement(TranscriptRow, { item: { kind: 'user', id: 'sent-pdf-1', text: token } }))
+    );
+    await settleUntil(() => pageSrc(dom) !== null);
+    assert.equal(pageSrc(dom), 'data:image/png;base64,SENT-PAGE');
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
 test('attachment cards draw content thumbnails over a name bar, with no gradient or tag pill', async () => {
   const { dom, root, restore } = mount({});
-  pdfPages.set('JVBERi0=', Promise.resolve('data:image/png;base64,PAGE'));
+  pdfPages.set(await pdfPageKey('JVBERi0='), Promise.resolve('data:image/png;base64,PAGE'));
   try {
     await act(async () =>
       root.render(

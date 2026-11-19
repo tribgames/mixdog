@@ -16,7 +16,7 @@ export type QuestionPrimary = 'skip' | 'next' | 'send' | 'close';
 
 export const emptyDraft = (): QuestionDraft => ({ selected: [], text: '' });
 
-function isAnswered(draft: QuestionDraft | undefined): boolean {
+export function questionDraftAnswered(draft: QuestionDraft | undefined): boolean {
   return Boolean(draft && (draft.selected.length > 0 || draft.text.trim()));
 }
 
@@ -64,15 +64,15 @@ export function questionReducer(state: QuestionState, action: QuestionAction): Q
  *  last question with nothing answered anywhere), an answer moves on or sends. */
 export function primaryAction(drafts: QuestionDraft[], index: number): QuestionPrimary {
   const last = index >= drafts.length - 1;
-  if (isAnswered(drafts[index])) return last ? 'send' : 'next';
+  if (questionDraftAnswered(drafts[index])) return last ? 'send' : 'next';
   if (!last) return 'skip';
-  return drafts.some(isAnswered) ? 'send' : 'close';
+  return drafts.some(questionDraftAnswered) ? 'send' : 'close';
 }
 
 export function buildAnswers(questions: Question[], drafts: QuestionDraft[]): QuestionAnswer[] {
   return questions.map((question, index) => {
     const draft = drafts[index];
-    if (!isAnswered(draft)) return null;
+    if (!questionDraftAnswered(draft)) return null;
     const text = draft.text.trim();
     if (text) return { selected: [], text };
     return { selected: draft.selected.map((value) => question.options[value]?.label ?? '').filter(Boolean) };
