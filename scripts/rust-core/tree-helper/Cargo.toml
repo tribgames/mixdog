@@ -11,7 +11,7 @@ description = "Runs one program as the root of a tree that is ended whole: scrip
 
 [target.'cfg(windows)'.dependencies]
 win32job = "2"
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_Console"] }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1", default-features = false, features = ["std", "process", "event", "fs"] }

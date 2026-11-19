@@ -6,7 +6,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-export const KINDS = ['coverage-manifest', 'coverage-inventory-errors', 'evidence', 'rust-lists', 'core-tests', 'mixdogd-dev'];
+export const KINDS = ['coverage-manifest', 'coverage-inventory-errors', 'evidence', 'rust-lists', 'core-tests', 'mixdogd-dev', 'desktop-out'];
 
 /** The artifact name of a gate call. */
 export const artifactName = (kind, { gate, sha, detail }) => [kind, `${gate}-${sha}`, detail].filter((part) => part !== undefined).join('-');

@@ -221,11 +221,13 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           # The slow Node lanes also need the dev programs; core-select adds them independently for the entry tests.
           MIXDOGD_DEV: ${{ steps.paths.outputs.desktop_tests == 'true' || steps.paths.outputs.runtime == 'true' }}
+          # The Windows leg (desktop-computer) boots the built app against this run's Windows dev daemon.
+          MIXDOGD_WINDOWS: ${{ steps.paths.outputs.desktop_tests == 'true' || steps.paths.outputs.desktop_computer == 'true' }}
           RUSTUP_TOOLCHAIN: ${{ steps.rust-pin.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
-          args=(--changed /tmp/changed --mixdogd-dev "$MIXDOGD_DEV")
+          args=(--changed /tmp/changed --mixdogd-dev "$MIXDOGD_DEV" --mixdogd-windows "$MIXDOGD_WINDOWS")
           if [[ "$EVENT_NAME" != pull_request ]]; then args+=(--all); fi
           node scripts/ci/core-select.mjs "${args[@]}" | tee -a "$GITHUB_OUTPUT"
 
@@ -660,9 +662,10 @@ jobs:
         with:
           name: ${{ format('{0}-computer-1of1', startsWith(matrix.runner, 'ubuntu') && 'linux' || startsWith(matrix.runner, 'macos') && 'macos' || 'windows') }}
 
+  # Also built for a helper-only change: the Windows boot test in desktop-computer runs the bundle this job leaves.
   desktop:
     needs: changes
-    if: needs.changes.outputs.desktop == 'true'
+    if: needs.changes.outputs.desktop == 'true' || needs.changes.outputs.desktop_computer == 'true'
     timeout-minutes: 15
     runs-on: ubuntu-22.04
     env:
@@ -804,27 +807,34 @@ jobs:
         with:
           path: apps/desktop/out
           key: ${{ steps.desktop-out.outputs.cache-primary-key }}
+      # The Windows app-start boot (desktop-computer) runs this exact bundle rather than building it again.
+      - name: Hand the desktop output to the Windows boot
+        if: needs.changes.outputs.desktop_css_only != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: desktop-out-${{ env.GATE_KEY }}
+          overwrite: true
+          path: apps/desktop/out
+          retention-days: 1
+          if-no-files-found: error
 
   # Every *.test.mjs under apps/desktop runs here by existing. The fast lane is
   # split in three; the slow lane (*.slow.test.mjs, git-cli owns minutes of real
   # git process work) is its own job (desktop-slow) because it drives the mixdogd
   # the Rust build job produces; the gate finishes at the longest of them.
+  # Depends on nothing a producer builds, so its receipts do not wait on or die with the Windows boot's inputs (desktop-computer).
   desktop-tests:
     needs: changes
-    if: >-
-      needs.changes.outputs.desktop_tests == 'true' || needs.changes.outputs.desktop_computer == 'true'
+    if: needs.changes.outputs.desktop_tests == 'true'
     timeout-minutes: 15
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-22.04
     env:
-      MIXDOG_LEG: ${{ matrix.lane == 'fast' && format('linux/desktop-fast/{0}of3', matrix.shard) || 'windows/desktop-computer/1of1' }}
-      MIXDOG_LEG_OS: ${{ matrix.lane == 'fast' && 'linux' || 'windows' }}
+      MIXDOG_LEG: linux/desktop-fast/${{ matrix.shard }}of3
+      MIXDOG_LEG_OS: linux
     strategy:
       fail-fast: false
-      # A helper-only PR needs the Windows consumer, not the Linux fast shards.
-      matrix: >-
-        ${{ fromJSON(needs.changes.outputs.desktop_tests == 'true'
-        && '{"include":[{"runner":"ubuntu-22.04","lane":"fast","shard":1},{"runner":"ubuntu-22.04","lane":"fast","shard":2},{"runner":"ubuntu-22.04","lane":"fast","shard":3},{"runner":"windows-latest","lane":"computer"}]}'
-        || '{"include":[{"runner":"windows-latest","lane":"computer"}]}') }}
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -861,15 +871,9 @@ jobs:
             ~/Library/Caches/electron
             ~/AppData/Local/electron/Cache
           key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron-key.outputs.key }}
-      # The Computer Use suites import only node builtins and local .ts
-      # modules, so the Windows leg skips the heavy root install
-      # (sharp/onnxruntime/tesseract) — the slowest step on the slowest runner.
-      # test-env.mjs treats a missing root tree as "nothing to compare".
       # The two installs are independent trees, so they run side by side; each
       # is waited on by its own PID so either failure fails the step.
       - name: Install dependencies
-        env:
-          LANE: ${{ matrix.lane }}
         shell: bash
         run: |
           npm_ci() {
@@ -885,17 +889,13 @@ jobs:
           # parallel test files never race to download it on first use.
           { npm_ci --prefix apps/desktop && node apps/desktop/node_modules/electron/install.js; } &
           desktop_pid=$!
-          root_pid=
-          if [[ "$LANE" != computer ]]; then
-            npm_ci &
-            root_pid=$!
-          fi
+          npm_ci &
+          root_pid=$!
           status=0
           wait "$desktop_pid" || status=1
-          if [[ -n "$root_pid" ]]; then wait "$root_pid" || status=1; fi
+          wait "$root_pid" || status=1
           exit "$status"
       - name: Run the desktop fast lane (shard ${{ matrix.shard }}/3)
-        if: matrix.lane == 'fast'
         shell: bash
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/desktop-fast.json
@@ -903,19 +903,112 @@ jobs:
         run: npm test --prefix apps/desktop -- --expose-gc --test-shard=${{ matrix.shard }}/3
       # A skipped or todo test outside scripts/ci/coverage/exceptions.json fails the job (check-skips.mjs).
       - name: Check that no test of the desktop fast lane skipped outside the reviewed list
-        if: matrix.lane == 'fast'
         shell: bash
         env:
           MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/desktop-fast.json
         run: node scripts/ci/check-skips.mjs receipts "$MIXDOG_RECEIPT"
+      - name: Save the Electron download
+        if: github.event_name != 'pull_request' && steps.electron.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/electron
+            ~/Library/Caches/electron
+            ~/AppData/Local/electron/Cache
+          key: ${{ steps.electron.outputs.cache-primary-key }}
+      - name: Upload the evidence of this leg
+        uses: ./.github/actions/upload-evidence
+        with:
+          name: linux-desktop-fast-${{ matrix.shard }}of3
+
+  # The Windows computer leg, and the real offscreen boot (app-start.electron.test.mjs, in its electron lane): the built app of
+  # `desktop` against the Windows mixdogd of `core-build`, neither built again here. It is its own job so that producer
+  # dependencies gate only this leg and never the independent Linux fast receipts above.
+  desktop-computer:
+    needs: [changes, desktop, core-build]
+    if: needs.changes.outputs.desktop_tests == 'true' || needs.changes.outputs.desktop_computer == 'true'
+    timeout-minutes: 15
+    runs-on: windows-latest
+    env:
+      MIXDOG_LEG: windows/desktop-computer/1of1
+      MIXDOG_LEG_OS: windows
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: ./.github/actions/setup-node-ci
+        with:
+          cache-dependency-path: |
+            package-lock.json
+            apps/desktop/package-lock.json
+      - name: Read the repository Rust toolchain
+        id: rust-pin
+        shell: bash
+        run: echo "version=$(sed -n 's/^channel = "\([^" ]*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ steps.rust-pin.outputs.version }}
+      - name: Resolve Electron download key
+        id: electron-key
+        shell: bash
+        run: |
+          key=$(node scripts/dependency-lock-cache-key.mjs apps/desktop/package-lock.json)
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+      - name: Restore the Electron download
+        id: electron
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/AppData/Local/electron/Cache
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.electron-key.outputs.key }}
+      # The Computer Use suites import only node builtins and local .ts modules, so this leg skips the heavy root install
+      # (sharp/tesseract). The boot's dev core install needs two things from the root tree: onnxruntime-node (its library) and
+      # pptxgenjs/jszip, the sources of the four data/pptxgenjs files `writeDevInstall` requires in the package root. test-env.mjs
+      # treats a root tree without the rest as "nothing to compare".
+      - name: Install dependencies
+        shell: bash
+        run: |
+          npm_ci() {
+            local attempt
+            for attempt in 1 2 3; do
+              npm ci "$@" --prefer-offline --no-audit --no-fund && return 0
+              echo "npm ci $* failed (attempt ${attempt}/3)" >&2
+              sleep $((attempt * 10))
+            done
+            return 1
+          }
+          node scripts/ci/lock-subset.mjs ci-boot-subset onnxruntime-node pptxgenjs jszip
+          { npm_ci --prefix apps/desktop && node apps/desktop/node_modules/electron/install.js; } &
+          desktop_pid=$!
+          npm_ci --prefix ci-boot-subset --ignore-scripts &
+          root_pid=$!
+          status=0
+          wait "$desktop_pid" || status=1
+          wait "$root_pid" || status=1
+          exit "$status"
+      - name: Stage the root packages and the PPTX runtime files the dev core install reads
+        shell: bash
+        run: |
+          cp -R ci-boot-subset/node_modules node_modules
+          node --input-type=module -e "import { copyPptxgenjsData } from './apps/desktop/scripts/stage-js-bundle.mjs'; await copyPptxgenjsData({ modulesDir: 'node_modules', packageDir: '.' });"
+          test -f node_modules/onnxruntime-node/package.json
+          for file in pptxgen.cjs.js jszip.min.js LICENSE-pptxgenjs LICENSE-jszip.markdown; do test -f "data/pptxgenjs/$file"; done
       - name: Build the native Computer Use helper
-        if: matrix.lane == 'computer'
         shell: bash
         run: cargo build --locked --manifest-path native/mixdog-computer/Cargo.toml --bin mixdog-computer --target-dir native/mixdog-computer/target
+      - name: Download the Windows mixdogd of this run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: mixdogd-dev-${{ env.GATE_KEY }}-windows
+          path: mixdogd-dev
+      - name: Download the built desktop app of this run
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: desktop-out-${{ env.GATE_KEY }}
+          path: apps/desktop/out
       - name: Run the Computer Use suites on Windows
-        if: matrix.lane == 'computer'
         shell: bash
         env:
+          MIXDOGD_BIN: ${{ github.workspace }}/mixdogd-dev/mixdogd.exe
           RECEIPTS: ${{ runner.temp }}/receipts
           MIXDOG_COMPUTER_BIN: ${{ github.workspace }}/native/mixdog-computer/target/debug/mixdog-computer.exe
         # One receipt per invocation (scripts/ci/receipt.mjs): each command leaves its own, and the check below names all five.
@@ -938,7 +1031,6 @@ jobs:
       # A skipped or todo test outside scripts/ci/coverage/exceptions.json fails the job, and so does a receipt that is missing,
       # incomplete or empty (check-skips.mjs).
       - name: Check that no test of the Windows Computer Use suites skipped outside the reviewed list
-        if: matrix.lane == 'computer'
         shell: bash
         env:
           RECEIPTS: ${{ runner.temp }}/receipts
@@ -950,15 +1042,12 @@ jobs:
         if: github.event_name != 'pull_request' && steps.electron.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            ~/.cache/electron
-            ~/Library/Caches/electron
-            ~/AppData/Local/electron/Cache
+          path: ~/AppData/Local/electron/Cache
           key: ${{ steps.electron.outputs.cache-primary-key }}
       - name: Upload the evidence of this leg
         uses: ./.github/actions/upload-evidence
         with:
-          name: ${{ matrix.lane == 'fast' && format('linux-desktop-fast-{0}of3', matrix.shard) || 'windows-desktop-computer-1of1' }}
+          name: windows-desktop-computer-1of1
 
   # The desktop's slow lane. The remote-protocol slow replays start a real core
   # (MIXDOGD_BIN): the mixdogd of this run's Linux core-build (mixdog-cli/dev-controls,
@@ -1742,7 +1831,7 @@ jobs:
         if: matrix.mixdogd
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: mixdogd-dev-${{ env.GATE_KEY }}
+          name: mixdogd-dev-${{ env.GATE_KEY }}${{ matrix.os == 'windows' && '-windows' || '' }}
           overwrite: true
           # One folder of the three programs: desktop-slow takes mixdogd from it, runtime-slow points MIXDOG_TEST_NATIVE_DIR at it.
           path: |
@@ -2224,7 +2313,7 @@ jobs:
   # added to the graph without its line fails the gate's own test.
   complete:
     if: always()
-    needs: [changes, inventory, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, desktop-slow, relay, relay-rust, spawn, packages, patch, graph, browser-import, secure-desktop, window, mobile-scripts, core-build, core-tests, core-pg, core-lint, core-real]
+    needs: [changes, inventory, runtime, runtime-slow, runtime-macos, computer-backend, desktop, desktop-tests, desktop-computer, desktop-slow, relay, relay-rust, spawn, packages, patch, graph, browser-import, secure-desktop, window, mobile-scripts, core-build, core-tests, core-pg, core-lint, core-real]
     timeout-minutes: 5
     runs-on: ubuntu-22.04
     steps:
@@ -2240,6 +2329,7 @@ jobs:
           COMPUTER_BACKEND: ${{ needs.computer-backend.result }}
           DESKTOP: ${{ needs.desktop.result }}
           DESKTOP_TESTS: ${{ needs.desktop-tests.result }}
+          DESKTOP_COMPUTER: ${{ needs.desktop-computer.result }}
           DESKTOP_SLOW: ${{ needs.desktop-slow.result }}
           RELAY: ${{ needs.relay.result }}
           RELAY_RUST: ${{ needs.relay-rust.result }}
@@ -2260,8 +2350,9 @@ jobs:
           SEL_RUNTIME_SLOW: ${{ needs.changes.outputs.runtime == 'true' }}
           SEL_RUNTIME_MACOS: ${{ needs.changes.outputs.runtime == 'true' }}
           SEL_COMPUTER_BACKEND: ${{ needs.changes.outputs.computer == 'true' }}
-          SEL_DESKTOP: ${{ needs.changes.outputs.desktop == 'true' }}
-          SEL_DESKTOP_TESTS: ${{ needs.changes.outputs.desktop_tests == 'true' || needs.changes.outputs.desktop_computer == 'true' }}
+          SEL_DESKTOP: ${{ needs.changes.outputs.desktop == 'true' || needs.changes.outputs.desktop_computer == 'true' }}
+          SEL_DESKTOP_TESTS: ${{ needs.changes.outputs.desktop_tests == 'true' }}
+          SEL_DESKTOP_COMPUTER: ${{ needs.changes.outputs.desktop_tests == 'true' || needs.changes.outputs.desktop_computer == 'true' }}
           SEL_DESKTOP_SLOW: ${{ needs.changes.outputs.desktop == 'true' && needs.changes.outputs.desktop_css_only != 'true' }}
           SEL_RELAY: ${{ needs.changes.outputs.relay == 'true' }}
           SEL_RELAY_RUST: ${{ needs.changes.outputs.relay == 'true' }}
@@ -2297,6 +2388,7 @@ jobs:
           gate computer-backend "$SEL_COMPUTER_BACKEND" "$COMPUTER_BACKEND"
           gate desktop "$SEL_DESKTOP" "$DESKTOP"
           gate desktop-tests "$SEL_DESKTOP_TESTS" "$DESKTOP_TESTS"
+          gate desktop-computer "$SEL_DESKTOP_COMPUTER" "$DESKTOP_COMPUTER"
           gate desktop-slow "$SEL_DESKTOP_SLOW" "$DESKTOP_SLOW"
           gate relay "$SEL_RELAY" "$RELAY"
           gate relay-rust "$SEL_RELAY_RUST" "$RELAY_RUST"

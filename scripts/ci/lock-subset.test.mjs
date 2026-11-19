@@ -73,8 +73,9 @@ test('an entry without an integrity hash fails, and so does a required peer the 
 
 test("the repository's own lockfile yields the packages the Rust office tests read", () => {
   const read = (name) => JSON.parse(readFileSync(new URL(`../../${name}`, import.meta.url), 'utf8'));
-  const { lock: sub } = lockSubset({ lock: read('package-lock.json'), manifest: read('package.json'), names: ['pptxgenjs', 'jszip'] });
+  const { manifest: subsetManifest, lock: sub } = lockSubset({ lock: read('package-lock.json'), manifest: read('package.json'), names: ['pptxgenjs', 'jszip'] });
   for (const key of ['node_modules/pptxgenjs', 'node_modules/jszip', 'node_modules/image-size']) assert.ok(sub.packages[key], key);
+  assert.equal(subsetManifest.overrides?.pptxgenjs?.['image-size'], sub.packages['node_modules/image-size'].version);
   assert.equal(sub.packages['node_modules/sharp'], undefined);
   // pptxgenjs, jszip and their 16 dependencies; a changed count is a changed closure worth looking at
   assert.equal(Object.keys(sub.packages).length - 1, 18);

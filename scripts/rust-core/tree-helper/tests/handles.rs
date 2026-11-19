@@ -14,7 +14,7 @@ use std::os::windows::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
-use windows::Win32::Foundation::{CloseHandle, GetHandleInformation, HANDLE, WAIT_OBJECT_0};
+use windows::Win32::Foundation::{CloseHandle, GetHandleInformation, SetHandleInformation, HANDLE, HANDLE_FLAGS, HANDLE_FLAG_INHERIT, WAIT_OBJECT_0};
 use windows::Win32::System::JobObjects::{
     CreateJobObjectW, JobObjectBasicAccountingInformation, QueryInformationJobObject, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
 };
@@ -55,16 +55,36 @@ fn inspect_as_program() {
 
 #[test]
 fn the_program_holds_no_job_and_no_process_handle() {
-    // The check is not vacuous: a process that holds one of each counts them.
-    // SAFETY: the two handles are created here and closed below.
-    let (job, process) = unsafe { (CreateJobObjectW(None, windows::core::PCWSTR::null()).unwrap(), OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, true, GetCurrentProcessId()).unwrap()) };
+    // The caller (this test) holds an inheritable job and an inheritable process handle, both benign local resources, for
+    // the whole run: the helper's `CreateProcessW` is called with bInheritHandles=TRUE, so unless the helper clears the
+    // flag on its copies, the program would inherit them. They also make the check not vacuous: a process holding one of
+    // each counts them.
+    struct Caller(HANDLE, HANDLE);
+    impl Drop for Caller {
+        fn drop(&mut self) {
+            // SAFETY: the two handles are created below and closed only here.
+            unsafe {
+                let _ = CloseHandle(self.0);
+                let _ = CloseHandle(self.1);
+            }
+        }
+    }
+    // SAFETY: the two handles are created here and closed by `Caller`.
+    let caller = unsafe {
+        let job = CreateJobObjectW(None, windows::core::PCWSTR::null()).unwrap();
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, true, GetCurrentProcessId()).unwrap();
+        SetHandleInformation(job, HANDLE_FLAG_INHERIT.0, HANDLE_FLAG_INHERIT).unwrap();
+        Caller(job, process)
+    };
     let (jobs, processes) = count_handles();
     assert!(jobs >= 1 && processes >= 1, "control: jobs={jobs} processes={processes}");
-    // SAFETY: closing the handles opened above.
-    unsafe {
-        let _ = CloseHandle(job);
-        let _ = CloseHandle(process);
-    }
+    // SAFETY: both handles are this process's own and open.
+    let inheritable = |handle: HANDLE| unsafe {
+        let mut flags = 0u32;
+        GetHandleInformation(handle, &mut flags).unwrap();
+        flags & HANDLE_FLAG_INHERIT.0 != 0
+    };
+    assert!(inheritable(caller.0) && inheritable(caller.1), "control: the caller's handles must be inheritable");
 
     // CREATE_NO_WINDOW: a test run without a console (a detached runner) would otherwise give the helper a console window.
     let mut helper = Command::new(env!("CARGO_BIN_EXE_treerun"))
@@ -94,6 +114,7 @@ fn the_program_holds_no_job_and_no_process_handle() {
     let (stdout, stderr) = (pipe(stdout, "stdout"), pipe(stderr, "stderr"));
     assert!(status.success(), "{stdout}{stderr}");
     assert!(stdout.contains("HANDLES jobs=0 processes=0"), "{stdout}");
+    drop(caller);
 }
 
 const HELPER_DEADLINE_MS: u32 = 60_000;

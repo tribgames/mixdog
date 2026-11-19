@@ -18,7 +18,7 @@
 // Owned test paths also propagate: a test filename does not prevent another crate
 // from compiling it with #[path]. Dynamic external readers are not narrowed by guesses.
 //
-// Usage: node scripts/ci/core-select.mjs --changed <file with one path per line> [--all] [--mixdogd-dev true|false]
+// Usage: node scripts/ci/core-select.mjs --changed <file with one path per line> [--all] [--mixdogd-dev true|false] [--mixdogd-windows true|false]
 //          [--metadata <cargo metadata json>] [--root <repository root>]
 import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -96,7 +96,7 @@ export function readWorkspace({ root, metadata }) {
   }));
 }
 
-export function selectCore({ root, changed, all = false, mixdogdDev = false, metadata }) {
+export function selectCore({ root, changed, all = false, mixdogdDev = false, mixdogdWindows = false, metadata }) {
   const crates = readWorkspace({ root, metadata });
   const byName = new Map(crates.map((crate) => [crate.name, crate]));
   const owner = (path) =>
@@ -255,10 +255,12 @@ export function selectCore({ root, changed, all = false, mixdogdDev = false, met
 
   // The Linux entry scenarios run from the archive and drive the dev daemon even when no Node lane needs it.
   const needsMixdogdDev = mixdogdDev || selected.some((crate) => crate.name === 'mixdog-entry');
-  const build = SYSTEMS.filter((system) => scope !== 'none' || (needsMixdogdDev && system.os === 'linux')).map((system) => ({
+  // The Windows hidden-window app boot (desktop-computer) starts the app against this run's Windows dev daemon.
+  const wantsDaemon = (system) => (needsMixdogdDev && system.os === 'linux') || (mixdogdWindows && system.os === 'windows');
+  const build = SYSTEMS.filter((system) => scope !== 'none' || wantsDaemon(system)).map((system) => ({
     ...system,
     tests: scope !== 'none',
-    mixdogd: needsMixdogdDev && system.os === 'linux',
+    mixdogd: wantsDaemon(system),
   }));
   const test = [];
   if (scope !== 'none') {
@@ -291,6 +293,7 @@ function parseArgs(argv) {
     if (arg === '--all') out.all = true;
     else if (arg === '--changed') out.changed = argv[++i];
     else if (arg === '--mixdogd-dev') out.mixdogdDev = argv[++i] === 'true';
+    else if (arg === '--mixdogd-windows') out.mixdogdWindows = argv[++i] === 'true';
     else if (arg === '--metadata') out.metadata = argv[++i];
     else if (arg === '--root') out.root = argv[++i];
     else throw new Error(`unknown argument ${arg}`);
@@ -307,6 +310,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     changed,
     all: args.all,
     mixdogdDev: args.mixdogdDev,
+    mixdogdWindows: args.mixdogdWindows,
     metadata: args.metadata ? JSON.parse(readFileSync(args.metadata, 'utf8')) : undefined,
   });
   const { reasons, ...outputs } = result;

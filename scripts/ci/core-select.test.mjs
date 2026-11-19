@@ -172,6 +172,13 @@ test('an empty diff still builds the Linux daemon needed by desktop replay', () 
     [['linux', true, true], ['macos', true, false], ['windows', true, false]]);
 });
 
+test('the Windows boot asks for the Windows dev daemon alone, beside the archive when there is one', () => {
+  const shape = (result) => JSON.parse(result.build_matrix).include.map((entry) => [entry.os, entry.tests, entry.mixdogd]);
+  assert.deepEqual(shape(select([], { mixdogdWindows: true })), [['windows', false, true]]);
+  assert.deepEqual(shape(select(['native/core/crates/delta/src/lib.rs'], { mixdogdWindows: true })),
+    [['linux', true, false], ['macos', true, false], ['windows', true, true]]);
+});
+
 test('an archive with the entry tests requests the Linux dev daemon without either slow Node lane', () => {
   file('native/core/crates/mixdog-entry/tests/node_free.rs', '#[test]\n#[ignore]\nfn entry() {}\n');
   const withEntry = { packages: [...metadata.packages, crate('mixdog-entry')] };

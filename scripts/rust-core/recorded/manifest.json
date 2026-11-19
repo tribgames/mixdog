@@ -1,0 +1,18 @@
+{
+  "lanes_build_messages.jsonl": {
+    "command": "cargo test -p mixdog-tools --locked --no-run --message-format=json (cwd native/core)",
+    "keeps": "the compiler-artifact message of the lib test target mixdog_tools; paths repository-relative, executable replaced by <test binary>",
+    "purpose": "reference capture of a compiler-artifact message, not an input to the public lanes test"
+  },
+  "lanes_list_fs_tests.json": {
+    "command": "the lib test binary of mixdog_tools, --list fs::tests (cwd native/core/crates/mixdog-tools)",
+    "keeps": "libtest's list output as printed",
+    "purpose": "reference capture of libtest list output, not an input to the public lanes test"
+  },
+  "node_tool_failure_row.json": {
+    "capture": "Recorded with the private record-node-tool-failure-row.mjs harness against Node's tool-failure writer at b6f10295a",
+    "keeps": "the row Node writes for a failed read call",
+    "used by": "smoke-mixdogd.mjs (NODE_ROW)"
+  },
+  "provenance": "The original recorder and slow drift test are local-only; a public checkout can inspect these captures but does not include those tools."
+}

@@ -82,7 +82,7 @@
       "id": "windows/desktop-computer/1of1",
       "os": "windows",
       "workflow": "release-gate.yml",
-      "job": "desktop-tests",
+      "job": "desktop-computer",
       "slots": [
         {
           "id": "computer-fast",
@@ -1585,7 +1585,6 @@
   ],
   "dynamicMatrixJobs": [
     "runtime",
-    "desktop-tests",
     "core-build",
     "core-tests",
     "core-pg"
@@ -1763,7 +1762,7 @@
         "commands": [
           "node scripts/ci/coverage/cli.mjs reconcile --root . --manifest coverage/manifest.json --evidence evidence --rust-lists rust-lists --sha \"$EXPECTED_SHA\" --run-id \"$GITHUB_RUN_ID\" --attempt \"$GITHUB_RUN_ATTEMPT\" --repository \"$GITHUB_REPOSITORY\" --workflow \"$GITHUB_WORKFLOW_REF\""
         ],
-        "digest": "a9872af81b28f56c1057be05cf9d490013df2918bb8d67fa59e0b2222dc61387"
+        "digest": "35381d5d296e40624d78594c8645e62a1ec4a32742c842b1556c29e3ae5ff163"
       },
       "release.yml#prepared-runtime-join": {
         "if": "",
