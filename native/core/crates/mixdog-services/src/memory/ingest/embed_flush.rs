@@ -12,9 +12,8 @@ use mixdog_js::{JsRegex, js_trim, slice_utf16, string_to_number, utf16_len};
 use sha2::{Digest, Sha256};
 use std::sync::LazyLock;
 
-use crate::memory::embed::config::InputType;
-use crate::memory::embed::host::Embedder;
-use crate::memory::embed::provider::EmbeddingProvider;
+use crate::memory::embed::config;
+use crate::memory::embed::provider::{Demand, EmbeddingProvider};
 use crate::memory::error::{MemoryError, Result};
 use crate::memory::pg::db::{Db, Lease};
 use crate::memory::recall::hybrid::embedding_to_sql;
@@ -24,7 +23,9 @@ mod root;
 
 pub use root::{FlushFailure, ROOT_EMBED_SWEEP_META_KEY, ROOT_SWEEP_BATCH, RootFlush, SweepStep, root_embed_text, start_root_embed_sweep};
 
-const BATCH_SIZE: usize = 32;
+// Claim one queued ingest window so all of its actual cache misses can be
+// submitted together. The host is released before the cache and row writes.
+const RAW_CLAIM_SIZE: usize = super::FLUSH_LIMIT;
 const DEFAULT_MAX_CHARS: usize = 8000;
 const DEFAULT_CACHE_MAX_ROWS: i64 = 10_000;
 const PRUNE_EVERY: Duration = Duration::from_secs(600);
@@ -110,24 +111,6 @@ fn parse_vector(text: &str) -> Vec<f32> {
     text.trim_start_matches('[').trim_end_matches(']').split(',').map(|n| string_to_number(n) as f32).collect()
 }
 
-/// Whether a claim that returned `claimed` rows of a possible `cap` means more rows are waiting.
-fn backlog_continues(claimed: usize, cap: usize) -> bool {
-    claimed >= cap
-}
-
-#[cfg(test)]
-mod warm_tests {
-    use super::backlog_continues;
-
-    #[test]
-    fn a_short_claim_is_not_a_backlog() {
-        assert!(!backlog_continues(1, BATCH_SIZE_FOR_TEST));
-        assert!(backlog_continues(BATCH_SIZE_FOR_TEST, BATCH_SIZE_FOR_TEST));
-    }
-
-    const BATCH_SIZE_FOR_TEST: usize = super::BATCH_SIZE;
-}
-
 /// Flushes raw rows' embeddings for one database.
 pub struct RawEmbedFlush {
     db: Db,
@@ -141,6 +124,13 @@ pub struct RawEmbedFlush {
     pub(crate) calls: Mutex<Vec<(usize, Option<Vec<i64>>)>>,
     #[cfg(test)]
     claim_seam: Mutex<Option<ClaimSeam>>,
+    #[cfg(test)]
+    final_cache_write_seam: Mutex<Option<ClaimSeam>>,
+}
+
+enum BatchDemand<'a> {
+    Continue(&'a mut Option<Demand>),
+    Finish(Option<Demand>),
 }
 
 pub struct FlushOutcome {
@@ -193,6 +183,18 @@ impl RawEmbedFlush {
         *self.claim_seam.lock().expect("claim seam") = Some(seam);
     }
 
+    pub(crate) fn hold_before_final_cache_write(&self, seam: ClaimSeam) {
+        *self.final_cache_write_seam.lock().expect("cache write seam") = Some(seam);
+    }
+
+    async fn before_final_cache_write(&self) {
+        let held = self.final_cache_write_seam.lock().expect("cache write seam").take();
+        if let Some(ClaimSeam { entered, release }) = held {
+            let _ = entered.send(());
+            let _ = release.acquire().await.map(tokio::sync::SemaphorePermit::forget);
+        }
+    }
+
     async fn claimed_seam(&self) {
         let held = self.claim_seam.lock().expect("claim seam").as_ref().map(|seam| (seam.entered.clone(), seam.release.clone()));
         if let Some((entered, release)) = held {
@@ -225,6 +227,8 @@ impl RawEmbedFlush {
             calls: Mutex::new(Vec::new()),
             #[cfg(test)]
             claim_seam: Mutex::new(None),
+            #[cfg(test)]
+            final_cache_write_seam: Mutex::new(None),
         }
     }
 
@@ -239,7 +243,7 @@ impl RawEmbedFlush {
         #[cfg(test)]
         self.calls.lock().expect("flush calls").push((limit, ids.map(<[i64]>::to_vec)));
         let idle = FlushOutcome { attempted: 0, embedded: 0, pruned: None };
-        if !onnx_runtime_supported() || ids.is_some_and(<[i64]>::is_empty) {
+        if !onnx_runtime_supported() || limit == 0 || ids.is_some_and(<[i64]>::is_empty) {
             return idle;
         }
         if let Err(error) = self.ensure_cache_table().await {
@@ -248,7 +252,7 @@ impl RawEmbedFlush {
         }
         let (mut attempted, mut embedded, mut cursor, mut pruned) = (0usize, 0usize, 0i64, None);
         while attempted < limit {
-            let batch_cap = BATCH_SIZE.min(limit - attempted);
+            let batch_cap = RAW_CLAIM_SIZE.min(limit - attempted);
             // Each batch's row locks live in its transaction on this lease: a failed end or a cancelled flush discards the connection.
             let lease = match Lease::take(&self.db).await {
                 Ok(lease) => lease,
@@ -278,12 +282,6 @@ impl RawEmbedFlush {
             attempted += claimed.len();
             #[cfg(test)]
             self.claimed_seam().await;
-            // Only a full batch says a backlog goes on; a lone live row lets the model idle out.
-            if backlog_continues(claimed.len(), batch_cap)
-                && let Some(provider) = &self.provider
-            {
-                provider.hold_warm();
-            }
             let ended = match self.sync_batch(&lease, &claimed, &mut pruned).await {
                 Ok(written) => {
                     embedded += written;
@@ -341,16 +339,11 @@ impl RawEmbedFlush {
         if rows.is_empty() {
             return Ok(0);
         }
-        let expected = client
-            .query_opt("SELECT value FROM meta WHERE key = 'embedding.current_dims'", &[])
-            .await?
-            .and_then(|row| row.get::<_, serde_json::Value>(0).as_f64())
-            .unwrap_or(0.0);
         let rows: Vec<(i64, String, String)> = rows.iter().map(|r| (r.get(0), r.get(1), r.get(2))).collect();
         let texts: Vec<String> =
             rows.iter().map(|(_, role, content)| if is_raw_embeddable(role, content) { js_trim(content).to_owned() } else { String::new() }).collect();
         let wanted: Vec<String> = texts.iter().filter(|t| !t.is_empty()).cloned().collect();
-        let vectors = self.cached_embed_batch(client, &wanted, pruned).await?;
+        let vectors = self.cached_embed_batch(client, &wanted, pruned, BatchDemand::Finish(None)).await?;
         let mut updates: Vec<(i64, String, String)> = Vec::new();
         let mut next = 0usize;
         for ((id, _, content), text) in rows.iter().zip(&texts) {
@@ -360,10 +353,6 @@ impl RawEmbedFlush {
             let vector = &vectors[next];
             next += 1;
             if vector.is_empty() {
-                continue;
-            }
-            if expected > 0.0 && vector.len() as f64 != expected {
-                mixdog_rt::memory_stderr!("[embed] raw dim mismatch (id={id} got={} expected={expected})", vector.len());
                 continue;
             }
             updates.push((*id, embedding_to_sql(vector), content.clone()));
@@ -389,15 +378,6 @@ impl RawEmbedFlush {
             tracing::warn!(skipped = updates.len() - written, "[embed-sync] raw stale-write(s) skipped: content changed since read");
         }
         Ok(written)
-    }
-
-    async fn embedder(&self) -> Result<Embedder> {
-        let provider = self.provider.as_ref().ok_or_else(|| MemoryError::Embedding("no embedding model".into()))?;
-        match provider.warmup().await {
-            Ok(Some(embedder)) => Ok(embedder),
-            Ok(None) => Err(MemoryError::Embedding("embedding model is not installed".into())),
-            Err(error) => Err(MemoryError::Embedding(error)),
-        }
     }
 
     async fn ensure_cache_table(&self) -> Result<()> {
@@ -426,12 +406,20 @@ impl RawEmbedFlush {
         client: &deadpool_postgres::Object,
         texts: &[String],
         pruned: &mut Option<Result<PruneOutcome>>,
+        mut demand: BatchDemand<'_>,
     ) -> Result<Vec<Vec<f32>>> {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
         let provider = self.provider.as_ref().ok_or_else(|| MemoryError::Embedding("no embedding model".into()))?;
-        let model = provider.model_id().to_owned();
+        let model_id = provider.model_id();
+        // Legacy keys are kept for the default dtype; other variants
+        // must not trust that cache to establish a custom schema's dimensions.
+        let model = if config::normalize_dtype(model_id, provider.dtype()) == config::normalize_dtype(model_id, None) {
+            model_id.to_owned()
+        } else {
+            config::identity(None, model_id, provider.dtype()).to_string()
+        };
         let entries: Vec<(String, Vec<u8>)> = texts
             .iter()
             .map(|t| {
@@ -451,14 +439,27 @@ impl RawEmbedFlush {
             .map(|row| (row.get::<_, Vec<u8>>(0), parse_vector(&row.get::<_, String>(1))))
             .collect();
         let misses: Vec<&(String, Vec<u8>)> = entries.iter().filter(|(_, hash)| !found.contains_key(hash)).collect();
+        let vectors = if misses.is_empty() {
+            Vec::new()
+        } else {
+            if let BatchDemand::Continue(continuation) = &mut demand {
+                continuation.get_or_insert_with(|| provider.document_demand());
+            }
+            let batch = misses.iter().map(|(text, _)| text.clone()).collect();
+            provider.embed_documents(batch).await.map_err(MemoryError::Embedding)?
+        };
+        if let BatchDemand::Finish(inherited) = demand {
+            drop(inherited);
+            #[cfg(test)]
+            if !misses.is_empty() {
+                self.before_final_cache_write().await;
+            }
+        }
         if !misses.is_empty() {
-            let embedder = self.embedder().await?;
             let mut miss_hashes = Vec::new();
             let mut miss_sql = Vec::new();
-            for chunk in misses.chunks(BATCH_SIZE) {
-                let batch: Vec<String> = chunk.iter().map(|(text, _)| text.clone()).collect();
-                let vectors = embedder.embed_batch(&batch, InputType::Document).await.map_err(|e| MemoryError::Embedding(e.message()))?;
-                for ((_, hash), vector) in chunk.iter().zip(vectors) {
+            for ((_, hash), vector) in misses.into_iter().zip(vectors) {
+                if !vector.is_empty() {
                     miss_hashes.push(hash.clone());
                     miss_sql.push(embedding_to_sql(&vector));
                     found.insert(hash.clone(), vector.to_vec());
@@ -475,6 +476,13 @@ impl RawEmbedFlush {
         }
         if let Some(outcome) = self.maybe_prune(client).await {
             *pruned = Some(outcome);
+        }
+        if let Some(first) = found.values().next() {
+            let dims = first.len();
+            if found.values().any(|v| v.len() != dims) {
+                return Err(MemoryError::Embedding("mixed dimensions in an indexing batch".into()));
+            }
+            crate::memory::schema::record_vector_dims(client, dims).await?;
         }
         Ok(entries.iter().map(|(_, hash)| found.get(hash).cloned().unwrap_or_default()).collect())
     }

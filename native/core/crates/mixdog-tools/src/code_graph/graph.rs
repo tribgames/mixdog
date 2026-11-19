@@ -708,20 +708,25 @@ impl Node {
     }
 
     fn verify_source(&self, for_body: bool) -> Option<Vec<u8>> {
-        let read = || -> Option<Vec<u8>> {
+        let mut bytes = Vec::new();
+        self.verify_source_into(&mut bytes, for_body).then_some(bytes)
+    }
+
+    fn verify_source_into(&self, bytes: &mut Vec<u8>, for_body: bool) -> bool {
+        bytes.clear();
+        let mut read = || -> Option<bool> {
             let (file, path) = open_source(&self.origin.root, Path::new(&self.rel))?;
-            let mut bytes = Vec::new();
-            (&file).take(MAX_FILE_BYTES as u64 + 1).read_to_end(&mut bytes).ok()?;
-            (bytes.len() as u64 <= MAX_FILE_BYTES as u64
+            (&file).take(MAX_FILE_BYTES as u64 + 1).read_to_end(bytes).ok()?;
+            Some(bytes.len() as u64 <= MAX_FILE_BYTES as u64
                 && source_here(&file, &path)
-                && digest_of(&bytes) == self.digest && (!for_body || !forced_mismatch())).then_some(bytes)
+                && digest_of(bytes) == self.digest && (!for_body || !forced_mismatch()))
         };
-        let bytes = read();
-        if bytes.is_none() {
+        let current = read().unwrap_or(false);
+        if !current {
             self.origin.stale.store(true, Ordering::SeqCst);
             self.origin.invalidate(&self.rel);
         }
-        bytes
+        current
     }
 
     fn source_from_verified(&self, bytes: Vec<u8>) -> Arc<Source> {
@@ -1037,15 +1042,24 @@ impl Graph {
     }
 
     pub(super) fn resolver_inputs_current(&self) -> bool {
-        self.inputs.iter().all(ObservedInput::is_current)
+        let started = std::time::Instant::now();
+        let current = self.inputs.iter().all(ObservedInput::is_current);
+        super::cache::note(|t| t.resolver_check_ms += super::cache::elapsed_ms(started));
+        current
     }
 
     /// All nodes can contribute to metadata-only answers, including a negative result.
     pub(super) fn verify_records(&self) -> bool {
+        let started = std::time::Instant::now();
+        let mut bytes = Vec::new();
         let mut current = true;
         for node in &self.nodes {
-            current &= node.verify_source(false).is_some();
+            current &= node.verify_source_into(&mut bytes, false);
         }
+        super::cache::note(|t| {
+            t.verify_ms += super::cache::elapsed_ms(started);
+            t.verified += self.nodes.len();
+        });
         current
     }
 

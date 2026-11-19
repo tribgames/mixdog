@@ -41,6 +41,7 @@ export interface BrowserPageElement extends HTMLDivElement {
 export function createBrowserPageClient(options: {
   api: Pick<NonNullable<Window['mixdogDesktop']>, 'browserPageFrame' | 'browserPageControl' | 'browserPageMetadata'>;
   sessionId: string;
+  canvasId?: string;
   /** The page draws itself natively: read its facts, never its pixels. */
   metadataOnly?(): boolean;
   update(frame: DesktopBrowserPageFrame): void;
@@ -57,6 +58,7 @@ export function createBrowserPageClient(options: {
   let metadata: DesktopBrowserPageFrame | null = null;
   let metadataKey = '';
   let presentationKey = '';
+  let pixelGeneration = 0;
   let element: BrowserPageElement | null = null;
   let tail: Promise<unknown> = Promise.resolve();
   let chromeTail: Promise<unknown> = Promise.resolve();
@@ -107,7 +109,7 @@ export function createBrowserPageClient(options: {
 
   function acceptMetadata(frame: DesktopBrowserPageFrame): void {
     const previous = metadata;
-    metadata = frame;
+    metadata = frame.image ? { ...frame, image: undefined } : frame;
     const {
       image: _image,
       frameId: _frame,
@@ -137,7 +139,7 @@ export function createBrowserPageClient(options: {
       presentationKey = key;
     }
     if (previous && previous.documentId !== frame.documentId) documentRevision += 1;
-    current = frame;
+    current = frame.image ? { ...frame, image: undefined } : frame;
     // A slow decode must not roll chrome back past a newer native read.
     if (metadata === previousMetadata) acceptMetadata(frame);
   }
@@ -181,15 +183,21 @@ export function createBrowserPageClient(options: {
     if (disposed || !options.api.browserPageFrame) return;
     if (options.metadataOnly?.() && options.api.browserPageMetadata) return pollMetadata();
     if (pendingRead) return pendingRead;
+    const generation = pixelGeneration;
     const capture = async (): Promise<DesktopBrowserPageFrame> => {
       // A discarded frame is safe to recapture; never publish its old pixels.
       const resample = async () => {
-        const fresh = await options.api.browserPageFrame!(options.sessionId);
+        if (disposed || generation !== pixelGeneration) throw new Error('Browser page changed during capture.');
+        const fresh = await options.api.browserPageFrame!(options.sessionId, undefined, options.canvasId);
         if (browserPageResample(fresh)) throw new Error('Browser page changed during capture.');
         return fresh;
       };
       try {
-        const frame = await options.api.browserPageFrame!(options.sessionId, current?.frameId);
+        const frame = await options.api.browserPageFrame!(
+          options.sessionId,
+          presentationKey ? current?.frameId : undefined,
+          options.canvasId
+        );
         return browserPageResample(frame) ? await resample() : frame;
       } catch (error) {
         if (disposed || !browserPageTransition(error, 'capture')) throw error;
@@ -199,9 +207,9 @@ export function createBrowserPageClient(options: {
     const previousMetadata = metadata;
     pendingRead = capture()
       .then(async (next) => {
-        if (disposed) return;
+        if (disposed || generation !== pixelGeneration) return;
         await options.prepare?.(next);
-        if (!disposed) accept(next, previousMetadata);
+        if (!disposed && generation === pixelGeneration) accept(next, previousMetadata);
       })
       .finally(() => {
         pendingRead = null;
@@ -480,6 +488,10 @@ export function createBrowserPageClient(options: {
   return {
     poll,
     pollMetadata,
+    releasePixels() {
+      pixelGeneration++;
+      presentationKey = '';
+    },
     fire,
     control,
     bind,

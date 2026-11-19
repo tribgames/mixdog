@@ -273,6 +273,20 @@ test('a subscription the core dropped ends the lane as gone', () => {
   assert.equal(frames.length, 2, 'the app feed is no thread');
 });
 
+test('a cold transcript preview reads stored items without following or publishing a live state', async () => {
+  const core = connection(async () => ({
+    data: [userRow('m1', 'first'), userRow('m2', 'last')],
+    hasOlder: true,
+  }));
+  const lane = createSessionLane({ protocol: core.protocol });
+  const frames = framesOf(lane);
+  const preview = await lane.previewSession('t9');
+  assert.deepEqual(core.calls.map(({ method }) => method), ['thread/items/list']);
+  assert.deepEqual(core.resumes, []);
+  assert.deepEqual(frames, []);
+  assert.deepEqual(preview.items.map((row) => row.id), ['m1', 'm2']);
+});
+
 test('a read of a thread that is not followed is one thread/read, published as a replay under its trace id', async () => {
   const core = connection(async (method, params) => {
     assert.equal(method, 'thread/read');

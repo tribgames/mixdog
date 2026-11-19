@@ -10,7 +10,6 @@ import { useAppShellPanels } from '../use-app-shell-panels';
 import { useSessionPaneSurfaces } from '../use-session-pane-surfaces';
 import { useAppProjectCatalog } from '../use-app-project-catalog';
 import { useAppSideDocks } from '../use-app-side-docks';
-import { useAppSettingsMount } from '../use-app-boot';
 import { useStartupPaneSelection } from './use-startup-pane-selection';
 import { useAppEditorState } from './use-app-editor-state';
 
@@ -23,8 +22,7 @@ export function useAppWorkspaceShell() {
     paneWorkspace.leaves.flatMap((leaf) => leaf.tabs.flatMap((tab) => (tab.kind === 'session' ? [tab.id] : [])))
   );
   const shellPanels = useAppShellPanels(paneWorkspace.focusedLeafId);
-  const { applySidebarOpen, bottomPanel, settingsOpen } = shellPanels;
-  const { settingsMounted, settingsPrewarmed } = useAppSettingsMount(settingsOpen);
+  const { applySidebarOpen, bottomPanel } = shellPanels;
   const sideDocks = useAppSideDocks({
     paneWorkspace,
     sessionSurfaces: sessionPaneSurfaces,
@@ -59,8 +57,6 @@ export function useAppWorkspaceShell() {
     paneWorkspace,
     sessionPaneSurfaces,
     shellPanels,
-    settingsMounted,
-    settingsPrewarmed,
     sideDocks,
     extensionsSection,
     setExtensionsSection,

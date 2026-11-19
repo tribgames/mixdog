@@ -15,6 +15,7 @@ function fixture() {
     },
   });
   frames.attach(guest);
+  frames.setPanelActive(guest, true);
   return {
     guest,
     frames,
@@ -67,6 +68,21 @@ test('navigation, dimensions and popup textures cannot lend stale page pixels', 
   const popup = f.paint(600, 'popup');
   assert.equal(popup.releases, 1);
   assert.equal(f.frames.acquire(f.guest, 'p1:2', 600, 400), undefined);
+  f.guest.emit('destroyed');
+});
+
+test('folding drops the cache, not an outstanding transfer or the page', () => {
+  const f = fixture();
+  const page = f.paint();
+  const lease = f.frames.acquire(f.guest, 'p1:1', 600, 400);
+  f.frames.setPanelActive(f.guest, false);
+  assert.equal(f.paint().releases, 1);
+  assert.equal(f.frames.acquire(f.guest, 'p1:1', 600, 400), undefined);
+  assert.equal(page.releases, 0);
+  lease.release();
+  assert.equal(page.releases, 1);
+  f.frames.setPanelActive(f.guest, true);
+  assert.equal(f.paint().releases, 0);
   f.guest.emit('destroyed');
 });
 

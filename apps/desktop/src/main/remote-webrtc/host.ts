@@ -25,6 +25,8 @@ import { createRemoteWebrtcViewer, type RemoteWebrtcViewer } from './viewer';
 
 export interface RemoteWebrtcSenderBridge {
   send(command: RemoteWebrtcSenderCommand): void;
+  /** Release the idle sender window, without preventing a later use. */
+  release(): void;
   /** Sender events; `null` when the sender renderer is gone (crash, close). */
   onEvent(listener: (event: RemoteWebrtcSenderEvent | null) => void): void;
 }
@@ -241,9 +243,6 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
         if (connections.get(connectionId) !== entry) return;
         connections.delete(connectionId);
         deps.sender.send({ type: 'close', connectionId });
-        if (!wanted(sourceKey) && ![...connections.values()].some((other) => other.sourceKey === sourceKey)) {
-          source.stop();
-        }
       },
       dispatch: (control) => source.dispatch(control),
       page: () => {
@@ -285,7 +284,9 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
       // source's track is set up again (its selected path) before its next
       // connection opens; every live connection falls back.
       for (const feed of feeds.values()) {
+        feed.latest ??= feed.inFlight?.picture ?? null;
         feed.inFlight = null;
+        feed.framesSinceCurrent = 0;
         feed.track = 'none';
       }
       for (const entry of new Set(connections.values())) entry.viewer.fail('sender-failed');
@@ -378,6 +379,12 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
     if (!entry) return;
     viewers.delete(key);
     entry.viewer.stop();
+    // A viewer can still need the source while waiting for geometry or
+    // falling back to the relay, even if it doesn't have a peer connection.
+    if (![...viewers.values()].some((other) => other.sourceKey === entry.sourceKey)) {
+      feeds.get(entry.sourceKey)?.source.stop();
+    }
+    if (viewers.size === 0) deps.sender.release();
   }
 
   return {
@@ -464,6 +471,8 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
       const key = viewerKey(clientId, sourceKey);
       let entry = viewers.get(key);
       if (!entry) {
+        // A late acknowledgement or connection packet must not recreate a departed viewer.
+        if (signal.type === 'geometry-ack' || 'connectionId' in signal) return;
         entry = createViewer(clientId, source);
         viewers.set(key, entry);
         feedFor(source);

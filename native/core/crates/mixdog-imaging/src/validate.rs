@@ -36,7 +36,7 @@ use crate::decode::rasterize_svg;
 use crate::encode::encode_in_format;
 use crate::policy::IMAGE_MAX_HEIGHT;
 use crate::policy::IMAGE_MAX_WIDTH;
-use crate::resize::fit_inside;
+use crate::resize::fit_inside_view;
 
 /// Raise with any change that alters a verdict or a rendition; stored verdicts of an older version are re-run by migration.
 /// 2: a still beyond the tightest destination limits gets its rendition (JPEG for a JPEG), and a HEIC's orientation and colour
@@ -181,7 +181,7 @@ fn convert_heic(bytes: &[u8], budget: u64, codec: &dyn HeicCodec) -> Result<Vali
         return Err(Reject::TooLarge);
     }
     let (width, height) = (raster.width, raster.height);
-    let fitted = fit_inside(&raster, IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT, true);
+    let fitted = fit_inside_view(&raster, IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT, true);
     let jpeg = crate::encode::encode_jpeg(&fitted, crate::encode::DEFAULT_JPEG_QUALITY, 255);
     Ok(Validated { kind: ImageKind::Heic, width, height, frames: 1, rendition: Some((ImageKind::Jpeg, jpeg)) })
 }
@@ -190,7 +190,7 @@ fn convert_heic(bytes: &[u8], budget: u64, codec: &dyn HeicCodec) -> Result<Vali
 /// anything else becomes PNG, unless that PNG is itself beyond the tightest size a destination declares (a photograph saved
 /// as PNG): then it is the JPEG, as 1.4.5's resizer made it, so the rendition always reaches every destination.
 fn fit_rendition(decoded: &Decoded, format: Format) -> Result<(ImageKind, Vec<u8>), Reject> {
-    let raster = fit_inside(&decoded.raster, IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT, true);
+    let raster = fit_inside_view(&decoded.raster, IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT, true);
     // Transparency goes to black, as that resizer's JPEG had it.
     let jpeg = |quality: u8| (ImageKind::Jpeg, crate::encode::encode_jpeg(&raster, quality, 0));
     if format == Format::Jpeg {

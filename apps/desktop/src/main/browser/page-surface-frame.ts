@@ -30,6 +30,14 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
   } = state;
   const lastFrames: FrameMemory = new WeakMap();
   const lastTextureFrames: FrameMemory = new WeakMap();
+  // Only the dialog that prevented a fresh capture can reuse this background.
+  const dialogBackgrounds = new WeakMap<object, FrameMemory>();
+  const blockingDialog = (guest: WebContents) => {
+    const own = host.state.for(guest).pendingDialog;
+    if (own) return own;
+    const peer = host.dialogOwner?.(guest);
+    return peer ? host.state.for(peer).pendingDialog : null;
+  };
   const captureFaults = new WeakMap<WebContents, number>();
 
   const assertPresenting = (sessionId: string, guest: WebContents, token: string, signal?: AbortSignal): void => {
@@ -113,7 +121,9 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
   ): Promise<DesktopBrowserPageFrame> {
     const viewport = host.viewport(guest);
     const token = documentId(guest);
-    const previous = previousFrames.get(guest);
+    const dialog = blockingDialog(guest);
+    const background = dialog ? dialogBackgrounds.get(dialog)?.get(guest) : undefined;
+    const previous = previousFrames.get(guest) ?? background;
     const pane = paneSurface(guest, viewport);
     const cached =
       previous?.frame.documentId === token &&
@@ -242,10 +252,12 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
         ...(previousId === image.id || !shot.data ? {} : { image: { mimeType: shot.mimeType, data: shot.data } }),
       };
       if (texture) await sendTexture(texture, sessionId, guest, token, signal);
-      previousFrames.set(guest, {
-        frame: { ...result, ...(texture ? {} : { image: { mimeType: shot.mimeType, data: shot.data } }) },
-        zoom: nativeViewport.zoom,
-      });
+      if ((geometryRevisions.get(guest) ?? 0) === revision) {
+        previousFrames.set(guest, {
+          frame: { ...result, ...(texture ? {} : { image: { mimeType: shot.mimeType, data: shot.data } }) },
+          zoom: nativeViewport.zoom,
+        });
+      }
       return result;
     } finally {
       texture?.release();
@@ -269,7 +281,24 @@ export function createPageSurfaceFrame(host: BrowserPageSurfaceHost, state: Page
     };
   }
 
-  return Object.assign(frame, { metadata });
+  function releasePixels(guest: WebContents): void {
+    const textureRead = lastTextureFrames.get(guest);
+    const software = textureRead?.frame.image ? textureRead : lastFrames.get(guest);
+    if (software?.frame.image && !guest.isDestroyed()) {
+      const blocking = blockingDialog(guest);
+      if (blocking) {
+        const backgrounds: FrameMemory = dialogBackgrounds.get(blocking) ?? new WeakMap();
+        backgrounds.set(guest, software);
+        dialogBackgrounds.set(blocking, backgrounds);
+      }
+    }
+    host.releaseCapture?.(guest);
+    state.invalidateGeometry(guest);
+    lastTextureFrames.delete(guest);
+    lastFrames.delete(guest);
+    captureFaults.delete(guest);
+  }
+  return Object.assign(frame, { metadata, releasePixels });
 
   async function frame(
     sessionId: string,

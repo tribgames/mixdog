@@ -126,7 +126,7 @@ const COMPOSER_ROUTE_FIELDS = [
 export const paneComposerRouteView = snapshotView(COMPOSER_ROUTE_FIELDS);
 
 const CONVERSATION_FIELDS = [
-  ...COMPOSER_ROUTE_FIELDS, 'items', 'transcriptHasOlder', 'transcriptTurnKeys', 'failedTurnKeys',
+  ...COMPOSER_ROUTE_FIELDS, 'items', 'transcriptHasOlder', 'transcriptPreview', 'transcriptTurnKeys', 'failedTurnKeys',
   'queued', 'toolApproval', 'toolApprovalResult', 'toolApprovalsWaiting', 'handoffQuestions',
   'quotaResume', 'currentProject', 'project', 'cwd', 'sessionProvider', 'sessionModel', 'turnEffort',
   'spinner', 'commandStatus', 'thinking',

@@ -1,8 +1,8 @@
 /**
  * The sender renderer: a hidden, trusted window of this app (its own page and
  * narrow preload, no remote content) that owns every RTCPeerConnection of the
- * live view. Created on first use, recreated after a crash; main stays the
- * authority and the sender only reports.
+ * live view. Created on demand and released after the last viewer leaves;
+ * main stays the authority and the sender only reports.
  */
 import { BrowserWindow, type IpcMainEvent, session } from 'electron';
 
@@ -38,16 +38,20 @@ export function createRemoteWebrtcSenderWindow(page: RemoteWebrtcSenderPage): Re
   dispose(): void;
 } {
   let window: BrowserWindow | null = null;
+  let disposed = false;
   let policyInstalled = false;
   let ready = false;
   /** Commands sent before the page is ready, in order. */
   let queue: RemoteWebrtcSenderCommand[] = [];
   let listener: (event: RemoteWebrtcSenderEvent | null) => void = () => undefined;
 
-  function gone(): void {
+  function release(destroy = true): void {
+    const current = window;
+    if (!current) return;
     window = null;
     ready = false;
     queue = [];
+    if (destroy && !current.isDestroyed()) current.destroy();
     listener(null);
   }
 
@@ -81,6 +85,7 @@ export function createRemoteWebrtcSenderWindow(page: RemoteWebrtcSenderPage): Re
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
     contents.on('will-navigate', (event) => event.preventDefault());
     contents.ipc.on(REMOTE_WEBRTC_SENDER_IPC.event, (_event: IpcMainEvent, message: unknown) => {
+      if (window !== created) return;
       const event = message as RemoteWebrtcSenderEvent | null;
       if (!event || typeof event !== 'object' || !SENDER_EVENTS.has(String(event.type))) return;
       if (event.type === 'ready') {
@@ -92,13 +97,10 @@ export function createRemoteWebrtcSenderWindow(page: RemoteWebrtcSenderPage): Re
       listener(event);
     });
     contents.on('render-process-gone', () => {
-      if (window === created) {
-        gone();
-        if (!created.isDestroyed()) created.destroy();
-      }
+      if (window === created) release();
     });
     created.on('closed', () => {
-      if (window === created) gone();
+      if (window === created) release(false);
     });
     const load = page.developmentUrl ? created.loadURL(remoteWebrtcSenderPageUrl(page)) : created.loadFile(page.file);
     load.catch(() => {
@@ -109,21 +111,23 @@ export function createRemoteWebrtcSenderWindow(page: RemoteWebrtcSenderPage): Re
 
   return {
     send(command) {
-      // Nothing to close or feed in a sender that is not running.
-      if (!window && (command.type === 'close' || command.type === 'source-close' || command.type === 'frame')) {
-        return;
+      if (disposed) return;
+      if (!window) {
+        // Capture and drawn tracks can be set up before the first connection.
+        // All other commands are for a sender that is already running.
+        if (command.type !== 'open' && command.type !== 'source-capture' && command.type !== 'source-draw') return;
+        window = open();
       }
-      window ??= open();
       if (!ready) queue.push(command);
       else window.webContents.send(REMOTE_WEBRTC_SENDER_IPC.command, command);
     },
+    release: () => release(),
     onEvent(next) {
       listener = next;
     },
     dispose() {
-      const current = window;
-      window = null;
-      if (current && !current.isDestroyed()) current.destroy();
+      disposed = true;
+      release();
     },
   };
 }

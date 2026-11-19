@@ -321,6 +321,8 @@ export function registerDesktopIpc(
     handle,
     powerMonitor: powerMonitorRef,
     updater,
+    // A window with a core port reads and recovers state on that connection, even when the port has to reopen.
+    directCore: Boolean(corePort),
   });
   // The renderer's direct lane: `window.mixdogCorePort.open({slot})` (preload/core-port.ts) asks for the port.
   if (corePort) {

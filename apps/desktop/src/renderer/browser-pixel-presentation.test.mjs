@@ -96,6 +96,7 @@ function bridgedFixture(t) {
   dom.window.HTMLCanvasElement.prototype.getContext = () => ({ drawImage: (video) => painted.push(video.id) });
   t.after(() => dom.window.close());
   let receive;
+  let invoke;
   const module = { exports: {} };
   runInNewContext(textureBridgeBundle.outputFiles[0].text, {
     module,
@@ -106,7 +107,7 @@ function bridgedFixture(t) {
     require: (specifier) => {
       assert.equal(specifier, 'electron');
       return {
-        ipcRenderer: { invoke: async () => ({}) },
+        ipcRenderer: { invoke: () => invoke() },
         sharedTexture: {
           setSharedTextureReceiver: (listener) => {
             receive = listener;
@@ -124,7 +125,7 @@ function bridgedFixture(t) {
     canvasId: 'gpu',
     metadata: () => {},
     texture: (id, canvas) => bridge.browserPresentTexture('s', id, canvas),
-    textureRetired: () => bridge.browserDiscardTexture('s'),
+    textureRetired: () => bridge.browserDiscardTexture('s', 'gpu'),
   });
   return {
     image,
@@ -132,7 +133,8 @@ function bridgedFixture(t) {
     presentation,
     /** One display read: the host sends the texture during the frame request. */
     async read(frame) {
-      await bridge.browserPageFrame('s');
+      invoke = async () => frame;
+      await bridge.browserPageFrame('s', undefined, 'gpu');
       if (frame.textureId) {
         const video = { id: frame.textureId, displayWidth: 600, displayHeight: 400, close() {} };
         await receive({ importedSharedTexture: { release() {}, getVideoFrame: () => video } }, 's', frame.textureId);
@@ -140,8 +142,57 @@ function bridgedFixture(t) {
       await presentation.prepare(frame);
       presentation.update(frame);
     },
+    bridge,
+    receive,
+    setInvoke(fn) { invoke = fn; },
+    document: dom.window.document,
   };
 }
+
+test('same-session canvases release only their own pending and received texture claims', async (t) => {
+  const f = bridgedFixture(t);
+  const replies = [];
+  f.setInvoke(() => new Promise((resolve) => replies.push(resolve)));
+  const read = (pane) => f.bridge.browserPageFrame('s', undefined, pane);
+  const hide = (pane) => f.bridge.browserDiscardTexture('s', pane);
+  const deliver = async (id) => {
+    const handle = { releases: 0, release() { this.releases++; }, getVideoFrame: () => ({
+      id, displayWidth: 600, displayHeight: 400, close() {},
+    }) };
+    await f.receive({ importedSharedTexture: handle }, 's', id);
+    return handle;
+  };
+  const old = read('a');
+  const b = read('b');
+  hide('a');
+  const shared = await deliver('one');
+  const a = read('a');
+  const second = await deliver('two');
+  replies[2]({ textureId: 'two' });
+  replies[0]({ textureId: 'one' });
+  replies[1]({ textureId: 'one' });
+  await Promise.all([old, b, a]);
+  hide('a');
+  assert.equal(second.releases, 1);
+  assert.equal(shared.releases, 0);
+  const canvas = f.document.createElement('canvas');
+  canvas.id = 'b';
+  f.document.body.append(canvas);
+  f.bridge.browserPresentTexture('s', 'one', 'b');
+  assert.deepEqual(f.painted, ['one']);
+  assert.equal(shared.releases, 1);
+  assert.equal((await deliver('one')).releases, 1);
+
+  const both = [read('a'), read('b')];
+  const common = await deliver('three');
+  replies[3]({ textureId: 'three' });
+  replies[4]({ textureId: 'three' });
+  await Promise.all(both);
+  f.bridge.browserPresentTexture('s', 'three', 'b');
+  assert.equal(common.releases, 0);
+  hide('a');
+  assert.equal(common.releases, 1);
+});
 
 test('a GPU frame paints again after an image or an empty document replaced its canvas', async (t) => {
   const f = bridgedFixture(t);

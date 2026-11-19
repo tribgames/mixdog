@@ -270,7 +270,8 @@ export function createBrowserHostPresentation(options: {
     prompts,
     assertUrl: urls.assertResolvedUrlAllowed,
     capture: (guest, geometryKey, pixels, signal) =>
-      cdp.bounded(displayCapture(guest, geometryKey, pixels), 2000, 'Browser display capture', signal),
+      cdp.bounded(displayCapture(guest, geometryKey, pixels, signal), 2000, 'Browser display capture', signal),
+    releaseCapture: displayCapture.release,
     captureTexture: (guest, documentId, pixels) =>
       options.base.displayTextures.acquire(guest, documentId, pixels.width, pixels.height),
     ...browserPageGeometry(sharedTextureRendering),

@@ -316,7 +316,7 @@ function DesktopBrowserPane({
   const { zoomLevel, changeZoomLevel } = useBrowserZoom(sessionId, webviewRef, addressRef);
   const { toolbarRef, toolbarWidth } = useToolbarWidth();
   const { contentRef, frameScale } = useFrameFit(frameWidth, frameHeight);
-  useActiveGuestReport({ webviewRef, desktopApi, sessionId, active });
+  useActiveGuestReport({ webviewRef, desktopApi, sessionId, active, pixelsVisible: active && !importOpen });
 
   useBrowserPageEvents(webviewRef, page, {
     agentViewports,

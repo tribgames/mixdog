@@ -10,6 +10,7 @@ function bridge() {
   let serviceNotice = () => {};
   let destroyed = false;
   const instance = new DesktopStateBridge({
+    directCore: true,
     window: {
       isDestroyed: () => destroyed,
       webContents: {
@@ -20,13 +21,10 @@ function bridge() {
       },
     },
     host: {
-      subscribe: () => () => {},
-      subscribeSessionStates: () => () => {},
       subscribeDesktopNotices(listener) {
         serviceNotice = listener;
         return () => {};
       },
-      getSnapshot: () => ({}),
     },
     ipcMain: new EventEmitter(),
     handle: () => {},

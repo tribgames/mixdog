@@ -205,7 +205,11 @@ fn answer(link: &CallLink, joined: Result<HandlerResult, JoinError>) -> Value {
         return json!({"err": {"code": cancelled.code, "message": cancelled.message}, "pin": pin});
     }
     match outcome {
-        Ok(outcome) => json!({"ok": outcome.value, "pin": pin}),
+        Ok(outcome) => {
+            let mut result = json!({"pin": pin});
+            result["ok"] = outcome.value;
+            result
+        }
         Err(error) => json!({"err": {"code": error.code, "message": error.message}, "pin": pin}),
     }
 }

@@ -79,6 +79,24 @@ test('a held IPC read records its wait, joins and later frame without changing r
   assert.equal(records.length, count, 'settled streaming traffic is not traced');
 });
 
+test('Retry resyncs after an acknowledged read when only provisional paint is present', async (t) => {
+  const id = 'preview-retry';
+  const recovered = [];
+  fixture(t, async () => true);
+  defaultSessionLaneStore.seedPreview(id, { sessionId: id, items: [{ id: 'preview', kind: 'user', text: 'Stored preview' }] });
+  window.mixdogDesktop.resyncSessionState = (sessionId) => {
+    recovered.push(sessionId);
+    defaultSessionLaneStore.apply({
+      sessionId,
+      frameSource: 'live',
+      snapshot: { sessionId, items: [{ id: 'authoritative', kind: 'user', text: 'Live transcript' }] },
+    });
+  };
+  assert.equal(await requestSessionRead(id), true);
+  assert.deepEqual(recovered, [id]);
+  assert.equal(defaultSessionLaneStore.get(id).items[0].text, 'Live transcript');
+});
+
 test('read failures are recorded as failures and keep the existing bounded attempt count', async (t) => {
   let calls = 0;
   const records = fixture(t, async () => {

@@ -12,6 +12,12 @@ import {
   useSessionChangesSource,
 } from './session-changes-store.ts';
 import { defaultSessionLaneStore } from './session-lane-store.ts';
+import {
+  fetchSessionDiff,
+  fetchSessionDiffFilePatch,
+  peekSessionDiff,
+  SESSION_DIFF_CACHE_MAX_CHARS,
+} from './session-diff-cache.ts';
 
 const h = React.createElement;
 const SOURCE_KEY = 'mixdog.session-changes-source.v1';
@@ -348,6 +354,86 @@ test('workspace validation reveals the newest pending bar rows only for that wor
   assert.deepEqual(states.a.rows.map((row) => row.path), ['bar.ts']);
 });
 
+test('closing the last reader while switching workspaces leaves no validation for a late bar reply', async (t) => {
+  const cwd = 'C:/turn-close-old';
+  const next = 'C:/turn-close-next';
+  const validation = Promise.withResolvers();
+  const sessionId = 'turn-close';
+  const view = mount(t, {
+    gitStatus: async (root) => {
+      if (root === next) await validation.promise;
+      return { repository: true, root, files: [] };
+    },
+    invokeCapability: async () => ({
+      value: { supported: true, authoritative: true, files: [reviewFile('old.ts')], patch: '' },
+    }),
+  });
+  setSessionChangesSource('last-turn');
+  const states = {};
+  const Probe = probes(states);
+  const render = (project, active) =>
+    act(async () => view.root.render(h(Probe, { name: 'a', cwd: project, sessionId, active })));
+  await render(cwd, true);
+  await view.settle();
+  assert.equal(states.a.rows[0]?.path, 'old.ts');
+  await render(next, true);
+  await adoptLastTurnReview(sessionId, { files: [reviewFile('staged.ts')], leadPatch: null }, nextLastTurnRequest());
+  await render('C:/turn-close-abandoned', false);
+  const reply = adoptLastTurnReview(sessionId, { files: [reviewFile('late.ts')], leadPatch: null }, nextLastTurnRequest());
+  assert.equal(reply, undefined, 'a late reply cannot stage rows for an abandoned workspace');
+  await act(async () => validation.resolve());
+  assert.deepEqual(states.a.rows, []);
+});
+
+test('closing workspace B drops its last-turn validation without interrupting workspace A for the same session', async (t) => {
+  const cwdA = 'C:/turn-reader-a';
+  const cwdB = 'C:/turn-reader-b';
+  const sessionId = 'turn-two-workspaces';
+  const validateB = Promise.withResolvers();
+  let path = 'initial-a.ts';
+  const view = mount(t, {
+    gitStatus: async (cwd) => {
+      if (cwd === cwdB) await validateB.promise;
+      return { repository: true, root: cwd, files: [] };
+    },
+    invokeCapability: async () => ({
+      value: { supported: true, authoritative: true, files: [reviewFile(path)], patch: '' },
+    }),
+  });
+  setSessionChangesSource('last-turn');
+  const states = {};
+  const Probe = probes(states);
+  const render = (activeB) => act(async () => view.root.render([
+    h(Probe, { key: 'a', name: 'a', cwd: cwdA, sessionId, active: true }),
+    h(Probe, { key: 'b', name: 'b', cwd: cwdB, sessionId, active: activeB }),
+  ]));
+  await render(false);
+  await view.settle();
+  assert.equal(states.a.rows[0]?.path, 'initial-a.ts');
+
+  path = 'scheduler-b.ts';
+  await render(true);
+  let pendingB;
+  await act(async () => {
+    pendingB = states.b.refresh();
+    await adoptLastTurnReview(sessionId, { files: [reviewFile('staged-b.ts')], leadPatch: null }, nextLastTurnRequest());
+  });
+  assert.equal(states.b.ready, false, 'B is still validating its repository');
+  const lateBarTicket = nextLastTurnRequest();
+  await render(false);
+
+  path = 'refreshed-a.ts';
+  await act(async () => {
+    assert.equal(await states.a.refresh(), true);
+    await adoptLastTurnReview(sessionId, { files: [reviewFile('late-b.ts')], leadPatch: null }, lateBarTicket);
+    validateB.resolve();
+    assert.equal(await pendingB, false);
+  });
+  assert.equal(states.a.root, cwdA);
+  assert.deepEqual(states.a.rows.map((row) => row.path), ['refreshed-a.ts']);
+  assert.deepEqual(states.b.rows, []);
+});
+
 test('a session-source refresh adopts a file whose patch moved while its counts held', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
   let line = 'y';
@@ -409,6 +495,102 @@ test('a session-source refresh re-reads a file listed without its patch', async 
   await view.settle(200);
   assert.deepEqual(fileReads, ['y', 'z']);
   assert.match(state.drawn[0].parts[0]?.patch ?? '', /\+z\n/);
+});
+
+test('Changes and standalone share the displayed omitted-file read even when its list cannot be cached', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const cwd = 'C:/oversized-omitted';
+  const sessionId = 'oversized-omitted';
+  const calls = [];
+  const listRead = Promise.withResolvers();
+  const fileRead = Promise.withResolvers();
+  const patch = sessionPatch('omitted.ts', 'new contents');
+  const view = mount(t, {
+    gitStatus: async () => ({ repository: true, root: cwd, files: [] }),
+    invokeCapability: async ({ capability, args }) => {
+      if (capability !== 'getSessionReviewDiff' && capability !== 'getSessionReviewFilePatch') return { value: null };
+      calls.push([capability, args]);
+      if (capability === 'getSessionReviewFilePatch') {
+        await fileRead.promise;
+        return { value: { patch } };
+      }
+      if (calls.length > 1) return { value: { supported: true, files: [], patch: '' } };
+      await listRead.promise;
+      return {
+        value: {
+          supported: true,
+          files: [{ ...sessionFile('omitted.ts'), patchOmitted: true, reason: 'too_large' }],
+          patch: 'x'.repeat(SESSION_DIFF_CACHE_MAX_CHARS + 1),
+        },
+      };
+    },
+  });
+  let drawn = [];
+  function Pane() {
+    const { rows } = useSessionChanges({ cwd, sessionId, active: true });
+    const { withPatch } = useSessionChangePatches({ cwd, sessionId, rows, selectedId: 'omitted.ts' });
+    drawn = rows.map(withPatch);
+    return null;
+  }
+  setSessionChangesSource('session');
+  await act(async () => view.root.render(h(Pane)));
+  // Join the running list request so React can flush after the oversized
+  // patch finishes its sliced parse, without waiting on an effect of that flush.
+  await act(async () => {
+    assert.equal(calls.length, 1);
+    const pendingList = fetchSessionDiff(sessionId);
+    listRead.resolve();
+    await pendingList;
+  });
+  assert.equal(peekSessionDiff(sessionId), null);
+  assert.deepEqual(calls, [['getSessionReviewDiff', []], ['getSessionReviewFilePatch', ['omitted.ts']]]);
+  await act(async () => {
+    const standalone = fetchSessionDiffFilePatch(sessionId, 'omitted.ts');
+    fileRead.resolve();
+    assert.equal(await standalone, patch);
+  });
+  await view.settle(200);
+  assert.deepEqual(calls, [['getSessionReviewDiff', []], ['getSessionReviewFilePatch', ['omitted.ts']]]);
+  assert.equal(drawn[0]?.parts[0]?.patch, patch);
+});
+
+test('session Changes releases parsed rows after the last reader and ignores a late refresh', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const cwd = 'C:/scoped-readers';
+  const sessionId = 'scoped-readers';
+  const late = Promise.withResolvers();
+  let reads = 0;
+  const result = (line) => ({ value: { files: [sessionFile('a.ts')], patch: sessionPatch('a.ts', line) } });
+  const view = mount(t, {
+    gitStatus: async () => ({ repository: true, root: cwd, files: [] }),
+    invokeCapability: async ({ capability }) => {
+      if (capability !== 'getSessionReviewDiff') return { value: null };
+      return ++reads === 2 ? late.promise : result('first');
+    },
+  });
+  const states = {};
+  const Probe = probes(states);
+  const render = (a, b) => act(async () => view.root.render([
+    h(Probe, { key: 'a', name: 'a', cwd, sessionId, active: a }),
+    h(Probe, { key: 'b', name: 'b', cwd, sessionId, active: b }),
+  ]));
+  setSessionChangesSource('session');
+  await render(true, true);
+  await view.settle();
+  assert.match(states.b.rows[0]?.parts[0]?.patch ?? '', /\+first/);
+  await render(false, true);
+  assert.equal(states.b.rows.length, 1, 'another reader still owns the list');
+  let pending;
+  await act(async () => {
+    pending = states.b.refresh();
+  });
+  await render(false, false);
+  assert.deepEqual(states.b.rows, []);
+  await act(async () => {
+    late.resolve(result('late'));
+    assert.equal(await pending, false);
+  });
+  assert.deepEqual(states.b.rows, [], 'a settled read must not repopulate the closed list');
 });
 
 test('the chip and the pane share one single-flight read per (root, source)', async (t) => {

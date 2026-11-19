@@ -16,12 +16,12 @@ use mixdog_image_vault::migration::Report;
 use mixdog_image_vault::vault::ImportError;
 use serde_json::Value;
 
-use super::image_recovery::History;
+use mixdog_core_api::domain::image_overlay::stable_message_id;
 
 /// Where an image of the history sits, in the terms its image choices use.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Place {
-    /// The message's id in image choices ([`History::id`]).
+    /// The message's id in image choices.
     pub message_id: String,
     /// The message's place in the conversation.
     pub index: usize,
@@ -32,11 +32,11 @@ pub struct Place {
     pub before_latest_prompt: bool,
 }
 
-/// One image of the history the restore check takes into the vault.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HistoryImage {
-    pub image: LegacyImage,
-    pub place: Place,
+/// The information the gate needs to interpret a migration verdict, even if the import job was dropped.
+pub(super) struct PendingImage {
+    pub(super) key: String,
+    name: String,
+    place: Place,
 }
 
 /// An image the restore check could not take: where it is, the sentence that names it, and the fixes that work for it.
@@ -148,11 +148,11 @@ impl ImageGate {
 
     /// Open sending when every image has a verdict; else name the ones that need repair (a cancelled or interrupted run
     /// included: running it again finishes it).
-    pub fn finish(&self, items: &[HistoryImage], report: &Report) {
+    pub(super) fn finish(&self, items: &[PendingImage], report: &Report) {
         let mut unresolved = Vec::new();
         for (key, result) in &report.results {
-            let Some(item) = items.iter().find(|item| item.image.key == *key) else { continue };
-            let name = &item.image.name;
+            let Some(item) = items.iter().find(|item| item.key == *key) else { continue };
+            let name = &item.name;
             let sentence = match result {
                 ItemResult::Done(_) => continue,
                 ItemResult::Failed(ImportError::Storage(_) | ImportError::Missing(_)) => format!("{name}: its stored file could not be read."),
@@ -186,29 +186,60 @@ impl ImageGate {
     }
 }
 
-/// Every image the history rows carry that still has to be taken into the vault: an `image`/`input_image` part with inline `data`
-/// or a stored `attachmentRef`, however deep in a message or tool result. The key is the row and the part's path; the place is
-/// where the image's choices address it.
-/// `history` is [`History::of`] the same rows: it names each message as its image choices do.
-pub fn history_images(rows: &[(ItemId, Value)], history: &History) -> Vec<HistoryImage> {
-    let mut out = Vec::new();
-    for (index, (id, row)) in rows.iter().enumerate() {
+/// A restore scan retains image sources, not the text and tool results of pages already checked.
+#[derive(Default)]
+pub(super) struct ImageScan {
+    count: usize,
+    latest_prompt: Option<usize>,
+    cut_seen: bool,
+    imports: Vec<LegacyImage>,
+    pending: Vec<PendingImage>,
+}
+
+impl ImageScan {
+    pub(super) fn page(&mut self, rows: Vec<(ItemId, Value)>, overlay: &ImageOverlay) {
+        for (id, mut row) in rows {
+            self.row(&id, &mut row, overlay);
+        }
+    }
+
+    fn row(&mut self, id: &ItemId, row: &mut Value, overlay: &ImageOverlay) {
+        let index = self.count;
+        self.count += 1;
+        if row.get("role").and_then(Value::as_str) == Some("user") {
+            self.latest_prompt = Some(index);
+        }
+        let message_id = stable_message_id(row.pointer("/meta/transcript/messageId").and_then(Value::as_str), index);
+        if !self.cut_seen && overlay.new_context_at() == Some(message_id.as_str()) {
+            self.cut_seen = true;
+            self.pending.clear();
+            self.imports.clear();
+        }
         let mut found = Vec::new();
         walk(row, id.as_str(), index + 1, &mut String::new(), &mut found);
         for image in found {
             let path = image.key.split_once('#').map_or("", |(_, path)| path);
             let part = path.strip_prefix("/content/").and_then(|rest| rest.parse::<u32>().ok());
-            let place = Place { message_id: history.id(index).to_owned(), index, part, before_latest_prompt: history.before_latest_prompt(index) };
-            out.push(HistoryImage { image, place });
+            let place = Place { message_id: message_id.clone(), index, part, before_latest_prompt: false };
+            if !covered(overlay, &[], &place) {
+                self.pending.push(PendingImage { key: image.key.clone(), name: image.name.clone(), place });
+                self.imports.push(image);
+            }
         }
     }
-    out
+
+    pub(super) fn finish(mut self) -> (Vec<LegacyImage>, Vec<PendingImage>) {
+        for image in &mut self.pending {
+            image.place.before_latest_prompt = self.latest_prompt.is_some_and(|latest| image.place.index < latest);
+        }
+        (self.imports, self.pending)
+    }
 }
 
-fn walk(value: &Value, row: &str, turn: usize, path: &mut String, found: &mut Vec<LegacyImage>) {
+fn walk(value: &mut Value, row: &str, turn: usize, path: &mut String, found: &mut Vec<LegacyImage>) {
     match value {
         Value::Array(items) => {
-            for (index, item) in items.iter().enumerate() {
+            for (index, item) in items.iter_mut().enumerate() {
                 let at = path.len();
                 path.push_str(&format!("/{index}"));
                 walk(item, row, turn, path, found);
@@ -217,10 +248,12 @@ fn walk(value: &Value, row: &str, turn: usize, path: &mut String, found: &mut Ve
         }
         Value::Object(map) => {
             if matches!(map.get("type").and_then(Value::as_str), Some("image" | "input_image")) {
-                let source = match (map.get("data").and_then(Value::as_str), map.get("attachmentRef").and_then(Value::as_str)) {
-                    (Some(data), _) if !data.is_empty() => Some(LegacySource::Base64(data.to_owned())),
-                    (_, Some(reference)) if super::prompt_submission::is_attachment_ref(reference) => Some(LegacySource::BlobRef(reference.to_owned())),
-                    _ => None,
+                let source = match map.get_mut("data") {
+                    Some(Value::String(data)) if !data.is_empty() => Some(LegacySource::Base64(std::mem::take(data))),
+                    _ => match map.get_mut("attachmentRef") {
+                        Some(Value::String(reference)) if super::prompt_submission::is_attachment_ref(reference) => Some(LegacySource::BlobRef(std::mem::take(reference))),
+                        _ => None,
+                    },
                 };
                 if let Some(source) = source {
                     let name = match map.get("filename").and_then(Value::as_str).filter(|name| !name.is_empty()) {
@@ -253,26 +286,37 @@ mod tests {
         (ItemId::from(id.to_owned()), json!({ "role": "user", "content": content }))
     }
 
+    fn history_images(rows: Vec<(ItemId, Value)>, overlay: &ImageOverlay) -> (Vec<LegacyImage>, Vec<PendingImage>) {
+        let mut scan = ImageScan::default();
+        // Exercise cut points and latest prompts that arrive on a later page than the image.
+        for row in rows {
+            scan.page(vec![row], overlay);
+        }
+        scan.finish()
+    }
+
     #[test]
     fn every_image_part_of_every_role_is_found_with_its_place() {
         let reference = "a".repeat(64);
         let rows = vec![
             row("r1", json!([{ "type": "text", "text": "hi" }, { "type": "image", "data": "AAAA", "mimeType": "image/png" }])),
-            row("r2", json!([{ "type": "tool_result", "content": [{ "type": "text", "text": "x" }, { "type": "input_image", "attachmentRef": reference, "filename": "scan.png" }] }])),
+            (ItemId::from("r2"), json!({ "role": "tool", "meta": { "transcript": { "messageId": "tool-message" } }, "content": [
+                { "type": "tool_result", "content": [{ "type": "text", "text": "x" }, { "type": "input_image", "attachmentRef": reference, "filename": "scan.png" }] }
+            ] })),
             row("r3", json!([{ "type": "image", "attachmentRef": "short" }, { "type": "image", "data": "" }])),
         ];
-        let found = history_images(&rows, &History::of(&rows));
+        let (found, pending) = history_images(rows, &ImageOverlay::default());
         assert_eq!(found.len(), 2, "a part with no bytes and no valid reference holds nothing to import");
-        assert_eq!(found[0].image, LegacyImage { key: "r1#/content/1".into(), name: "the image in message 1 (part 1)".into(), source: LegacySource::Base64("AAAA".into()) });
-        assert_eq!(found[0].place, Place { message_id: mixdog_core_api::domain::image_overlay::stable_message_id(None, 0), index: 0, part: Some(1), before_latest_prompt: true });
-        assert_eq!(found[1].image, LegacyImage { key: "r2#/content/0/content/1".into(), name: "scan.png".into(), source: LegacySource::BlobRef(reference) });
-        assert_eq!(found[1].place.part, None, "an image inside a tool result part has no part of its own to choose for");
-        assert!(found[1].place.before_latest_prompt, "r3 is the latest prompt");
+        assert_eq!(found[0], LegacyImage { key: "r1#/content/1".into(), name: "the image in message 1 (part 1)".into(), source: LegacySource::Base64("AAAA".into()) });
+        assert_eq!(pending[0].place, Place { message_id: "#0".into(), index: 0, part: Some(1), before_latest_prompt: true });
+        assert_eq!(found[1], LegacyImage { key: "r2#/content/0/content/1".into(), name: "scan.png".into(), source: LegacySource::BlobRef(reference) });
+        assert_eq!(pending[1].place, Place { message_id: "tool-message".into(), index: 1, part: None, before_latest_prompt: true });
     }
 
-    fn item(part: Option<u32>, before_latest_prompt: bool) -> HistoryImage {
-        HistoryImage {
-            image: LegacyImage { key: "k".into(), name: "scan.png".into(), source: LegacySource::BlobRef("b".repeat(64)) },
+    fn item(part: Option<u32>, before_latest_prompt: bool) -> PendingImage {
+        PendingImage {
+            key: "k".into(),
+            name: "scan.png".into(),
             place: Place { message_id: "m1".into(), index: 0, part, before_latest_prompt },
         }
     }
@@ -321,17 +365,20 @@ mod tests {
 
     #[test]
     fn a_choice_covers_an_image_by_its_part_or_by_a_new_start_after_it() {
-        let ids = vec!["m1".to_owned(), "m2".to_owned()];
-        let place = item(Some(1), true).place;
+        let rows = || vec![
+            row("old", json!([{ "type": "image", "data": "old" }])),
+            row("cut", json!([{ "type": "text", "text": "start here" }])),
+            row("kept", json!([{ "type": "image", "data": "omitted" }, { "type": "image", "data": "kept" }])),
+        ];
         let mut overlay = ImageOverlay::default();
-        assert!(!covered(&overlay, &ids, &place));
-        overlay.omit(PartKey { message_id: "m1".into(), part: 0 });
-        assert!(!covered(&overlay, &ids, &place), "another part of the message");
-        overlay.omit(PartKey { message_id: "m1".into(), part: 1 });
-        assert!(covered(&overlay, &ids, &place));
-        let mut overlay = ImageOverlay::default();
-        overlay.start_new_context_at("m2".into());
-        assert!(covered(&overlay, &ids, &place), "m1 sits before the new start");
-        assert!(!covered(&overlay, &ids, &Place { index: 1, message_id: "m2".into(), ..place }));
+        overlay.start_new_context_at("#1".into());
+        overlay.omit(PartKey { message_id: "#2".into(), part: 0 });
+        let (found, pending) = history_images(rows(), &overlay);
+        assert_eq!(found, vec![LegacyImage { key: "kept#/content/1".into(), name: "the image in message 3 (part 2)".into(), source: LegacySource::Base64("kept".into()) }]);
+        assert_eq!(pending[0].place, Place { message_id: "#2".into(), index: 2, part: Some(1), before_latest_prompt: false });
+
+        overlay.start_new_context_at("missing".into());
+        let (found, _) = history_images(rows(), &overlay);
+        assert_eq!(found.iter().map(|image| image.key.as_str()).collect::<Vec<_>>(), ["old#/content/0", "kept#/content/1"]);
     }
 }

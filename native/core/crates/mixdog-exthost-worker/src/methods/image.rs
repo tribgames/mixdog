@@ -107,8 +107,10 @@ fn validate(ctx: CallCtx) -> HandlerResult {
 /// image with its sizes, or null for an empty buffer. The composer names its provider's image `profile`; the read tool
 /// names none (the Anthropic one). A decoder rejection is `invalid` with the decoder's sentence, whatever its cause,
 /// because the read tool reports every `INVALID_IMAGE_DATA` the same way.
-fn resize(ctx: CallCtx) -> HandlerResult {
+fn resize(mut ctx: CallCtx) -> HandlerResult {
+    not_cancelled(&ctx)?;
     let bytes = node_base64(base64_param(&ctx.params)?);
+    ctx.params["data"] = Value::Null;
     let ext = text_or_empty(ctx.params.get("ext"));
     let profile = match ctx.params.get("profile") {
         Some(Value::String(name)) => Profile::from_name(name),
@@ -119,8 +121,7 @@ fn resize(ctx: CallCtx) -> HandlerResult {
         Ok(None) => Ok(Outcome::value(json!({"ok": null}))),
         Ok(Some(resized)) => {
             let dimensions = resized.dimensions;
-            Ok(Outcome::value(json!({"ok": {
-                "data": STANDARD.encode(&resized.data),
+            let mut answer = json!({
                 "mimeType": resized.mime,
                 "dimensions": {
                     "originalWidth": dimensions.original_width,
@@ -128,7 +129,11 @@ fn resize(ctx: CallCtx) -> HandlerResult {
                     "displayWidth": dimensions.display_width,
                     "displayHeight": dimensions.display_height,
                 },
-            }})))
+            });
+            answer["data"] = Value::String(STANDARD.encode(&resized.data));
+            let mut result = serde_json::Map::new();
+            result.insert("ok".to_owned(), answer);
+            Ok(Outcome::value(Value::Object(result)))
         }
         Err(error) => Ok(Outcome::value(json!({"error": "invalid", "message": error.message()}))),
     }

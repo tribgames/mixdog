@@ -3,7 +3,7 @@ import { useCallback } from 'react';
 import { desktopFeatureEnabled } from '../desktop-feature-config';
 import { extensionSectionForSettings, type ExtensionsSection } from '../extension-sections';
 import type { SettingsSection as SlashSettingsSection } from '../slash-commands';
-import { loadSidebarPanelModule, warmSettingsView } from '../app-shell-components';
+import { loadSettingsViewModule, loadSidebarPanelModule } from '../app-shell-components';
 import { requestOpenModelPicker } from '../model-picker-event';
 import { useAppUiOpenRequest, type SetupLaneSource } from '../app-shell-ui-open-request';
 import { defaultSessionLaneStore } from '../session-lane-store';
@@ -101,7 +101,7 @@ export function useAppSettingsRouter({
       }
       if (!desktopFeatureEnabled('settings')) return;
       (window as unknown as Record<string, unknown>).__mixdogSettingsOpenAt = performance.now();
-      warmSettingsView();
+      void loadSettingsViewModule().catch(() => undefined);
       setCommandSurface(null);
       setSettingsSection(section === 'memory' ? 'memory-enabled' : section);
       setSettingsOpen(true);

@@ -45,6 +45,8 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "log file I/O runs only in lane jobs (lane proof arguments)")]
 
 use std::collections::HashMap;
+use std::io;
+use std::io::Read;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -146,24 +148,49 @@ pub enum Pending {
     Swapped,
 }
 
-pub fn pending<L: WriteLane>(_lane: &InLane<L>, data: &Path, session: &str) -> Pending {
+pub fn pending<L: WriteLane>(_lane: &InLane<L>, data: &Path, session: &str) -> Result<Pending, IoError> {
     pending_unlaned(data, session)
 }
 
-fn pending_unlaned(data: &Path, session: &str) -> Pending {
-    let root = stage_dir(data, session);
-    if !root.is_dir() {
-        return Pending::Clean;
+enum Expected {
+    Directory,
+    File,
+}
+
+fn present(path: &Path, expected: Expected) -> Result<bool, IoError> {
+    // Don't follow links: a dangling link at a rewrite path isn't an absent entry.
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(err(IoOp::Read, path)(e)),
+    };
+    let (matches, message) = match expected {
+        Expected::Directory => (metadata.is_dir(), "expected a rewrite directory"),
+        Expected::File => (metadata.is_file(), "expected a regular rewrite intent file"),
+    };
+    if !matches {
+        return Err(err(IoOp::Read, path)(io::Error::new(io::ErrorKind::InvalidData, message)));
     }
-    if !root.join(INTENT_FILE).is_file() {
-        return Pending::Leftover;
+    Ok(true)
+}
+
+fn pending_unlaned(data: &Path, session: &str) -> Result<Pending, IoError> {
+    let rewrites = data.join(REWRITE_DIR);
+    let root = rewrites.join(session);
+    if !present(&rewrites, Expected::Directory)? || !present(&root, Expected::Directory)? {
+        return Ok(Pending::Clean);
     }
-    match (root.join(OLD_DIR).is_dir(), session_dir(data, session).is_dir()) {
+    if !present(&root.join(INTENT_FILE), Expected::File)? {
+        return Ok(Pending::Leftover);
+    }
+    let old = present(&root.join(OLD_DIR), Expected::Directory)?;
+    let live = present(&data.join("sessions"), Expected::Directory)? && present(&session_dir(data, session), Expected::Directory)?;
+    Ok(match (old, live) {
         (false, true) => Pending::Planned,
         (false, false) => Pending::Leftover,
         (true, false) => Pending::Moved,
         (true, true) => Pending::Swapped,
-    }
+    })
 }
 
 /// Every slot of `record` (all kinds: the match has no wildcard, so a new kind is a decision), read back inline when
@@ -236,26 +263,30 @@ struct LogFile {
     frames: Vec<(Record, FramePos, u64)>,
 }
 
+fn scan_file(dir: &Path, file_no: u32, prefix: &[u8], size: u64) -> Result<Vec<(Record, FramePos, u64)>, RewriteError> {
+    let first = std::str::from_utf8(prefix.get(..ORDINAL_DIGITS).unwrap_or_default())
+        .ok()
+        .and_then(|digits| u64::from_str_radix(digits, 16).ok())
+        .ok_or_else(|| RewriteError::Log(format!("{}: no frame header", dir.join(log_name(file_no)).display())))?;
+    let mut from = FramePos { ordinal: first, file_no, offset: 0 };
+    let mut frames = Vec::new();
+    loop {
+        let read = read_forward_unlaned(dir, from, size).map_err(log_error)?;
+        frames.extend(read.frames);
+        match read.next {
+            ForwardEnd::More(next) if next.file_no == file_no => from = next,
+            ForwardEnd::More(_) | ForwardEnd::Done { .. } => return Ok(frames),
+            ForwardEnd::Damaged(damage) => return Err(RewriteError::Log(format!("damaged at {damage:?}"))),
+        }
+    }
+}
+
 fn read_log(dir: &Path) -> Result<Vec<LogFile>, RewriteError> {
     let mut out = Vec::new();
-    for file_no in list_logs(dir).map_err(|e| RewriteError::Log(e.to_string()))? {
+    for file_no in list_logs(dir).map_err(log_error)? {
         let path = dir.join(log_name(file_no));
         let bytes = std::fs::read(&path).map_err(err(IoOp::Read, &path))?;
-        let first = std::str::from_utf8(bytes.get(..ORDINAL_DIGITS).unwrap_or_default())
-            .ok()
-            .and_then(|digits| u64::from_str_radix(digits, 16).ok())
-            .ok_or_else(|| RewriteError::Log(format!("{}: no frame header", path.display())))?;
-        let mut from = FramePos { ordinal: first, file_no, offset: 0 };
-        let mut frames = Vec::new();
-        loop {
-            let read = read_forward_unlaned(dir, from, bytes.len() as u64).map_err(|e| RewriteError::Log(e.to_string()))?;
-            frames.extend(read.frames);
-            match read.next {
-                ForwardEnd::More(next) if next.file_no == file_no => from = next,
-                ForwardEnd::More(_) | ForwardEnd::Done { .. } => break,
-                ForwardEnd::Damaged(damage) => return Err(RewriteError::Log(format!("damaged at {damage:?}"))),
-            }
-        }
+        let frames = scan_file(dir, file_no, &bytes, bytes.len() as u64)?;
         out.push(LogFile { file_no, bytes, frames });
     }
     Ok(out)
@@ -305,9 +336,18 @@ fn plan_with(
     hook: Hook<'_>,
 ) -> Result<bool, RewriteError> {
     let mut frames = Vec::new();
-    for file in read_log(&session_dir(data, session))? {
-        for (record, pos, _) in &file.frames {
-            let Some(next) = replace(&inline(record, blobs).map_err(RewriteError::Log)?) else { continue };
+    let dir = session_dir(data, session);
+    for file_no in list_logs(&dir).map_err(log_error)? {
+        // Only the builder needs the original frame bytes. Planning reads the ordinal prefix and lets the
+        // committed-frame reader do the full read, one file at a time (including pre-group migrated logs).
+        let path = dir.join(log_name(file_no));
+        let mut file = std::fs::File::open(&path).map_err(err(IoOp::Open, &path))?;
+        let size = file.metadata().map_err(err(IoOp::Read, &path))?.len();
+        let mut prefix = [0; ORDINAL_DIGITS];
+        file.read_exact(&mut prefix).map_err(err(IoOp::Read, &path))?;
+        drop(file);
+        for (record, pos, _) in scan_file(&dir, file_no, &prefix, size)? {
+            let Some(next) = replace(&inline(&record, blobs).map_err(RewriteError::Log)?) else { continue };
             let encoded = encode_record(next).map_err(log_error)?;
             for blob in encoded.blobs() {
                 blobs.put_unlaned(&blob.bytes, |p, b| io.publish(p, b)).map_err(log_error)?;
@@ -411,7 +451,7 @@ pub fn settle<L: WriteLane>(
 
 fn settle_with(data: &Path, session: &str, io: &dyn WriterIo, blobs: &BlobStore, index: IndexStep<'_>, hook: Hook<'_>) -> Result<(), RewriteError> {
     settle_files(data, session, io, blobs, hook)?;
-    if pending_unlaned(data, session) == Pending::Swapped {
+    if pending_unlaned(data, session)? == Pending::Swapped {
         finish_with(data, session, index, hook)?;
     }
     Ok(())
@@ -421,10 +461,10 @@ fn settle_with(data: &Path, session: &str, io: &dyn WriterIo, blobs: &BlobStore,
 fn settle_files(data: &Path, session: &str, io: &dyn WriterIo, blobs: &BlobStore, hook: Hook<'_>) -> Result<(), RewriteError> {
     let _writing = crate::log_epoch::writing(session);
     let root = stage_dir(data, session);
-    match pending_unlaned(data, session) {
+    match pending_unlaned(data, session)? {
         Pending::Clean | Pending::Swapped => {}
         Pending::Leftover => remove_dir(&root)?,
-        Pending::Moved if root.join(NEW_DIR).is_dir() => move_new(data, session, hook)?,
+        Pending::Moved if present(&root.join(NEW_DIR), Expected::Directory)? => move_new(data, session, hook)?,
         Pending::Moved => {
             // No whole new log to put in place: the old folder goes back and the rewrite is built again.
             fsio::durable_rename(&root.join(OLD_DIR), &session_dir(data, session))?;
@@ -443,7 +483,7 @@ fn settle_files(data: &Path, session: &str, io: &dyn WriterIo, blobs: &BlobStore
 /// the session goes on over its old log; the intent stays and the next attempt or start builds again.
 pub fn undo_move<L: WriteLane>(_lane: &InLane<L>, data: &Path, session: &str) -> Result<(), IoError> {
     let _writing = crate::log_epoch::writing(session);
-    if pending_unlaned(data, session) == Pending::Moved {
+    if pending_unlaned(data, session)? == Pending::Moved {
         fsio::durable_rename(&stage_dir(data, session).join(OLD_DIR), &session_dir(data, session))?;
     }
     Ok(())
@@ -467,16 +507,15 @@ pub fn recover<L: WriteLane>(_lane: &InLane<L>, data: &Path, io: &dyn WriterIo, 
 
 fn recover_with(data: &Path, io: &dyn WriterIo, blobs: &BlobStore, hook: Hook<'_>) -> Result<Vec<String>, RewriteError> {
     let root = data.join(REWRITE_DIR);
-    let entries = match std::fs::read_dir(&root) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(err(IoOp::List, &root)(e).into()),
-    };
+    if !present(&root, Expected::Directory)? {
+        return Ok(Vec::new());
+    }
+    let entries = std::fs::read_dir(&root).map_err(err(IoOp::List, &root))?;
     let mut sessions = Vec::new();
     for entry in entries {
         let session = entry.map_err(err(IoOp::List, &root))?.file_name().to_string_lossy().into_owned();
         settle_files(data, &session, io, blobs, hook)?;
-        if pending_unlaned(data, &session) == Pending::Swapped {
+        if pending_unlaned(data, &session)? == Pending::Swapped {
             sessions.push(session);
         }
     }

@@ -162,7 +162,6 @@ async fn roots_get_vectors_and_the_sweep_replaces_old_ones_then_finishes() {
     let db = pg.db(Schema::Memory).await;
     ensure_memory_schema(&db, 384, &json!({ "model": crate::memory::embed::config::DEFAULT_MODEL_ID })).await.expect("schema");
     let provider = provider();
-    provider.warmup().await.expect("model loads").expect("model installed");
     let a = insert_root(&db, 1, "build target", "The build uses the g-tools target", "please use g-tools").await;
     let b = insert_root(&db, 2, "release flow", "Releases go through the integrator", "who releases").await;
     let flush = Arc::new(RawEmbedFlush::new(db.clone(), Some(provider)));

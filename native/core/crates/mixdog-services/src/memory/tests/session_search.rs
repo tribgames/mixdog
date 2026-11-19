@@ -35,17 +35,12 @@ impl SensitiveValues for Mask {
     fn version(&self, session_id: &str) -> Option<String> {
         (session_id == "masked").then(|| "v1".to_owned())
     }
-    fn redact_messages(&self, session_id: &str, messages: &[Value]) -> Vec<Value> {
-        messages
-            .iter()
-            .map(|m| {
-                let mut m = m.clone();
-                if let Some(text) = m["content"].as_str() {
-                    m["content"] = Value::String(self.redact_text(session_id, text));
-                }
-                m
-            })
-            .collect()
+    fn redact_message(&self, session_id: &str, message: &Value) -> Value {
+        let mut message = message.clone();
+        if let Some(text) = message["content"].as_str() {
+            message["content"] = Value::String(self.redact_text(session_id, text));
+        }
+        message
     }
     fn redact_text(&self, session_id: &str, text: &str) -> String {
         if session_id == "masked" { text.replace("682419", "[redacted]") } else { text.to_owned() }
@@ -58,15 +53,15 @@ impl SensitiveValues for NoSecrets {
     fn version(&self, _: &str) -> Option<String> {
         None
     }
-    fn redact_messages(&self, _: &str, messages: &[Value]) -> Vec<Value> {
-        messages.to_vec()
+    fn redact_message(&self, _: &str, message: &Value) -> Value {
+        message.clone()
     }
     fn redact_text(&self, _: &str, text: &str) -> String {
         text.to_owned()
     }
 }
 
-/// Holds a write inside `redact_messages` until the test releases it, so a
+/// Holds a write during redaction until the test releases it, so a
 /// session's write is provably in flight when the queue is closed.
 struct Gate {
     entered: std::sync::mpsc::Sender<()>,
@@ -76,6 +71,9 @@ struct Gate {
 impl SensitiveValues for Gate {
     fn version(&self, _: &str) -> Option<String> {
         None
+    }
+    fn redact_message(&self, _: &str, message: &Value) -> Value {
+        message.clone()
     }
     fn redact_messages(&self, _: &str, messages: &[Value]) -> Vec<Value> {
         let _ = self.entered.send(());
@@ -199,24 +197,36 @@ async fn a_rewrite_at_the_same_cursor_retries_the_read_instead_of_storing_the_ol
     #[async_trait::async_trait]
     impl StoredSessions for Edited {
         async fn session_ids(&self) -> crate::memory::error::Result<Vec<String>> {
-            Ok(vec!["edited".into()])
+            Ok(vec!["masked".into()])
         }
         async fn record_stamp(&self, _: &str) -> crate::memory::error::Result<Option<String>> {
             Ok(Some(if self.0.load(Ordering::SeqCst) { AFTER } else { BEFORE }.into()))
         }
         async fn read(&self, id: &str) -> Option<IngestSession> {
-            let content = if self.0.swap(true, Ordering::SeqCst) { "updated albatross" } else { "obsolete pelican" };
-            Some(IngestSession { id: id.into(), messages: vec![json!({ "role": "user", "content": content })], agent_only: false })
+            let messages = if self.0.swap(true, Ordering::SeqCst) {
+                vec![
+                    json!({ "role": "user", "content": "updated albatross 682419" }),
+                    json!({ "role": "tool", "content": "tool output" }),
+                    json!({ "role": "assistant", "content": "updated heron", "ts": 20 }),
+                ]
+            } else {
+                vec![json!({ "role": "user", "content": "obsolete pelican" })]
+            };
+            Some(IngestSession { id: id.into(), messages, agent_only: false })
         }
     }
 
     let pg = TestPg::start().await;
     let db = SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("open");
-    let ingest = SessionSearchIngest::new(db.clone(), Arc::new(NoSecrets));
+    let ingest = SessionSearchIngest::new(db.clone(), Arc::new(Mask));
     assert_eq!(ingest.backfill(&Edited(AtomicBool::new(false))).await.unwrap(), 1);
-    assert!(db.search("pelican", 10).await.unwrap().is_empty());
-    assert_eq!(db.search("albatross", 10).await.unwrap().len(), 1);
-    assert_eq!(db.backfill_stamps().await.unwrap().get("edited").map(String::as_str), Some(AFTER));
+    let rows = db.db().query("SELECT ordinal, role, ts, content FROM session_search.messages WHERE session_id = 'masked' ORDER BY ordinal", &[]).await.unwrap();
+    let rows: Vec<(i32, String, Option<i64>, String)> = rows.iter().map(|row| (row.get(0), row.get(1), row.get(2), row.get(3))).collect();
+    assert_eq!(rows, [
+        (0, "user".to_owned(), None, "updated albatross [redacted]".to_owned()),
+        (2, "assistant".to_owned(), Some(20), "updated heron".to_owned()),
+    ]);
+    assert_eq!(db.backfill_stamps().await.unwrap().get("masked").map(String::as_str), Some(AFTER));
 }
 
 #[tokio::test(flavor = "multi_thread")]

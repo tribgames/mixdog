@@ -305,7 +305,7 @@ const CONTEXT_PAGE_ROWS: usize = 200;
 struct ContextState {
     lineage: Vec<LineageLevel>,
     cut: Option<u64>,
-    out: Vec<(ItemId, Value)>,
+    first: bool,
     at: ContextAt,
     /// The read gate's generation its first job read under.
     generation: u64,
@@ -1243,36 +1243,67 @@ impl StoreThreads {
         let loaded = {
             let journal = journal.clone();
             wait(self.maintenance, &never, move |_lane| journal.load()).await?
-        };
-        for (from, to) in loaded.carries {
-            marks.carry(&ThreadId::from(from.as_str()), &ThreadId::from(to.as_str()));
         }
-        // Each pending mark is marked again (journaled anew, carried along the carries), and its old file goes.
-        for (n, origin, values, sessions) in loaded.pending {
-            for session in std::iter::once(origin).chain(sessions) {
-                marks.restore(&ThreadId::from(session.as_str()), &values);
-            }
-            let journal = journal.clone();
-            wait(self.maintenance, &never, move |_lane| journal.forget(n)).await?;
+        .map_err(|e| refused(&e.to_string()))?;
+        marks.restore_carries(loaded.carries);
+        if loaded.pending.is_empty() {
+            return Ok(());
         }
-        for session in journal.owed() {
-            let (id, dir) = (ThreadId::from(session.as_str()), self.dir(&session));
-            let (deps, journal) = (self.writer.clone(), journal.clone());
-            let opened = wait(durability, &never, move |lane| {
-                if !dir.is_dir() {
-                    // A session deleted since holds nothing.
-                    journal.applied(&session, u64::MAX);
-                    return Ok(None);
+        let mut recovered = Vec::with_capacity(loaded.pending.len());
+        let mut owed = std::collections::BTreeSet::new();
+        for (n, mark) in loaded.pending {
+            recovered.push(n);
+            owed.extend(marks.restore(mark.origin, mark.sessions.into_keys().collect(), mark.values));
+        }
+        for session in owed {
+            let (dir, data, deps) = (self.dir(&session), self.data.clone(), self.writer.clone());
+            let (marks, runtime, index) = (marks.clone(), self.runtime.clone(), self.index.clone());
+            wait(durability, &never, move |lane| -> Result<(), String> {
+                let mut index_step = || {
+                    let rewrite = mixdog_store::sqlite::Rewritten { data: data.clone(), session: session.clone(), dirty: DirtyMark::Set };
+                    let block = || runtime.block_on(index.reproject(rewrite));
+                    let result = if tokio::runtime::Handle::try_current().is_ok() { tokio::task::block_in_place(block) } else { block() };
+                    result.map_err(|e| e.to_string())
+                };
+                let mut settle = || {
+                    mixdog_store::log_rewrite::settle(lane, &data, &session, &*deps.io, &deps.blobs, &mut index_step)
+                        .map_err(|e| e.to_string())
+                };
+                // A retry on this store may find the directory moved away or already redacted,
+                // with the index and old log still owed. Finish that intent before inspecting the log.
+                settle()?;
+                match std::fs::metadata(&dir) {
+                    Ok(_) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                    Err(e) => return Err(e.to_string()),
                 }
                 let opened = log::open_log(lane, &dir, &deps.blobs, &*deps.index).map_err(|e| e.to_string())?;
-                LogWriter::open(lane, opened, deps).map(Some).map_err(|e| e.to_string())
+                if let log::LogStatus::Damaged(damage) = opened.status {
+                    return Err(OpenAppendError::StoreDamaged(damage).to_string());
+                }
+                if let Some(lost) = opened.lost.as_ref() {
+                    return Err(OpenAppendError::BodiesLost(lost.clone()).to_string());
+                }
+                // For a torn tail keep the writer's rollback (including sync), even if no committed frame changes.
+                // A clean log needs no append handle, and neither case needs an open after the rewrite.
+                if matches!(opened.status, log::LogStatus::Torn { .. }) {
+                    let mut writer = LogWriter::open(lane, opened, deps.clone()).map_err(|e| e.to_string())?;
+                    writer.retry_storage(lane).map_err(|e| e.to_string())?;
+                } else {
+                    mixdog_store::fsio::sweep_tmp(lane, &dir).map_err(|e| e.to_string())?;
+                }
+                let id = ThreadId::from(session.as_str());
+                let mut replace = marks.rewriter(&id);
+                if mixdog_store::log_rewrite::plan(lane, &data, &session, &*deps.io, &deps.blobs, &mut *replace).map_err(|e| e.to_string())? {
+                    settle()?;
+                }
+                Ok(())
             })
             .await?
             .map_err(|error| refused(&error))?;
-            let Some(writer) = opened else { continue };
-            let mut log = self.store_log(&id, writer);
-            wait(durability, &never, move |lane| log.redact(lane)).await?;
         }
+        let journal = journal.clone();
+        wait(self.maintenance, &never, move |_lane| journal.forget_recovered(recovered)).await?;
         Ok(())
     }
 
@@ -1785,7 +1816,7 @@ impl StoreThreads {
         Ok(ContextState {
             lineage,
             cut,
-            out: Vec::new(),
+            first: true,
             at: ContextAt::Page(page),
             generation,
             skip,
@@ -1800,19 +1831,18 @@ impl StoreThreads {
         blobs: ContextBlobs,
     ) -> Result<ContextStep, CoreError> {
         let next = decoded.next;
-        state.out.extend(
-            finish_context(lane, decoded, blobs)
-                .map_err(|e| internal("context", &e))?
-                .into_iter()
-                .map(|m| (ItemId::from(m.iid), m.body)),
-        );
-        Ok(match next {
-            Some(cursor) => {
-                state.at = ContextAt::Next(cursor);
-                ContextStep::More(ContextRead(Box::new(state)))
-            }
-            None => ContextStep::Done(state.out),
-        })
+        let rows = finish_context(lane, decoded, blobs)
+            .map_err(|e| internal("context", &e))?
+            .into_iter()
+            .map(|m| (ItemId::from(m.iid), m.body))
+            .collect();
+        let first = state.first;
+        let next = next.map(|cursor| {
+            state.first = false;
+            state.at = ContextAt::Next(cursor);
+            ContextRead(Box::new(state))
+        });
+        Ok(ContextStep::Page { first, rows, next })
     }
 }
 impl ThreadStore for StoreThreads {
@@ -2377,8 +2407,8 @@ impl ThreadStore for StoreThreads {
         read: ContextRead,
     ) -> Result<ContextStep, CoreError> {
         let state = *read.0.downcast::<ContextState>().expect("StoreThreads context");
-        let ContextState { lineage, cut, out, at, generation, skip } = state;
-        let rest = |at| ContextState { lineage, cut, out, at, generation, skip };
+        let ContextState { lineage, cut, first, at, generation, skip } = state;
+        let rest = |at| ContextState { lineage, cut, first, at, generation, skip };
         match at {
             ContextAt::Page(page) => {
                 let decoded = decode_context(lane, page).map_err(|e| internal("context", &e))?;
@@ -2653,8 +2683,12 @@ impl super::seams::SensitiveMarks for SensitiveMarksOf {
         self.store.on_carried(move |session| listener(&ThreadId::from(session)))
     }
 
-    fn restore(&self, thread: &ThreadId, values: &[String]) -> bool {
-        self.store.restore(thread.as_str(), values)
+    fn restore_carries(&self, carries: Vec<(String, String)>) {
+        self.store.restore_carries(carries);
+    }
+
+    fn restore(&self, origin: String, sessions: Vec<String>, values: Vec<String>) -> std::collections::BTreeSet<String> {
+        self.store.restore(origin, sessions, values)
     }
 
     fn journal_with(&self, journal: Arc<dyn mixdog_services::memory::sensitive::MarkJournal>) -> bool {

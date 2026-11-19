@@ -1,6 +1,6 @@
 // Effect hooks that wire one browser pane to its guest page. They hold no JSX;
 // BrowserPane.lazy.tsx keeps the chrome markup and composes these.
-import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import type { DesktopBrowserCredentialSuggestion, DesktopBrowserHistoryEntry } from '../shared/contract';
 import { scheduleBrowserForegroundRepaint, watchBrowserForegroundReturns } from './browser-foreground-lifecycle';
 import type { BrowserPageElement } from './browser-page-client';
@@ -105,12 +105,20 @@ export function useActiveGuestReport({
   desktopApi,
   sessionId,
   active,
+  pixelsVisible,
 }: {
   webviewRef: GuestRef;
   desktopApi: DesktopApi;
   sessionId: string;
   active: boolean;
+  pixelsVisible: boolean;
 }) {
+  const pane = useId();
+  const visibility = useRef({ pixelsVisible, report: () => {} });
+  useLayoutEffect(() => {
+    visibility.current.pixelsVisible = pixelsVisible;
+    visibility.current.report();
+  }, [pixelsVisible]);
   useEffect(() => {
     const view = webviewRef.current;
     const setGuestActive = desktopApi?.browserSetActiveGuest;
@@ -123,26 +131,34 @@ export function useActiveGuestReport({
         // A tab switch attaches another guest; the one shown before is no
         // longer displayed by this pane.
         if (reportedId && reportedId !== webContentsId)
-          void setGuestActive(sessionId, reportedId, false).catch(() => {});
+          void setGuestActive(sessionId, reportedId, false, false, pane).catch(() => {});
         reportedId = webContentsId;
-        void setGuestActive(sessionId, webContentsId, active).catch(() => {});
+        const pixels = active && visibility.current.pixelsVisible && document.visibilityState !== 'hidden';
+        void setGuestActive(sessionId, webContentsId, active, pixels, pane).catch(() => {});
       } catch {
         /* guest not attached yet; did-attach/dom-ready retries */
       }
     };
+    visibility.current.report = report;
     report();
+    const reportHidden = () => {
+      if (document.visibilityState === 'hidden') report();
+    };
+    document.addEventListener('visibilitychange', reportHidden);
     const stopForegroundReturnReporting = active ? watchBrowserForegroundReturns(window, document, report) : () => {};
     const stopSettledForegroundRepaint = active ? scheduleBrowserForegroundRepaint(window, report) : () => {};
     view.addEventListener('did-attach', report);
     view.addEventListener('dom-ready', report);
     return () => {
       stopForegroundReturnReporting();
+      document.removeEventListener('visibilitychange', reportHidden);
       stopSettledForegroundRepaint();
       view.removeEventListener('did-attach', report);
       view.removeEventListener('dom-ready', report);
-      if (reportedId) void setGuestActive(sessionId, reportedId, false).catch(() => {});
+      visibility.current.report = () => {};
+      if (reportedId) void setGuestActive(sessionId, reportedId, false, false, pane).catch(() => {});
     };
-  }, [active, desktopApi, sessionId, webviewRef]);
+  }, [active, desktopApi, pane, sessionId, webviewRef]);
 }
 
 /** Stored-credential suggestions for the page, the fill action, and the

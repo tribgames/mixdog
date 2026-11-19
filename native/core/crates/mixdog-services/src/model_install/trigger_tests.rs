@@ -1,6 +1,6 @@
 //! When the judge and the embedder fetch, load and repair: the first judged
 //! step's refresh, the one repair per load failure until files are replaced,
-//! the judge's refusals, and the memory runtime's gates and warmups. Files
+//! the judge's refusals, and the memory runtime's explicit installation. Files
 //! come from a local HTTP server; the background work is awaited through the
 //! state tick the product publishes, never through sleeps.
 
@@ -18,7 +18,7 @@ use crate::effort_judge::EffortJudgeModel;
 use crate::memory::embed::config::DEFAULT_MODEL_ID;
 use crate::memory::embed::provider::EmbeddingProvider;
 use crate::memory::recall::QueryEmbedder;
-use crate::memory::runtime::{MemoryRuntime, RuntimeFlags, WarmupReply};
+use crate::memory::runtime::{MemoryRuntime, RuntimeFlags};
 use crate::model_install::InstallError;
 use crate::tool_state::{StateTick, onnx_runtime_supported};
 
@@ -72,47 +72,26 @@ fn fetches(server: &Server) -> usize {
     server.hits(&format!("/{DEFAULT_MODEL_ID}/resolve/main/tokenizer.json"))
 }
 
-#[test]
-fn the_gates_follow_node_for_every_flag_combination() {
-    let default = RuntimeFlags::default();
-    assert!(!default.secondary && default.eager_warmup);
-    for secondary in [false, true] {
-        for eager_warmup in [false, true] {
-            let flags = RuntimeFlags { secondary, eager_warmup };
-            assert_eq!(flags.warmup_can_start(), onnx_runtime_supported() && eager_warmup && !secondary, "{flags:?}");
-            assert_eq!(flags.on_demand_can_start(), onnx_runtime_supported() && !secondary, "{flags:?}");
-        }
-    }
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn a_secondary_process_never_fetches_or_loads() {
     let server = Server::start(Vec::new()).await;
     let cache = tempfile::tempdir().expect("cache");
     let tick = StateTick::default();
-    let (runtime, embedder) = runtime(&server, cache.path(), RuntimeFlags { secondary: true, eager_warmup: true }, &tick);
+    let (runtime, embedder) = runtime(&server, cache.path(), RuntimeFlags { secondary: true }, &tick);
 
-    runtime.cold_warmup().await.expect("a skipped warmup is not an error");
-    runtime.prewarm_recall();
-    settle().await;
-    let reply = runtime.embedding_warmup(&CancellationToken::new()).await.expect("answers");
-    assert_eq!(reply, WarmupReply::Skipped("secondary mode"));
-    assert_eq!(reply.to_json(), serde_json::json!({ "ok": true, "skipped": "secondary mode" }));
+    assert!(!runtime.install_model(&CancellationToken::new()).await.expect("answers"));
     assert_eq!(fetches(&server), 0);
     assert!(!embedder.is_installed().await.expect("reads") && !embedder.is_ready());
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_failed_download_fails_the_awaited_paths_and_leaves_recall_on_its_text_lanes() {
+async fn a_failed_explicit_install_leaves_recall_on_its_text_lanes() {
     let server = Server::start(Vec::new()).await;
     let cache = tempfile::tempdir().expect("cache");
     let tick = StateTick::default();
     let (runtime, embedder) = runtime(&server, cache.path(), RuntimeFlags::default(), &tick);
 
-    assert!(runtime.cold_warmup().await.is_err());
-    assert!(runtime.embedding_warmup(&CancellationToken::new()).await.is_err());
-    runtime.prewarm_recall();
-    settle().await;
+    assert!(runtime.install_model(&CancellationToken::new()).await.is_err());
     assert!(!embedder.is_ready());
     assert_eq!(crate::memory::recall::readiness::RecallEmbedder::new(embedder, false).query_vector("anything", &tokio_util::sync::CancellationToken::new()).await.expect("not aborted"), None);
 }
@@ -292,72 +271,27 @@ async fn the_first_step_loads_the_real_model_and_shutdown_unloads_it() {
     assert!(model.is_ready());
     assert_eq!(server.hits("/model.onnx"), 0);
 }
-async fn e5_server() -> Server {
-    let source = PathBuf::from(std::env::var_os("MIXDOG_MEMORY_MODELS").expect("MIXDOG_MEMORY_MODELS"))
-        .join("Xenova")
-        .join("multilingual-e5-small");
-    let id = DEFAULT_MODEL_ID;
-    Server::start(vec![
-        (&format!("/{id}/resolve/main/tokenizer.json"), Route::File(source.join("tokenizer.json"))),
-        (&format!("/{id}/resolve/main/tokenizer_config.json"), Route::File(source.join("tokenizer_config.json"))),
-        (&format!("/{id}/resolve/main/onnx/model_quantized.onnx"), Route::File(source.join("onnx").join("model_quantized.onnx"))),
-    ])
-    .await
-}
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "integration: real inference needs the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)"]
-async fn without_eager_warmup_only_the_explicit_install_route_loads_the_model() {
-    let server = e5_server().await;
+async fn explicit_install_downloads_the_files_without_starting_the_host() {
+    if !onnx_runtime_supported() {
+        return;
+    }
+    // Deliberately not an ONNX graph. The download path must not start inference.
+    let id = DEFAULT_MODEL_ID;
+    let server = Server::start(vec![
+        (&format!("/{id}/resolve/main/tokenizer.json"), Route::Body(b"{}".to_vec())),
+        (&format!("/{id}/resolve/main/tokenizer_config.json"), Route::Body(b"{}".to_vec())),
+        (&format!("/{id}/resolve/main/onnx/model_quantized.onnx"), Route::Body(b"graph".to_vec())),
+    ]).await;
     let cache = tempfile::tempdir().expect("cache");
     let tick = StateTick::default();
-    let (runtime, embedder) =
-        runtime_over(&server, cache.path(), RuntimeFlags { secondary: false, eager_warmup: false }, &tick, real_ort());
-
-    runtime.cold_warmup().await.expect("skipped");
-    runtime.prewarm_recall();
-    settle().await;
-    assert_eq!(fetches(&server), 0, "MIXDOG_EMBED_WARMUP=0 gates the eager paths");
+    let (runtime, embedder) = runtime(&server, cache.path(), RuntimeFlags::default(), &tick);
+    assert_eq!(fetches(&server), 0);
     assert!(!embedder.is_installed().await.expect("reads"));
 
-    let reply = runtime.embedding_warmup(&CancellationToken::new()).await.expect("installs and loads");
-    assert_eq!(reply, WarmupReply::Ready(true));
-    assert_eq!(reply.to_json(), serde_json::json!({ "ok": true, "ready": true }));
+    assert!(runtime.install_model(&CancellationToken::new()).await.expect("installs without the inference library"));
+    assert!(embedder.is_installed().await.expect("reads"));
+    assert!(!embedder.is_ready());
+    assert!(runtime.install_model(&CancellationToken::new()).await.expect("reinstall"));
     assert_eq!(fetches(&server), 1);
-    assert!(embedder.is_ready());
-}
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "integration: real inference needs the staged ONNX Runtime (MIXDOG_ORT_LIBRARY) and the e5 files (MIXDOG_MEMORY_MODELS)"]
-async fn a_session_start_prewarm_installs_and_loads_in_the_background_and_repeats_are_free() {
-    let server = e5_server().await;
-    let cache = tempfile::tempdir().expect("cache");
-    let tick = StateTick::default();
-    let (runtime, embedder) = runtime_over(&server, cache.path(), RuntimeFlags::default(), &tick, real_ort());
-
-    runtime.prewarm_recall();
-    until(&tick, || embedder.is_ready()).await;
-    assert_eq!(fetches(&server), 1);
-
-    runtime.prewarm_recall();
-    runtime.cold_warmup().await.expect("already warm");
-    settle().await;
-    assert_eq!(fetches(&server), 1);
-}
-
-
-/// Node's real `ensureStandaloneEnvironment` run over each starting `MIXDOG_EMBED_WARMUP`, then the real `embeddingWarmupCanStart` /
-/// `embeddingOnDemandCanStart` (`fixtures/standalone-defaults`, `record-standalone-defaults.mjs`).
-#[cfg(node_twin)]
-#[test]
-fn a_standalone_start_gates_the_warmup_as_nodes_does() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/standalone-defaults/twin.json");
-    let twin: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-    let states = twin["warmup"].as_array().unwrap();
-    assert_eq!(states.len(), 14);
-    for state in states {
-        let value = state["embedWarmup"].as_str().map(str::to_owned);
-        let flags = RuntimeFlags::from_env(&|name| (name == "MIXDOG_EMBED_WARMUP").then(|| value.clone()).flatten());
-        assert_eq!(onnx_runtime_supported(), state["onnxRuntimeSupported"], "{value:?}");
-        assert_eq!(flags.warmup_can_start(), state["warmupCanStart"], "{value:?}");
-        assert_eq!(flags.on_demand_can_start(), state["onDemandCanStart"], "{value:?}");
-    }
 }

@@ -257,12 +257,25 @@ fn existing_state(_lane: &InLane<DurabilityIo>, path: &Path, sha256: &str, bytes
     if info.len() != bytes {
         return if info.len() == 0 { State::Damaged } else { State::Foreign };
     }
-    let Ok(found) = std::fs::read(path) else {
+    let Ok(mut file) = std::fs::File::open(path) else {
         return State::Foreign;
     };
-    if hex(&Sha256::digest(&found)) == sha256 {
+    let mut hash = Sha256::new();
+    let mut blank = true;
+    let mut buf = [0u8; 16 * 1024];
+    loop {
+        let n = match io::Read::read(&mut file, &mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(_) => return State::Foreign,
+        };
+        hash.update(&buf[..n]);
+        blank &= holds_no_data(&buf[..n]);
+    }
+    if hex(&hash.finalize()) == sha256 {
         State::Intact
-    } else if holds_no_data(&found) {
+    } else if blank {
         State::Damaged
     } else {
         State::Foreign

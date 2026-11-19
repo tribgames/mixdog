@@ -205,6 +205,29 @@ use mixdog_core_api::domain::ext::ExtWorkerStatus;
 /// An extension host serving a two-page PDF whose second page has no text layer; its page image streams in two chunks.
 struct ScriptedPdfHost;
 
+struct ShortPdfImageHost;
+
+impl ExtPool for ShortPdfImageHost {
+    fn call(&self, call: ExtCall) -> Result<Box<dyn EventSource<ExtFrame>>, ExtError> {
+        if call.method != "pdf.render" {
+            return ScriptedPdfHost.call(call);
+        }
+        let frames = [
+            ExtFrame::Chunk(b"PN".to_vec()),
+            ExtFrame::Done(Ok(serde_json::json!({
+                "images": [{ "page": 2, "mimeType": "image/png", "bytes": 4 }],
+            }))),
+        ];
+        Ok(Box::new(ScriptedFrames(frames.into())))
+    }
+
+    fn status(&self) -> Vec<ExtWorkerStatus> { Vec::new() }
+
+    fn stop_worker(&self, worker: ExtWorkerId) -> Result<(), ExtError> {
+        ScriptedPdfHost.stop_worker(worker)
+    }
+}
+
 struct ScriptedFrames(std::collections::VecDeque<ExtFrame>);
 
 #[async_trait::async_trait]
@@ -218,7 +241,19 @@ impl ExtPool for ScriptedPdfHost {
     fn call(&self, call: ExtCall) -> Result<Box<dyn EventSource<ExtFrame>>, ExtError> {
         let done = |value: JsonValue| ExtFrame::Done(Ok(value));
         let frames = match call.method.as_str() {
-            "pdf.inspect" if call.params.get("extractText").is_none() => vec![done(serde_json::json!({ "pageCount": 2 }))],
+            "pdf.inspect" if call.params.get("extractText").is_none() => {
+                let mut value = serde_json::json!({ "pageCount": 2 });
+                if call.params["includeSha256"] == true {
+                    use sha2::{Digest, Sha256};
+                    let digest = if call.params["path"].as_str().unwrap().ends_with("/big.pdf") {
+                        Sha256::digest(large_pdf())
+                    } else {
+                        Sha256::digest(b"%PDF-1.7 scripted")
+                    };
+                    value["sha256"] = serde_json::json!(format!("{digest:x}"));
+                }
+                vec![done(value)]
+            }
             "pdf.inspect" => {
                 let range = &call.params["pageRange"];
                 let (from, to) = (range["from"].as_u64().unwrap(), range["to"].as_u64().unwrap());
@@ -401,7 +436,7 @@ fn link_dir(link: &Path, target: &Path) -> bool {
     linked
 }
 
-fn small_dir() -> (tempfile::TempDir, AbsPath) {
+pub(super) fn small_dir() -> (tempfile::TempDir, AbsPath) {
     let dir = tempfile::tempdir().unwrap();
     let root = AbsPath::new(dir.path().join("ws")).unwrap();
     std::fs::create_dir_all(root.as_path()).unwrap();
@@ -875,18 +910,26 @@ const STUB_DEPARTURES: &[&str] = &[
 
 /// The local file service, except that stating a file with one of `names` fails, one with a name of the third list
 /// never answers (a dead mount) and one named in the control's `delays` answers after that many virtual milliseconds.
-struct StatFails(Arc<dyn FileService>, &'static [&'static str], &'static [&'static str], Arc<StatControl>);
+pub(super) struct StatFails(pub(super) Arc<dyn FileService>, pub(super) &'static [&'static str], pub(super) &'static [&'static str], pub(super) Arc<StatControl>);
 
 #[derive(Default)]
-struct StatControl {
+pub(super) struct StatControl {
     /// Signalled as a stat that never answers starts.
     hung: tokio::sync::Notify,
     delays: &'static [(&'static str, u64)],
-    reads: Option<std::sync::Mutex<Vec<AbsPath>>>,
+    pub(super) reads: Option<std::sync::Mutex<Vec<AbsPath>>>,
+    pub(super) stats: Option<std::sync::Mutex<Vec<AbsPath>>>,
     missed_walk_entry: bool,
+    pub(super) repeated_walk_entry: Option<DirEntry>,
     reject_probes: bool,
     unprobeable_suffixes: &'static [&'static str],
     fail_first_read: std::sync::atomic::AtomicBool,
+}
+
+impl StatControl {
+    pub(super) fn record_locator_io() -> Self {
+        Self { reads: Some(Default::default()), stats: Some(Default::default()), ..Self::default() }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1460,6 +1503,15 @@ async fn read_answers_a_pdf_by_its_pages_as_node_does() {
         ]
     );
 }
+
+#[tokio::test]
+async fn read_does_not_attach_a_short_pdf_image_stream() {
+    let (_dir, root) = small_dir();
+    let ctx = context_seeded(&root, Arc::new(MockFileService::default()), vec![("mixed.pdf".to_owned(), b"%PDF-1.7 scripted".to_vec())]).await;
+    let read = ReadTool::new(Some(Arc::new(ShortPdfImageHost)), None);
+    let output = read_pdf(&read, &ctx, serde_json::json!("2")).await.unwrap();
+    assert!(matches!(output.parts.as_slice(), [ToolPart::Text(text)] if text.contains("page image could not be rendered")));
+}
 /// A model that sees no images gets a scanned page as the OCR engine's text (`pageMode: 'ocr'`), titled as such.
 #[tokio::test]
 async fn read_gives_a_text_only_model_the_ocr_text_of_a_scanned_page() {
@@ -1509,6 +1561,18 @@ async fn read_answers_a_short_pdf_with_the_document_when_the_model_reads_pdfs_na
     );
     let batch = read.call(&ctx, serde_json::json!({ "file_path": ["mixed.pdf", "big.pdf"] })).await.unwrap();
     assert!(batch.parts.iter().all(|part| matches!(part, ToolPart::Text(_))), "{batch:?}");
+}
+
+#[tokio::test]
+async fn read_rejects_native_pdf_bytes_that_differ_from_the_inspected_pdf() {
+    let (_dir, root) = small_dir();
+    let seeds = vec![("mixed.pdf".to_owned(), b"%PDF-1.7 modified".to_vec())];
+    let mut ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
+    ctx.options.pdf_native_document = true;
+    ctx.options.pdf_page_images = true;
+    let read = ReadTool::new(Some(Arc::new(ScriptedPdfHost)), None);
+    let (failed, text) = text_of(read_pdf(&read, &ctx, JsonValue::Null).await);
+    assert!(failed && text.contains("changed during inspection"), "{text}");
 }
 
 #[tokio::test]
@@ -2273,6 +2337,9 @@ impl FileService for StatFails {
     async fn stat(&self, lane: mixdog_rt::InteractiveIo, path: AbsPath) -> Result<mixdog_core_api::domain::fs::FileStat, mixdog_core_api::domain::fs::FsError> {
         assert!(!self.3.reject_probes, "unexpected stat: {path:?}");
         assert!(!self.3.unprobeable_suffixes.iter().any(|suffix| path.as_path().ends_with(suffix)), "unexpected literal stat: {path:?}");
+        if let Some(stats) = &self.3.stats {
+            stats.lock().unwrap().push(path.clone());
+        }
         if self.2.iter().any(|name| path.as_path().ends_with(name)) {
             self.3.hung.notify_one();
             std::future::pending::<()>().await;
@@ -2319,8 +2386,10 @@ impl FileService for StatFails {
         assert!(!self.3.reject_probes, "unexpected walk: {:?}", request.root);
         let missed = self.3.missed_walk_entry.then(|| request.root.clone());
         let walk = self.0.walk(lane, request);
-        match missed {
-            Some(path) => Box::new(WalkWithMiss { walk, path: Some(path) }),
+        let extra = missed.map(|path| Err(FsError::new(FsErrorKind::PermissionDenied, Some(path))))
+            .or_else(|| self.3.repeated_walk_entry.clone().map(Ok));
+        match extra {
+            Some(extra) => Box::new(WalkWithExtra { walk, extra: Some(extra) }),
             None => walk,
         }
     }
@@ -2329,16 +2398,16 @@ impl FileService for StatFails {
     }
 }
 
-struct WalkWithMiss {
+struct WalkWithExtra {
     walk: Box<dyn EventSource<Result<DirEntry, FsError>>>,
-    path: Option<AbsPath>,
+    extra: Option<Result<DirEntry, FsError>>,
 }
 
 #[async_trait::async_trait]
-impl EventSource<Result<DirEntry, FsError>> for WalkWithMiss {
+impl EventSource<Result<DirEntry, FsError>> for WalkWithExtra {
     async fn next(&mut self) -> Option<Result<DirEntry, FsError>> {
-        if let Some(path) = self.path.take() {
-            return Some(Err(FsError::new(FsErrorKind::PermissionDenied, Some(path))));
+        if let Some(extra) = self.extra.take() {
+            return Some(extra);
         }
         self.walk.next().await
     }
@@ -2541,13 +2610,18 @@ async fn glob_and_find_see_files_past_fifty_thousand_entries() {
 #[tokio::test]
 async fn find_ranks_with_nucleo_and_breaks_ties_by_path() {
     let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-fuzzy").join("ws")).unwrap();
-    let seeds = vec![("b/zz.rs".to_owned(), Vec::new()), ("aaa/zz.rs".to_owned(), Vec::new()), ("aaa/other.rs".to_owned(), Vec::new())];
+    let seeds = ["b/zz.rs", "aaa/zz.rs", "aaa/other.rs", "aaa/n-e-e-d-l-e", "late/needle"]
+        .into_iter().map(|name| (name.to_owned(), Vec::new())).collect();
     let ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
     let (_, find) = text_of(FindTool::new().call(&ctx, serde_json::json!({ "query": "zz" })).await);
     assert_eq!(find, "aaa/zz.rs
 b/zz.rs");
     let (_, both) = text_of(FindTool::new().call(&ctx, serde_json::json!({ "query": "zz aaa" })).await);
     assert_eq!(both, "aaa/zz.rs");
+    let (_, top) = text_of(FindTool::new().call(&ctx, serde_json::json!({ "query": "zz", "limit": 1 })).await);
+    assert_eq!(top, "aaa/zz.rs\n... (top 1; additional matches omitted)");
+    let (_, best_late) = text_of(FindTool::new().call(&ctx, serde_json::json!({ "query": "needle", "limit": 1 })).await);
+    assert_eq!(best_late, "late/needle\n... (top 1; additional matches omitted)");
 }
 #[cfg(node_twin)]
 #[async_trait::async_trait]

@@ -1,8 +1,4 @@
 import './process-shim';
-// Browser-served remote sessions install a
-// WebSocket-backed DesktopApi before any module reads window.mixdogDesktop;
-// inside Electron the preload bridge already exists and this is a no-op.
-import './remote-shim';
 // UI language resolves synchronously here, BEFORE any App module evaluates:
 // module-level English strings pass through t() at import time.
 import './i18n';
@@ -149,8 +145,8 @@ void reactCommitted.then(() => {
     markBootStage('fonts-settled');
     window.mixdogDesktop?.rendererReady?.();
     revealInstalledWebApp();
-    // With the launch faces settled and the window revealed, warm the rest of
-    // the local font inventory so later-created UI text never lazy-loads.
+    // With the launch faces settled and the window revealed, warm UI text
+    // faces without fetching fonts that only equations use.
     scheduleFontWarmup();
   });
 });

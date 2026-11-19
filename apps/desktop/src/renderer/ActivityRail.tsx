@@ -97,7 +97,6 @@ export const ActivityRail = memo(function ActivityRail({
   onInstallDesktopUpdate,
   onOpenProviders,
   onOpenUsageStats,
-  onPrefetchSettings,
   usageApi,
   navigationItems,
   activeNavigationId,
@@ -113,7 +112,6 @@ export const ActivityRail = memo(function ActivityRail({
   onOpenProviders?(): void;
   /** Opens the token-usage statistics dialog from the usage flyout header. */
   onOpenUsageStats?(): void;
-  onPrefetchSettings?(): void;
   /** Overridable only for tests; the rail warms usage through the host API. */
   usageApi?: UsageApi;
   navigationItems: readonly WorkbenchSideViewDescriptor[];
@@ -347,11 +345,6 @@ export const ActivityRail = memo(function ActivityRail({
           aria-label={t('Open settings')}
           aria-current={settingsOpen ? 'page' : undefined}
           data-tooltip={t('Settings')}
-          onPointerEnter={onPrefetchSettings}
-          onFocus={onPrefetchSettings}
-          onPointerDown={(event) => {
-            if (event.button === 0) onPrefetchSettings?.();
-          }}
           onClick={() => onOpenSettings()}
         >
           <span className="codicon codicon-settings-gear" aria-hidden="true" />

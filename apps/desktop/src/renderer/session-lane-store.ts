@@ -29,6 +29,8 @@ interface SessionLaneStore {
   start(source?: SessionLaneSource | undefined): () => void;
   /** Test/manual injection of one lane frame. */
   apply(update: DesktopSessionStateUpdate): void;
+  /** Paint a stored tail only if a real lane has not already landed. */
+  seedPreview(sessionId: string, snapshot: NonNullable<DesktopSessionStateUpdate['snapshot']>): void;
   /** The first state of a session the caller's operation created (a new task, a fork), as that operation answered it. Only a
    *  creating operation seeds: a settings reply never does. A session whose stream already delivered a state, or ended as
    *  gone, is its stream's: the answer is not applied. */
@@ -601,7 +603,13 @@ export function createSessionLaneStore({
     }
     if (update.snapshot) {
       const incoming = decorator.decorate(update.snapshot);
-      const decision = decideSessionLaneFrame(priorSnapshot, prior?.revision ?? null, incoming, provenance);
+      // A stored preview may predate a rewind. Reuse equal row objects below, but never retain its rows or fields over a real frame.
+      const decision = decideSessionLaneFrame(
+        priorSnapshot?.transcriptPreview ? null : priorSnapshot,
+        prior?.revision ?? null,
+        incoming,
+        provenance
+      );
       reportLaneDecision(sessionId, provenance, decision);
       const accepted = decision.accept ? decision.snapshot : (priorSnapshot ?? incoming);
       // A row (or field) that did not change keeps the object the pane holds, whatever lane delivered the frame: the core
@@ -627,7 +635,9 @@ export function createSessionLaneStore({
     snapshots.prune();
     const nextSnapshot = snapshots.get(sessionId)?.snapshot ?? null;
     syncApprovals(sessionId);
-    if (update.snapshot && shown.has(sessionId) && !live.has(sessionId)) setLive(new Set([...live, sessionId]));
+    if (update.snapshot && !nextSnapshot?.transcriptPreview && shown.has(sessionId) && !live.has(sessionId)) {
+      setLive(new Set([...live, sessionId]));
+    }
     reportSessionReadFrame({ ...update, snapshot: nextSnapshot }, 'applied', performance.now() - readFrameStartedAt);
     noteStreamLaneFrame(sessionId, nextSnapshot?.streamingTail);
     if ((listeners.get(sessionId)?.size || 0) === 0) {
@@ -720,6 +730,10 @@ export function createSessionLaneStore({
       return halt;
     },
     apply,
+    seedPreview(sessionId, snapshot) {
+      if (ended.has(sessionId) || snapshots.get(sessionId)) return;
+      apply({ sessionId, snapshot: { ...snapshot, transcriptPreview: true }, frameSource: 'replay' });
+    },
     seedCreatedSession(sessionId, snapshot) {
       if (ended.has(sessionId) || snapshots.get(sessionId)) return;
       apply({ sessionId, snapshot, frameSource: 'live' });

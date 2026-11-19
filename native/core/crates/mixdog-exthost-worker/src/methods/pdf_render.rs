@@ -143,15 +143,9 @@ async fn render(ctx: CallCtx) -> HandlerResult {
     let registry = fonts(lanes, &ctx.cancel).await?;
     let options = render_options(&ctx.params, &ctx.cancel);
     let rendered = render_pdf_pages(lanes, registry, Arc::new(NoWriteNote), &file, options).await.map_err(|error| failure(&ctx, &error))?;
-    let mut value = rendered.to_json();
-    let entries = value.get_mut("images").and_then(Value::as_array_mut);
-    for (entry, image) in entries.into_iter().flatten().zip(&rendered.images) {
-        let bytes = image.png();
-        ctx.emit(bytes).await?;
-        if let Some(entry) = entry.as_object_mut() {
-            entry.remove("data");
-            entry.insert("bytes".to_owned(), Value::from(bytes.len()));
-        }
+    let value = rendered.streamed_json();
+    for image in rendered.images {
+        ctx.emit(image.png()).await?;
     }
     Ok(Outcome::value(value))
 }

@@ -71,6 +71,9 @@ fn node_base64(data: &str) -> Vec<u8> {
             .with_decode_allow_trailing_bits(true)
             .with_decode_padding_mode(DecodePaddingMode::Indifferent),
     );
+    if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data) {
+        return bytes;
+    }
     let mut cleaned: String = data
         .chars()
         .take_while(|c| *c != '=')

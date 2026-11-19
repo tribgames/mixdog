@@ -109,6 +109,16 @@ impl BlobPort for StoreBlobPort {
             .map(Bytes::from)
             .map_err(|error| error.to_string())
     }
+
+    async fn verified_size(&self, digest: &str) -> Result<Option<u64>, String> {
+        let digest = mixdog_store::blobs::digest_of_reference(digest.strip_prefix("sha256:").unwrap_or(digest)).ok_or_else(|| format!("not a blob digest: {digest}"))?;
+        let blobs = self.blobs.clone();
+        on_lane_wait(self.lane, &CancellationToken::new(), move |lane| blobs.verify(lane, &digest))
+            .await
+            .map_err(|error| error.to_string())?
+            .map(Some)
+            .map_err(|error| error.to_string())
+    }
 }
 
 /// The files the engine reads facts of (an upload's path) and writes (a frame kept beside the run, pruned as the computer's are).

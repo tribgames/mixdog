@@ -252,6 +252,9 @@ pub(super) struct Timings {
     /// Waiting for the root's refresh turn.
     pub root_wait_ms: u64,
     pub inventory_ms: u64,
+    /// Re-opening and digesting the indexed sources before answering.
+    pub verify_ms: u64,
+    pub resolver_check_ms: u64,
     pub cache_load_ms: u64,
     pub parse_ms: u64,
     pub link_ms: u64,
@@ -262,6 +265,7 @@ pub(super) struct Timings {
     pub reused: usize,
     pub parsed: usize,
     pub omitted: usize,
+    pub verified: usize,
     /// Whether the published generation was kept (`None`: the call took no generation).
     pub retained: Option<bool>,
     pub generation: u64,
@@ -271,6 +275,8 @@ impl Timings {
     const ZERO: Self = Self {
         root_wait_ms: 0,
         inventory_ms: 0,
+        verify_ms: 0,
+        resolver_check_ms: 0,
         cache_load_ms: 0,
         parse_ms: 0,
         link_ms: 0,
@@ -279,13 +285,15 @@ impl Timings {
         reused: 0,
         parsed: 0,
         omitted: 0,
+        verified: 0,
         retained: None,
         generation: 0,
     };
 
     /// The durations that are the graph's own.
     pub fn graph_ms(&self) -> u64 {
-        self.root_wait_ms + self.inventory_ms + self.cache_load_ms + self.parse_ms + self.link_ms + self.assemble_ms + self.admission_ms
+        self.root_wait_ms + self.inventory_ms + self.verify_ms + self.resolver_check_ms
+            + self.cache_load_ms + self.parse_ms + self.link_ms + self.assemble_ms + self.admission_ms
     }
 }
 

@@ -578,7 +578,7 @@ impl ControlCell {
     /// The attach that [`Self::subscribing`] started ended (`ok`: the subscriber is attached).
     pub fn subscribed(&self, ok: bool) {
         if !ok {
-            self.subscribers.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+            self.unsubscribed();
         }
     }
 

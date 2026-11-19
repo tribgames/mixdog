@@ -105,9 +105,7 @@ mod shared_open;
 mod stop_target;
 
 
-/// `_initStore`'s dimensions: the saved measurement of this identity wins (a model the profiles do
-/// not list opens without being loaded), then the profile; an unlisted model with no saved
-/// measurement has no source without the model.
+/// A custom model with no saved dimension does not block schema opening.
 #[tokio::test(flavor = "multi_thread")]
 async fn dimensions_come_from_the_saved_measurement_then_the_profile() {
     use crate::memory::boot::resolve_dims;
@@ -115,21 +113,20 @@ async fn dimensions_come_from_the_saved_measurement_then_the_profile() {
     let dir = tempfile::tempdir().expect("dir");
     let unlisted = config::identity(None, "acme/unlisted", None);
 
-    let err = resolve_dims(dir.path(), lane, &unlisted, "acme/unlisted", None).await.expect_err("no source");
-    assert!(err.message().contains("embedding dims unavailable without an embedding model"), "{}", err.message());
+    assert_eq!(resolve_dims(dir.path(), lane, &unlisted, "acme/unlisted").await, None);
 
     let mut saved = unlisted.clone();
     saved["dims"] = json!(777);
     std::fs::write(dir.path().join("embedding-meta.json"), saved.to_string()).expect("write");
-    assert_eq!(resolve_dims(dir.path(), lane, &unlisted, "acme/unlisted", None).await.expect("saved"), 777);
+    assert_eq!(resolve_dims(dir.path(), lane, &unlisted, "acme/unlisted").await, Some(777));
 
     // The saved value belongs to its identity: another dtype is another measurement.
     let other = config::identity(None, "acme/unlisted", Some("q8"));
-    assert!(resolve_dims(dir.path(), lane, &other, "acme/unlisted", None).await.is_err());
+    assert_eq!(resolve_dims(dir.path(), lane, &other, "acme/unlisted").await, None);
 
     // A listed model needs no measurement.
     let listed = config::identity(None, DEFAULT_MODEL_ID, None);
-    assert_eq!(resolve_dims(dir.path(), lane, &listed, DEFAULT_MODEL_ID, None).await.expect("profile"), 384);
+    assert_eq!(resolve_dims(dir.path(), lane, &listed, DEFAULT_MODEL_ID).await, Some(384));
 }
 /// A stack over `dir` whose runtime comes from `source`.
 async fn stack_over(dir: &std::path::Path, source: PgRuntimeSource) -> Arc<MemoryStack> {

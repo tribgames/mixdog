@@ -4,14 +4,15 @@ import type { TranscriptRowModel } from './transcript-rows';
 import type { TurnChangesRef } from './turn-changes-model';
 import { visualizedTargets, visualizeTurnEndAt } from './visualize-card-model';
 
-const linkedCache = new Map<string, readonly string[]>();
+// Re-indexing immutable items can reuse their links without pinning reply
+// bodies after a page or a streaming revision leaves the timeline.
+const linkedCache = new WeakMap<TranscriptItem, readonly string[]>();
 
-function linkedIn(text: string): readonly string[] {
-  let paths = linkedCache.get(text);
+function linkedIn(item: TranscriptItem, text: string): readonly string[] {
+  let paths = linkedCache.get(item);
   if (!paths) {
     paths = linkedLocalPaths(text);
-    linkedCache.set(text, paths);
-    if (linkedCache.size > 200) linkedCache.delete(linkedCache.keys().next().value as string);
+    linkedCache.set(item, paths);
   }
   return paths;
 }
@@ -82,7 +83,7 @@ export function createTurnIndexer(targetsOf: (items: readonly TranscriptItem[]) 
       }
       if (row._tag === 'AssistantPart' && row.item.kind === 'assistant') {
         const text = String(row.item.text || '');
-        for (const path of linkedIn(text)) surfaced.add(path);
+        for (const path of linkedIn(row.item, text)) surfaced.add(path);
         turn.replyText = text;
       }
       if (!turn.changes && (row._tag === 'AssistantPart' || row._tag === 'Error')) turn.changes = row.turnChanges;

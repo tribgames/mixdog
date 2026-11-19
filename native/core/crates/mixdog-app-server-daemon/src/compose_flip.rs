@@ -2678,8 +2678,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     if store_threads.redact_with(sensitive_marks.clone()).is_err() {
         unreachable!("the thread store is bound once, here");
     }
-    // Before any thread is served (no directory can open a log yet): marks a previous run journaled and did not apply
-    // everywhere are marked again and their sessions rewritten.
+    // Before any thread is served (no directory can open a log yet): restore journaled marks and finish their rewrites.
     boot.boot_mark("before-sensitive-marks-settle");
     store_threads.settle_marks(b.tokens.durability_io).await.map_err(|e| ComposeError::Config(format!("sensitive marks: {e:?}")))?;
     boot.boot_mark("sensitive-marks-settle-ended");
@@ -2702,7 +2701,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         pg_runtime,
         embedder: b.models.embeddings.clone(),
         embedding_provider: config.full().get("embedding").and_then(|e| e.get("provider")).and_then(serde_json::Value::as_str).map(str::to_owned),
-        flags: mixdog_services::memory::runtime::RuntimeFlags::from_env(&*b.env),
+        flags: mixdog_services::memory::runtime::RuntimeFlags::default(),
         progress: Some(start_notices.sink(MemoryStartNotices::EMBEDDING)),
         sensitive: sensitive.clone(),
         lane: b.tokens.durability_io,
@@ -3294,6 +3293,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             // A busy session is running work of the lifecycle (Node's `busySessions`), through the same cell.
             let core_work: Arc<dyn mixdog_core_session::session::CoreWork> = late_lifecycle.clone();
             let archive = archive_states.clone();
+            let read_state = read_state.clone();
             move |runs| mixdog_core_session::session::SessionDeps {
                 archive: archive.clone(),
                 store: store_threads,
@@ -3336,6 +3336,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     shells: owned_shells.clone(),
                     tool_events: Arc::new(mixdog_core_session::session::tool_events::ToolEventsLog::new(&data_dir, tokens.maintenance_io, clock.clone())),
                     mcp_scopes: mcp_glue.clone(), // a closed session's MCP scope goes with it
+                    read_state: read_state.clone(),
                 }),
                 purge,
                 // A Goal record written before the todo list still carries its tasks: the session's list adopts them (`goal-facade-api.mjs` `adoptLegacyTasks`).

@@ -27,6 +27,7 @@ use mixdog_core_api::domain::media::MediaFrameSource;
 use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_protocol::JsonValue;
+use mixdog_tools::desktop::host::BrowserToolReply;
 use mixdog_tools::desktop::host::HostCommandError;
 use mixdog_tools::desktop::host::HostCommands;
 use serde_json::Value;
@@ -63,23 +64,33 @@ impl RedactingHostCommands {
     pub fn new(inner: Arc<dyn HostCommands>, redactor: Arc<dyn Redact>) -> Self {
         Self { inner, redactor }
     }
+
+    fn redact_reply(&self, thread: &ThreadId, reply: &mut Value) {
+        if let Some(Value::String(text)) = reply.get_mut("text") {
+            *text = self.redactor.redact(thread, text);
+        }
+    }
+
+    fn redact_error(&self, thread: &ThreadId, error: HostCommandError) -> HostCommandError {
+        match error {
+            HostCommandError::Rpc { code, message, timing } => HostCommandError::Rpc { code, message: self.redactor.redact(thread, &message), timing },
+            other => other,
+        }
+    }
 }
 
 #[async_trait]
 impl HostCommands for RedactingHostCommands {
     async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
-        match self.inner.browser(thread, action, input, cancel).await {
-            Ok(mut reply) => {
-                if let Some(Value::String(text)) = reply.get_mut("text") {
-                    *text = self.redactor.redact(thread, text);
-                }
-                Ok(reply)
-            }
-            Err(HostCommandError::Rpc { code, message, timing }) => {
-                Err(HostCommandError::Rpc { code, message: self.redactor.redact(thread, &message), timing })
-            }
-            Err(other) => Err(other),
-        }
+        let mut reply = self.inner.browser(thread, action, input, cancel).await.map_err(|error| self.redact_error(thread, error))?;
+        self.redact_reply(thread, &mut reply);
+        Ok(reply)
+    }
+
+    async fn browser_for_tool(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &mixdog_rt::CancellationToken) -> Result<BrowserToolReply, HostCommandError> {
+        let mut reply = self.inner.browser_for_tool(thread, action, input, cancel).await.map_err(|error| self.redact_error(thread, error))?;
+        self.redact_reply(thread, &mut reply.value);
+        Ok(reply)
     }
 
     async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue, cancel: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {

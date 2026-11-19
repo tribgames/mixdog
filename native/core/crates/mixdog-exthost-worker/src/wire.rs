@@ -69,12 +69,15 @@ pub fn need_browser(id: u32) -> Bytes {
 
 /// `{ok, pin}` or `{err:{code, message}, pin}`.
 pub fn result(id: u32, body: &Value) -> Bytes {
-    // A `Value` always serializes.
-    encode(
-        kind::RESULT,
-        id,
-        &serde_json::to_vec(body).unwrap_or_default(),
-    )
+    let data_len = body.pointer("/ok/ok/data").and_then(Value::as_str).map_or(0, str::len);
+    let mut out = Vec::with_capacity(HEADER_BYTES + data_len + 256);
+    out.extend_from_slice(&[0; 4]);
+    out.push(kind::RESULT);
+    out.extend_from_slice(&id.to_be_bytes());
+    serde_json::to_writer(&mut out, body).expect("a JSON value serializes into a Vec");
+    let len = (out.len() - 4) as u32;
+    out[..4].copy_from_slice(&len.to_be_bytes());
+    Bytes::from(out)
 }
 
 /// What a CALL frame asks for.

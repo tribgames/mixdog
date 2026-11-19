@@ -13,6 +13,7 @@ import type { Rectangle, WebContents } from 'electron';
 
 import type { HostBrowserScreenshotResult } from '../../../../../../packages/protocol/src/index.ts';
 import type { createBrowserScreenshotService } from '../../browser/screenshot';
+import { type EncodedBrowserScreenshot, screenshotWireImage } from '../../browser/screenshot-image';
 import { normalizeScreenshotOptions } from '../../browser/screenshot-policy';
 import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../connection';
 import { uploadBlob } from './blob-upload';
@@ -78,7 +79,7 @@ export function registerScreenshot(connection: HostConnection, ctx: EngineContex
     }
     const inBackground = background === true;
 
-    let shot: { data: string; width: number; height: number; mimeType: string };
+    let shot: EncodedBrowserScreenshot;
     // An element crop the page clipped (scrolled out, cut by the viewport) says so; a whole-page capture never is.
     let partial = false;
     if (!clip) {
@@ -105,11 +106,10 @@ export function registerScreenshot(connection: HostConnection, ctx: EngineContex
       shot = cropped;
     }
 
-    const { mimeType, width, height } = shot;
-    const bytes = Buffer.from(shot.data, 'base64');
+    const { bytes, mimeType, width, height } = shot;
     const picture: Omit<HostBrowserScreenshotResult, 'facts'> =
       bytes.byteLength <= MAX_INLINE_SCREENSHOT_BYTES
-        ? { mimeType, width, height, data: shot.data }
+        ? { ...screenshotWireImage(shot), width, height }
         : { mimeType, width, height, blob: await uploadBlob(connection, bytes, mimeType) };
     return partial ? { ...picture, partial } : picture;
   });

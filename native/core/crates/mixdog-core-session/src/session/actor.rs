@@ -1684,6 +1684,8 @@ pub(crate) struct SessionActor {
     /// The releases waiting for the idle decision they asked for ([`Inbox::IdleRelease`]): answered once the thread stays, or has
     /// left the directory; dropped with the actor.
     idle_acks: Vec<oneshot::Sender<()>>,
+    /// Lets the directory start close work only after the previous actor has disposed of its runtime.
+    unload_stopped: Option<oneshot::Sender<()>>,
     /// What an archive preparation of this thread must not cross, as the last step left it ([`super::archive_trees::RetentionMark`]).
     retention_seen: Option<super::archive_trees::RetentionFacts>,
     /// A continuation was asked for while that check ran; it is decided once the check is back.
@@ -1983,6 +1985,7 @@ impl SessionActor {
             idle_evict_at: None,
             only_read: false,
             idle_acks: Vec::new(),
+            unload_stopped: None,
             retention_seen: None,
             goal_deferred: false,
             goal_tail: None,
@@ -2156,15 +2159,14 @@ impl SessionActor {
             // as their writes are acked, so the chain ends once no write of it is still in flight. The frame timer still bounds it.
             let flushed = if self.outbox.is_empty() { self.frames.chain_end() } else { None };
             self.publish_frame(flushed);
-            // An unload that waited for its writes: everything accepted is on disk now. It is decided again as it was: a closed
-            // thread's by its close ([`Self::try_unload`]), an idle one's by its deadline ([`Self::idle_checked`]: one no longer
-            // evictable, or whose clock restarted meanwhile, stays).
+            // Once the writes land, retry the unload. Background work could have started while an
+            // idle unload was waiting for durability, so check it again before evicting.
             if self.unload_due && self.outbox.is_empty() && self.save_risk.unknown.is_empty() {
                 self.unload_due = false;
                 if self.tombstoned {
                     self.try_unload();
-                } else {
-                    self.idle_checked(false);
+                } else if self.idle_evict_at.is_none() || !self.idle_acks.is_empty() {
+                    self.on_idle_evict();
                 }
             }
             // A close this session could not follow at once: it leaves as soon as what it was finishing is over,
@@ -2220,6 +2222,11 @@ impl SessionActor {
         // without holding the close.
         let usage = self.deps.gateway_usage.clone();
         tokio::spawn(async move { usage.settle().await });
+        let stopped = self.unload_stopped.take();
+        drop(self);
+        if let Some(stopped) = stopped {
+            let _ = stopped.send(());
+        }
     }
 
     /// `Ctl::Delete`: see its doc.
@@ -2478,8 +2485,8 @@ impl SessionActor {
         });
     }
 
-    /// The idle deadline's background-work read answered, or the unload it decided has its writes on disk. A clock armed again
-    /// meanwhile (the thread went quiet once more, a client resumed it) is the newer one.
+    /// The idle deadline's background-work read answered. A clock armed again meanwhile
+    /// (the thread went quiet once more, a client resumed it) is the newer one.
     fn idle_checked(&mut self, working: bool) {
         // A release waiting for this decision ([`Inbox::IdleRelease`]) takes it now: a clock the thread's own steps armed again
         // meanwhile (its open's Goal check, a busy change that ended) does not put it off; a thread no longer evictable stays.
@@ -2536,17 +2543,16 @@ impl SessionActor {
             return;
         };
         // Left, or a subscriber came back and it stays: either way a close has its answer.
-        if directory.unload(&self.id, &self.cell, self.close_work("other")) {
-            // The runtime's close disconnects the MCP scope (`runtime-stops.mjs:24`); a load takes a new one.
-            self.deps.deletion.unload_mcp_scope(self.id.as_str());
-            // The saved request a side question forks holds the whole transcript and tool list: it goes with the thread, as
-            // Codex's `last_request` goes with an evicted thread. A side question after the reload forks the next turn's request.
+        if let Some(stopped) = directory.unload(&self.id, &self.cell, self.close_work("other")) {
+            self.unload_stopped = Some(stopped);
+            // A warm chain can retain a full request and later mutate the cache book.
+            self.deps.warm.unloaded(&self.id);
+            self.deps.deletion.release_unloaded_runtime(self.id.as_str());
+            // A side question after the reload forks the next turn's request, not the old runtime's.
             self.deps.side.forget(&self.id, false);
             // Its book is on disk (committed above): it is no longer open, released here while no other load of the thread
             // can have begun, and is read back from the header on the next use.
             self.deps.cache_tail.release(self.id.as_str());
-            // A warm chain of the thread holds its whole request and would settle into a book no one persists any more.
-            self.deps.warm.unloaded(&self.id);
         }
         self.answer_closes();
         self.answer_idle();
@@ -4605,6 +4611,7 @@ impl SessionActor {
                 // can change what there is to write.
                 if std::mem::take(&mut self.unload_due) {
                     tracing::warn!("session {}: its close failed on a write; it stays open with its unwritten records held", self.id.as_str());
+                    self.answer_idle();
                 }
                 // It stays loaded: a close that waited for it to leave has its answer.
                 self.answer_closes();

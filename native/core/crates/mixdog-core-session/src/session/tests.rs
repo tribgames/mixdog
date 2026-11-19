@@ -6355,6 +6355,37 @@ async fn an_idle_thread_unloads_one_idle_delay_after_its_last_subscriber_left_an
     assert!(!Arc::ptr_eq(&reopened.cell, &handle.cell));
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_refused_last_attach_restarts_idle_eviction() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    assert!(handle.cell.subscribing());
+    handle.inbox.send(super::actor::Inbox::IdleDue).await.expect("the actor takes the deadline");
+    caught_up(&handle).await;
+    assert!(directory.handle(&handle.id).is_some(), "the pending attach vetoed eviction");
+
+    handle.cell.subscribed(false);
+    caught_up(&handle).await;
+    tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
+    eventually_on!(&[directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn shutdown_waits_for_close_work_of_a_thread_already_evicted() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    *lock(&rig.closes.delay) = Duration::from_secs(1);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "hello", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.turn_busy()).then_some(())).await;
+
+    directory.release(&handle.id).await;
+    assert!(directory.handle(&handle.id).is_none(), "already evicted before shutdown");
+    directory.shutdown().await;
+    assert_eq!(lock(&rig.closes.seen).len(), 1, "shutdown joined the evicted thread's ingest");
+}
 
 /// A header saved before transcript epochs existed (a provider state, no `transcriptEpoch`) is named an epoch when its next turn
 /// saves, and keeps its provider state: the state is not invalid for this build (a Responses slot is read from its own wire's key

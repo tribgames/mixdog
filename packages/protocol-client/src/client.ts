@@ -34,6 +34,7 @@ import type {
   ThreadFold,
   ThreadReducer,
   ThreadResumeResponse,
+  ThreadSubscription,
   TransportSink,
   TransportWriter,
   SentClaim,
@@ -304,6 +305,8 @@ class Engine implements ProtocolClient<Json> {
    *  the first subscription and have the core encode the whole snapshot again. */
   private readonly resuming = new Map<string, { reply: Promise<ThreadResumeResponse>; window: ResumeWindow; sent: Promise<void>; token?: number }>();
   private readonly awaitingSnapshot = new Set<string>();
+  /** A null boundary is a legacy replay whose authoritative head is not known yet. */
+  private readonly replayThrough = new Map<string, number | null>();
   /** The window each thread's folded state (the one in `store.threads`) was built from. A reply that acknowledges a larger window
    *  is not that state until its snapshot is folded, so a resume after a disconnect claims this window, never the acknowledged one. */
   private readonly foldedWindow = new Map<string, ResumeWindow>();
@@ -489,6 +492,7 @@ class Engine implements ProtocolClient<Json> {
     this.generation++;
     this.recv.clear();
     this.awaitingSnapshot.clear();
+    this.replayThrough.clear();
     this.resuming.clear();
     this.tokenWindow.clear();
     const dropped = [...this.serverRequests.values()];
@@ -613,15 +617,23 @@ class Engine implements ProtocolClient<Json> {
       this.store.emit({ type: 'subscription', feedId: threadId, state: 'restored' });
       return 'restored';
     }
+    if (generation === this.generation && !followed) {
+      this.store.emit({ type: 'subscription', feedId: threadId, state: 'cancelled' });
+    }
     if (typeof outcome === 'string' || generation !== this.generation || followed !== window) return 'failed';
+    this.loseThread(threadId, window, outcome);
+    return 'lost';
+  }
+
+  private loseThread(threadId: string, window: ResumeWindow, outcome: ClientErrorDetail): void {
     this.lostWindows.set(threadId, window);
     this.subs.delete(threadId);
     this.subToken.delete(threadId);
+    this.replayThrough.delete(threadId);
     this.store.threads.delete(threadId);
     this.foldedWindow.delete(threadId);
     this.emit({ type: 'subscriptionLost', threadId, error: outcome });
     this.store.emit({ type: 'subscription', feedId: threadId, state: 'lost', error: outcome });
-    return 'lost';
   }
   /** A control thread the core no longer has (restarted, or swept during a long disconnect) is dropped from `held`; the end of the
    *  connection leaves it held for the next reconnect. */
@@ -980,7 +992,10 @@ class Engine implements ProtocolClient<Json> {
       if (tok !== undefined) this.tokenWindow.delete(tok);
     }
     if (snapshot && this.resuming.get(f.id)?.token === tok) this.resuming.delete(f.id);
-    this.store.emit({ type: 'thread', threadId: f.id });
+    const boundary = this.replayThrough.get(f.id);
+    const replayComplete = typeof boundary === 'number' && f.seq >= boundary;
+    if (replayComplete) this.replayThrough.delete(f.id);
+    this.store.emit({ type: 'thread', threadId: f.id, ...(replayComplete ? { replayComplete: true } : {}) });
   }
 
   /** `reducer.initial(params)`, stepped when the reducer can (see `ThreadReducer.initialSteps`); null when the connection ended meanwhile. */
@@ -1108,6 +1123,15 @@ class Engine implements ProtocolClient<Json> {
     // events already folded stay in order and no gap is seen (the transcript is the feed's, not the reply's).
     const ahead = this.recv.get(feedId);
     if (ahead && ahead.epoch === s.epoch && ahead.seq >= s.startSeq) return;
+    if (window) {
+      const boundary = s.liveSeq - 1;
+      const folded = this.store.threads.get(feedId)?.feed;
+      if (s.mode === 'replay' && !Number.isSafeInteger(s.liveSeq)) {
+        this.replayThrough.set(feedId, null);
+      } else if (s.mode === 'replay' && boundary >= s.startSeq && (folded?.epoch !== s.epoch || folded.seq < boundary)) {
+        this.replayThrough.set(feedId, boundary);
+      } else this.replayThrough.delete(feedId);
+    }
     this.received(feedId, s.epoch, s.startSeq - 1);
     if (s.mode === 'snapshot') this.awaitingSnapshot.add(feedId);
     else this.awaitingSnapshot.delete(feedId);
@@ -1121,7 +1145,7 @@ class Engine implements ProtocolClient<Json> {
     return this.requestResume(threadId, window, options);
   }
 
-  private requestResume(threadId: string, window: ResumeWindow, options?: ResumeOptions, restoring = false): Promise<ThreadResumeResponse> {
+  private requestResume(threadId: string, window: ResumeWindow, options?: ResumeOptions, restoring = false, requireSnapshot = false): Promise<ThreadResumeResponse> {
     const current = this.resuming.get(threadId);
     if (!restoring) {
       const requested = current?.window ?? this.subs.get(threadId) ?? this.lostWindows.get(threadId) ?? this.foldedWindow.get(threadId);
@@ -1138,7 +1162,7 @@ class Engine implements ProtocolClient<Json> {
       options?.sent?.(pending.sent);
       return pending.reply;
     }
-    const params = this.resumeParams(threadId, window, options?.force === true && this.awaitingSnapshot.has(threadId));
+    const params = this.resumeParams(threadId, window, requireSnapshot || (options?.force === true && this.awaitingSnapshot.has(threadId)));
     let departed!: (sent: Promise<void>) => void;
     const sent = new Promise<void>((resolve) => (departed = resolve));
     void sent.catch(() => undefined);
@@ -1167,8 +1191,63 @@ class Engine implements ProtocolClient<Json> {
       // A held control thread is never folded: nothing later ends its entry but its reply.
       if ((!folds || this.held.has(threadId)) && this.resuming.get(threadId) === entry) this.resuming.delete(threadId);
     };
-    reply.then((r) => settled(r.subscription.mode === 'snapshot'), () => settled(false));
+    reply.then((r) => {
+      settled(r.subscription.mode === 'snapshot');
+      if (!requireSnapshot && r.subscription.mode === 'replay' && !Number.isSafeInteger(r.subscription.liveSeq) &&
+          this.subs.has(threadId) && this.replayThrough.get(threadId) === null) {
+        void this.resolveLegacyReplay(threadId, window, r.subscription, generation, entry.token);
+      }
+    }, () => settled(false));
     return reply;
+  }
+
+  private async resolveLegacyReplay(
+    threadId: string, window: ResumeWindow, subscription: ThreadResumeResponse['subscription'], generation: number, token: number | undefined
+  ): Promise<void> {
+    const pending = () => this.current(threadId, generation, token) && this.subs.has(threadId) &&
+      this.replayThrough.get(threadId) === null;
+    let head: FeedHeadsResponse['positions'][number] | undefined;
+    try {
+      const reply = await this.bounded('feed/heads', FEED_REQUEST_DEADLINE_MS, null, (limit) =>
+        this.run('feed/heads', { feedIds: [threadId] }, INTERNAL, undefined, true, undefined, limit)) as unknown as FeedHeadsResponse;
+      [head] = reply.positions;
+    } catch (error) {
+      const detail = detailOf(error);
+      if (detail.kind !== 'rpc' || (detail.code !== -32601 && detail.code !== -32603 && detail.reason !== 'methodNotFound')) return;
+    }
+    if (!pending()) return;
+    if (head?.epoch === subscription.epoch && Number.isSafeInteger(head.seq) && head.seq >= subscription.startSeq - 1) {
+      const fold = this.store.threads.get(threadId)?.feed;
+      if (fold?.epoch === head.epoch && fold.seq >= head.seq) {
+        this.replayThrough.delete(threadId);
+        this.store.emit({ type: 'thread', threadId, replayComplete: true });
+      } else {
+        this.replayThrough.set(threadId, head.seq);
+      }
+      return;
+    }
+
+    // Read the bounded tail as a fresh snapshot of this already-followed thread. Register it as a restore
+    // so unsubscribe convergence also accounts for a recovery that was in flight when the view left.
+    const mine = {};
+    this.restoring.set(threadId, mine);
+    this.restoreStarts++;
+    let failure: ClientErrorDetail | undefined;
+    try {
+      await this.requestResume(threadId, window, { force: true }, true, true);
+    } catch (error) {
+      failure = detailOf(error);
+    } finally {
+      if (this.restoring.get(threadId) === mine) {
+        this.restoring.delete(threadId);
+        if (failure && pending()) {
+          // Keep the requested window for Retry, but never offer the unconfirmed cursor again.
+          this.loseThread(threadId, window, failure);
+        } else if (generation === this.generation) {
+          this.store.emit({ type: 'subscription', feedId: threadId, state: this.subs.has(threadId) ? 'restored' : 'cancelled' });
+        }
+      }
+    }
   }
   async confirmFeeds(feedIds: readonly string[]): Promise<boolean> {
     const generation = this.generation;
@@ -1192,19 +1271,13 @@ class Engine implements ProtocolClient<Json> {
    *  redundant request, and nothing is kept per thread once it is neither followed nor restoring); and the number of its
    *  current transport connection: the core's subscriptions of a connection end with that connection. A fold in the store
    *  is no such proof. */
-  threadSubscription(threadId: string): {
-    readonly followed: boolean;
-    /** Whether this client holds the control thread it started: its subscription is restored after every reconnect, so while this
-     *  is true the thread is subscribed on the current connection (or being resumed, and a request naming it waits for that). */
-    readonly held: boolean;
-    readonly restoring: boolean;
-    readonly restoresStarted: number;
-    readonly connection: number;
-  } {
+  threadSubscription(threadId: string): ThreadSubscription {
     return {
       followed: this.subs.has(threadId),
       held: this.held.has(threadId),
       restoring: this.restoring.has(threadId),
+      snapshotPending: this.resuming.has(threadId) || this.awaitingSnapshot.has(threadId),
+      replayPending: this.replayThrough.has(threadId),
       restoresStarted: this.restoreStarts,
       connection: this.generation,
     };
@@ -1216,6 +1289,7 @@ class Engine implements ProtocolClient<Json> {
     this.subToken.delete(threadId);
     this.recv.delete(threadId);
     this.awaitingSnapshot.delete(threadId);
+    this.replayThrough.delete(threadId);
     this.resuming.delete(threadId);
     this.store.threads.delete(threadId);
     this.foldedWindow.delete(threadId);

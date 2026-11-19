@@ -1,5 +1,5 @@
 import { ChevronRight, FileText, Folder, Plus } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   elementMenuPoint,
   isContextMenuKey,
@@ -15,7 +15,11 @@ import { SidebarPanelAction } from './session-sidebar-sections';
 import { projectIdentity } from './project-catalog-cache';
 import { publishSidebarProjects } from './sidebar-reference-cache';
 import { usePersistedListOrder } from './use-persisted-list-order';
-import { displayProjectFolder, ProjectEditorDialog, type ProjectEditorDialogHandle } from './ProjectEditorDialog';
+import type { ProjectEditorDialogHandle } from './ProjectEditorDialog';
+import { displayProjectFolder } from './project-folder-label';
+import { projectEditorDialogModule } from './first-screen-deferred';
+import { useDeferredModule } from './deferred-module';
+import { useDeferredOpen } from './use-deferred-open';
 
 export interface ProjectListSectionProps {
   active?: boolean;
@@ -44,7 +48,10 @@ export function ProjectListSection({
   onRemove,
   onMemoryControl,
 }: ProjectListSectionProps) {
-  const editorRef = useRef<ProjectEditorDialogHandle>(null);
+  const editor = useDeferredOpen<ProjectEditorDialogHandle>(projectEditorDialogModule.load, active);
+  const ProjectEditorDialog = useDeferredModule(projectEditorDialogModule, { load: false })?.ProjectEditorDialog;
+  const openEditor = (path: string | null, options?: { confirmRemove?: boolean }) =>
+    editor.request((handle) => handle.open(path, options));
   const [contextMenu, setContextMenu] = useState<ScmContextMenuState | null>(null);
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
   // Items run after the menu closes and returns focus to the row; Remove only
@@ -57,14 +64,14 @@ export function ProjectListSection({
         {
           id: 'edit',
           label: t('Edit'),
-          onSelect: () => window.setTimeout(() => editorRef.current?.open(project.path), 0),
+          onSelect: () => window.setTimeout(() => openEditor(project.path), 0),
         },
         {
           id: 'remove',
           label: t('Remove'),
           danger: true,
           separatorBefore: true,
-          onSelect: () => window.setTimeout(() => editorRef.current?.open(project.path, { confirmRemove: true }), 0),
+          onSelect: () => window.setTimeout(() => openEditor(project.path, { confirmRemove: true }), 0),
         },
       ],
     });
@@ -78,11 +85,11 @@ export function ProjectListSection({
   const projectPathsKey = JSON.stringify(projects.map((project) => project.path));
   const memoriesSupported = Boolean(onMemoryControl);
   // One shared catalog request warms every row, including empty projects.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: projectPathsKey is a deliberate restart trigger; the read itself goes through the editor handle.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: projectPathsKey is a deliberate restart trigger.
   useEffect(() => {
     if (!active || !memoriesSupported) return;
-    editorRef.current?.warm();
-  }, [active, projectPathsKey, memoriesSupported]);
+    editor.ref.current?.warm();
+  }, [active, projectPathsKey, memoriesSupported, editor.ref]);
   // No search field (user: 프로젝트 목록은 짧다 — 서치창 제거).
   const projectOrder = usePersistedListOrder(
     'mixdog.sidebar-order.projects.v1',
@@ -104,21 +111,23 @@ export function ProjectListSection({
         className="projects-add"
         onClick={onAddProject}
       />
-      <ProjectEditorDialog
-        ref={editorRef}
-        active={active}
-        projects={projects}
-        onRename={onRename}
-        onRemove={onRemove}
-        onMemoryControl={onMemoryControl}
-      />
+      {ProjectEditorDialog && (
+        <ProjectEditorDialog
+          ref={editor.ref}
+          active={active}
+          projects={projects}
+          onRename={onRename}
+          onRemove={onRemove}
+          onMemoryControl={onMemoryControl}
+        />
+      )}
       {onMemoryControl && (
         <div className="schedules-list projects-list projects-common-instructions">
           <button
             type="button"
             className="schedules-row utilities-row projects-row"
             data-tooltip={t('Used for every project.')}
-            onClick={() => editorRef.current?.open(null)}
+            onClick={() => openEditor(null)}
           >
             <span className="sidebar-resource-icon" aria-hidden="true">
               <FileText size={16} />
@@ -145,7 +154,7 @@ export function ProjectListSection({
                 aria-current={selected ? 'page' : undefined}
                 aria-label={t('Edit {{name}}', { name: title })}
                 data-tooltip={project.path}
-                onClick={() => editorRef.current?.open(project.path)}
+                onClick={() => openEditor(project.path)}
                 onContextMenu={(event) => {
                   event.preventDefault();
                   openProjectMenu(project, title, pointerMenuPoint(event));

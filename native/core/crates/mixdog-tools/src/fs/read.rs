@@ -1,7 +1,7 @@
 //! `read`: line windows, binary preview, images, office/PDF through the
 //! extension pool, batches and glob surveys (T §3.1).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -30,6 +30,7 @@ use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
+use sha2::{Digest, Sha256};
 
 use super::common::*;
 use crate::orch::util::spec_from_def;
@@ -48,6 +49,9 @@ pub(super) const IPYNB_RANGE_REFUSAL: &str = "Error: range args (offset/limit/li
 const IMAGE_MAX_BYTES: usize = 3_750_000;
 /// The hard API ceiling on an inline image's base64 length (`API_IMAGE_MAX_BASE64_SIZE`).
 const IMAGE_MAX_BASE64: usize = 5 * 1024 * 1024;
+/// Largest raw input that can possibly fit in the extension worker's 64 MiB JSON frame.
+/// The codec checks the exact envelope before encoding.
+const IMAGE_WORKER_INPUT_LIMIT: u64 = 48 * 1024 * 1024;
 /// A paged PDF read spans at most this many pages (`READ_PDF_MAX_PAGES_PER_CALL`).
 pub const READ_PDF_MAX_PAGES_PER_CALL: u64 = 20;
 /// A PDF of up to this many pages is read whole; a longer one shows its first `PDF_PREVIEW_PAGES` (`PDF_WHOLE_READ_MAX_PAGES`).
@@ -57,6 +61,8 @@ const PDF_PREVIEW_PAGES: u64 = 5;
 const PDF_PAGE_IMAGE_WIDTH: u64 = 1200;
 /// The renderer takes at most this many explicit pages per call (`PDF_RENDER_BATCH`).
 const PDF_RENDER_BATCH: usize = 12;
+/// The attachment intake's encoded image limit. Keep PDF page images within it before assembly.
+const PDF_PAGE_IMAGE_MAX_BYTES: usize = 48 * 1024 * 1024;
 /// A page has a text layer when its text holds this many characters besides white space (`PDF_TEXT_LAYER_MIN_CHARS`).
 const PDF_TEXT_LAYER_MIN_CHARS: usize = 16;
 const GUARD_DEFAULT_LIMIT: u64 = 500;
@@ -1432,28 +1438,54 @@ impl ReadTool {
         // Decided departure from Node (`read-single-fast-paths.mjs`): an explicit read returns the requested body, never a
         // `[file unchanged]` stub. A hash proves the file is unchanged, not that an earlier body is still in the model's
         // context (compaction, rewind, repair, offload, a sub-agent). The edit-safety snapshots are still recorded below.
-        // Node answers an image before any size cap: by its extension, or for a path with none, by
-        // its signature (a stored attachment).
+        // An extensionless attachment may be a document or image. Reuse the same signature read.
+        let mut signature = Vec::new();
         if matches!(stat.kind, EntryKind::File) {
             let by_extension = image_ext(raw);
-            // A path with no extension is an image only by its signature, which its first [`IMAGE_SIGNATURE_BYTES`] hold: they
-            // are read first, and the whole file only once they name an image (the signature of the whole is theirs).
-            let signed = by_extension.is_none() && std::path::Path::new(raw).extension().is_none() && stat.len >= 5 && {
-                match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange { offset: 0, max_len: Some(IMAGE_SIGNATURE_BYTES) })).await? {
-                    Ok(b) => sniffed_image(&b.bytes).is_some(),
-                    Err(err) => return Err(fs_failure(&err, &shown)),
-                }
-            };
-            if by_extension.is_some() || signed {
-                let bytes = match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default())).await? {
+            if by_extension.is_none() && Path::new(raw).extension().is_none() && stat.len >= 5 {
+                signature = match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange { offset: 0, max_len: Some(IMAGE_SIGNATURE_BYTES) })).await? {
                     Ok(b) => b.bytes,
                     Err(err) => return Err(fs_failure(&err, &shown)),
                 };
+            }
+            if by_extension.is_some() || sniffed_image(&signature).is_some() {
+                let limit = if self.images.is_some() { IMAGE_WORKER_INPUT_LIMIT } else { IMAGE_MAX_BYTES as u64 };
+                let display = if by_extension.is_some() { shown.as_str() } else { raw };
+                let refused = |size| {
+                    let text = if self.images.is_some() {
+                        format!("Error: image \"{display}\" is {size} bytes, over the image worker's input limit ({limit} bytes). Resize before reading.")
+                    } else {
+                        image_inline_refusal(display, size)
+                    };
+                    Body { rich: true, ..Body::text(text) }
+                };
+                if stat.len > limit {
+                    // Keep filesystem access errors ahead of the media size refusal.
+                    if let Err(err) = guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange { offset: 0, max_len: Some(1) })).await? {
+                        return Err(fs_failure(&err, &shown));
+                    }
+                    return Ok(refused(stat.len));
+                }
+                let bytes = match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange { offset: 0, max_len: Some(limit + 1) })).await? {
+                    Ok(b) => b.bytes,
+                    Err(err) => return Err(fs_failure(&err, &shown)),
+                };
+                if bytes.len() as u64 > limit {
+                    return Ok(refused(bytes.len() as u64));
+                }
                 if let Some(format) = by_extension.or_else(|| sniffed_image(&bytes)) {
-                    let display = if by_extension.is_some() { shown.as_str() } else { raw };
                     return self.image_body(ctx, display, bytes, format).await;
                 }
             }
+        }
+        if let Some(document) = document_kind(&signature, raw) {
+            let prefix = if signature.is_empty() {
+                // Check the open via the same file service as a normal read, without fetching the document body.
+                read_range(ctx, &abs, &shown, 0, if matches!(document, Document::Pdf) { 5 } else { 1 }).await?
+            } else {
+                signature
+            };
+            return self.document(ctx, &abs, &stat, document, &prefix, pages, mode).await;
         }
         if stat.len > MAX_FILE_BYTES {
             // A document goes to its extractor whatever its size (`readMediaFile` comes before the size cap); the head of a
@@ -1680,9 +1712,11 @@ impl ReadTool {
         Ok(Body::numbered(numbered, observe(meta), mode))
     }
 
-    /// One extension-pool call over `abs`: its result and the bytes it streamed (its chunks in order), or why it failed.
+    /// One extension-pool call over `abs`, with access approved for only that path.
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-    async fn ext_call(&self, ctx: &ToolContext, method: &str, params: JsonValue, abs: &AbsPath) -> Result<Result<(JsonValue, Vec<u8>), ExtError>, ToolError> {
+    fn ext_stream(&self, ctx: &ToolContext, method: &str, params: JsonValue, abs: &AbsPath)
+        -> Result<Result<Box<dyn mixdog_core_api::domain::common::EventSource<ExtFrame>>, ExtError>, ToolError>
+    {
         let Some(pool) = &self.ext else {
             return Err(fail(
                 ToolErrorCode::Unavailable {
@@ -1698,22 +1732,26 @@ impl ReadTool {
             params,
             paths: vec![abs.clone()],
         };
-        let mut stream = match pool.call(call) {
+        Ok(pool.call(call))
+    }
+
+    #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError contract")]
+    async fn ext_call(&self, ctx: &ToolContext, method: &str, params: JsonValue, abs: &AbsPath) -> Result<Result<JsonValue, ExtError>, ToolError> {
+        let mut stream = match self.ext_stream(ctx, method, params, abs)? {
             Ok(s) => s,
             Err(e) => return Ok(Err(e)),
         };
-        let mut streamed = Vec::new();
         loop {
             match guarded(ctx, "read", stream.next()).await? {
-                Some(ExtFrame::Chunk(bytes)) => streamed.extend_from_slice(&bytes),
-                Some(ExtFrame::Done(done)) => return Ok(done.map(|value| (value, streamed))),
+                Some(ExtFrame::Chunk(_)) => {}
+                Some(ExtFrame::Done(done)) => return Ok(done),
                 None => return Ok(Err(ExtError::UnknownWorker)),
             }
         }
     }
 
-    /// `readMediaFile` for a document: a PDF through `extractPdfText`, an OOXML file through `extractOoxmlText`. `bytes` are
-    /// the file's, or the head of one past the buffered cap. An OOXML answer that is not an error records the read; a PDF
+    /// `readMediaFile` for a document: a PDF through `extractPdfText`, an OOXML file through `extractOoxmlText`.
+    /// An OOXML answer that is not an error records the read; a PDF
     /// read records none.
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
@@ -1745,7 +1783,7 @@ impl ReadTool {
     async fn ooxml_text(&self, ctx: &ToolContext, abs: &AbsPath) -> Result<Body, ToolError> {
         let params = serde_json::json!({ "path": fwd(abs.as_path()), "maxOutputBytes": output_max_bytes() });
         Ok(Body::text(match self.ext_call(ctx, "ooxml.text", params, abs).await? {
-            Ok((value, _)) => value.get("text").and_then(JsonValue::as_str).unwrap_or_default().to_owned(),
+            Ok(mut value) => take_text(&mut value, "text").unwrap_or_default(),
             Err(e) => ext_error_text(&e),
         }))
     }
@@ -1754,7 +1792,7 @@ impl ReadTool {
     /// without one a PDF of up to `PDF_WHOLE_READ_MAX_PAGES` pages whole and a longer one's first pages. A short PDF
     /// whole is the document itself for a session whose model sees images and whose provider takes PDFs natively
     /// (`mode === 'image' && nativeDocument`, up to `MAX_PDF_BYTES`), else every page through the range path. `bytes`
-    /// are the file's `size` bytes, or the head of a file past the buffered cap. `text_only` is a batch's
+    /// carry the file signature. `text_only` is a batch's
     /// `mediaTextOnly`. offset/limit do not apply.
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     async fn pdf(&self, ctx: &ToolContext, abs: &AbsPath, bytes: &[u8], size: u64, pages: Option<&JsonValue>, text_only: bool) -> Result<Body, ToolError> {
@@ -1768,14 +1806,20 @@ impl ReadTool {
             let page_range = range.map(|(from, to)| serde_json::json!({ "from": from, "to": to }));
             let params = serde_json::json!({ "path": path, "extractText": true, "maxPages": "unlimited", "maxOutputBytes": output_max_bytes(), "pageRange": page_range });
             return Ok(Body::text(match self.ext_call(ctx, "pdf.inspect", params, abs).await? {
-                Ok((value, _)) => value["text"].as_str().filter(|text| !text.is_empty()).unwrap_or("(no text content extracted from PDF)").to_owned(),
+                Ok(mut value) => take_text(&mut value, "text").filter(|text| !text.is_empty()).unwrap_or_else(|| "(no text content extracted from PDF)".to_owned()),
                 Err(e) => pdf_extraction_failed(&e),
             }));
         }
-        let page_count = match self.ext_call(ctx, "pdf.inspect", serde_json::json!({ "path": path, "maxPages": "unlimited" }), abs).await? {
-            Ok((value, _)) => value["pageCount"].as_u64().unwrap_or(0),
+        let native = range.is_none() && !text_only && ctx.options.pdf_page_images && ctx.options.pdf_native_document && size <= MAX_PDF_BYTES;
+        let mut params = serde_json::json!({ "path": path, "maxPages": "unlimited" });
+        if native {
+            params["includeSha256"] = JsonValue::Bool(true);
+        }
+        let inspected = match self.ext_call(ctx, "pdf.inspect", params, abs).await? {
+            Ok(value) => value,
             Err(e) => return Ok(Body::text(pdf_inspect_error(abs, &e))),
         };
+        let page_count = inspected["pageCount"].as_u64().unwrap_or(0);
         if let Some((from, to)) = range {
             if from > page_count as f64 {
                 let given = pages.and_then(JsonValue::as_str).unwrap_or_default();
@@ -1794,9 +1838,13 @@ impl ReadTool {
             );
             return self.pdf_page_range(ctx, abs, page_count, (1, PDF_PREVIEW_PAGES), Some(note), text_only).await;
         }
-        if !text_only && ctx.options.pdf_page_images && ctx.options.pdf_native_document && size <= MAX_PDF_BYTES {
-            // Of a file past the buffered cap only the head was read.
-            let data = if (bytes.len() as u64) < size { read_range(ctx, abs, &display_path(abs.as_path(), &ctx.cwd), 0, size).await? } else { bytes.to_vec() };
+        if native {
+            let data = read_range(ctx, abs, &display_path(abs.as_path(), &ctx.cwd), 0, MAX_PDF_BYTES + 1).await?;
+            // Metadata alone cannot prove that the reread is the same PDF the worker opened.
+            if data.len() as u64 > MAX_PDF_BYTES || inspected["sha256"].as_str() != Some(format!("{:x}", Sha256::digest(&data)).as_str()) {
+                let reason = format!("Error: PDF {} changed during inspection; read it again.", pdf_file_label(abs));
+                return Err(fail(ToolErrorCode::Failed { reason: reason.clone() }, reason));
+            }
             return Ok(Body { parts: vec![ToolPart::Document { mime: "application/pdf".to_owned(), data }], rich: true, ..Body::default() });
         }
         self.pdf_page_range(ctx, abs, page_count, (1, page_count.max(1)), None, text_only).await
@@ -1817,22 +1865,25 @@ impl ReadTool {
         let params = serde_json::json!({
             "path": fwd(abs.as_path()),
             "extractText": true,
+            "readPages": true,
             "maxPages": "unlimited",
             "maxOutputBytes": output_max_bytes(),
             "pageRange": { "from": from, "to": to },
         });
-        let extracted = match self.ext_call(ctx, "pdf.inspect", params, abs).await? {
-            Ok((value, _)) => value,
+        let mut extracted = match self.ext_call(ctx, "pdf.inspect", params, abs).await? {
+            Ok(value) => value,
             Err(e) => return Ok(Body::text(pdf_extraction_failed(&e))),
         };
-        let pages: Vec<(u64, String)> = extracted["pages"]
-            .as_array()
-            .map(Vec::as_slice)
-            .unwrap_or_default()
-            .iter()
-            .map(|entry| (entry["page"].as_u64().unwrap_or(0), entry["text"].as_str().unwrap_or_default().to_owned()))
+        let pages: Vec<_> = extracted.get_mut("pages").and_then(JsonValue::as_array_mut)
+            .into_iter().flatten()
+            .map(|entry| {
+                let text = take_text(entry, "text").unwrap_or_default();
+                let layer = entry["hasTextLayer"].as_bool().unwrap_or_else(|| page_has_text_layer(&text));
+                (entry["page"].as_u64().unwrap_or(0), text, layer)
+            })
             .collect();
-        let scanned: Vec<u64> = pages.iter().filter(|(_, text)| !page_has_text_layer(text)).map(|(page, _)| *page).collect();
+        drop(extracted);
+        let scanned: Vec<u64> = pages.iter().filter(|(_, _, layer)| !layer).map(|(page, _, _)| *page).collect();
         let mut bodies = self.scanned_page_bodies(ctx, abs, &scanned, text_only).await?;
         let layer = if scanned.is_empty() { "every page has a text layer".to_owned() } else { format!("scanned (no text layer): {}", page_list(&scanned)) };
         let note = note.map(|note| format!(". {note}")).unwrap_or_default();
@@ -1841,12 +1892,12 @@ impl ReadTool {
         let mut text_bytes = 0usize;
         let flush = |text: &mut String, blocks: &mut Vec<ToolPart>, text_bytes: &mut usize| {
             if !text.is_empty() {
-                blocks.push(ToolPart::Text(cap_pdf_text(text.as_str(), output_max_bytes().saturating_sub(*text_bytes).max(1))));
-                *text_bytes += text.len();
-                text.clear();
+                let remaining = output_max_bytes().saturating_sub(*text_bytes).max(1);
+                *text_bytes = text_bytes.saturating_add(text.len());
+                blocks.push(ToolPart::Text(cap_pdf_text(std::mem::take(text), remaining)));
             }
         };
-        for (page, page_text) in pages {
+        for (page, page_text, _) in pages {
             let gap = if text.is_empty() { "" } else { "\n\n" };
             match bodies.remove(&page) {
                 Some(Scanned::Image(image)) => {
@@ -1854,15 +1905,24 @@ impl ReadTool {
                     flush(&mut text, &mut blocks, &mut text_bytes);
                     blocks.push(image);
                 }
-                Some(Scanned::Note(shown)) => text.push_str(&format!("{gap}--- Page {page} ---\n{shown}")),
-                Some(Scanned::Ocr(read)) => text.push_str(&format!("{gap}--- Page {page} (OCR of a scanned page) ---\n{read}")),
-                None => text.push_str(&format!("{gap}--- Page {page} ---\n{page_text}")),
+                body => {
+                    let (tag, body) = match body {
+                        Some(Scanned::Note(shown)) => ("", shown),
+                        Some(Scanned::Ocr(read)) => (" (OCR of a scanned page)", read),
+                        None => ("", page_text),
+                        Some(Scanned::Image(_)) => unreachable!(),
+                    };
+                    text.push_str(&format!("{gap}--- Page {page}{tag} ---\n"));
+                    // Enough for the final UTF-8 cut and its marker, even if OCR returned much more.
+                    let max = output_max_bytes().saturating_sub(text_bytes).max(1);
+                    text.push_str(byte_prefix(&body, max.saturating_add(4).saturating_sub(text.len())));
+                }
             }
         }
         flush(&mut text, &mut blocks, &mut text_bytes);
-        if blocks.iter().all(|block| matches!(block, ToolPart::Text(_))) {
-            let joined = blocks.iter().map(|block| if let ToolPart::Text(t) = block { t.as_str() } else { "" }).collect::<Vec<_>>().join("\n\n");
-            return Ok(Body::text(joined));
+        if blocks.len() == 1 && matches!(blocks.first(), Some(ToolPart::Text(_))) {
+            let Some(ToolPart::Text(text)) = blocks.pop() else { unreachable!() };
+            return Ok(Body::text(text));
         }
         Ok(Body { parts: blocks, rich: true, ..Body::default() })
     }
@@ -1886,10 +1946,10 @@ impl ReadTool {
         if ctx.options.pdf_page_ocr {
             let params = serde_json::json!({ "path": fwd(abs.as_path()), "pages": scanned });
             match self.ext_call(ctx, "pdf.ocr", params, abs).await? {
-                Ok((value, _)) => {
-                    for entry in value.as_array().map(Vec::as_slice).unwrap_or_default() {
-                        let read = entry["text"].as_str().filter(|text| !text.is_empty()).unwrap_or("(OCR found no text on this page)");
-                        bodies.insert(entry["page"].as_u64().unwrap_or(0), Scanned::Ocr(read.to_owned()));
+                Ok(mut value) => {
+                    for entry in value.as_array_mut().into_iter().flatten() {
+                        let read = take_text(entry, "text").filter(|text| !text.is_empty()).unwrap_or_else(|| "(OCR found no text on this page)".to_owned());
+                        bodies.insert(entry["page"].as_u64().unwrap_or(0), Scanned::Ocr(read));
                     }
                 }
                 Err(e) => {
@@ -1919,25 +1979,52 @@ impl ReadTool {
         let mut out = Vec::new();
         for batch in pages.chunks(PDF_RENDER_BATCH) {
             let params = serde_json::json!({ "path": fwd(abs.as_path()), "pages": batch, "maxWidth": PDF_PAGE_IMAGE_WIDTH });
-            let (value, streamed) = match self.ext_call(ctx, "pdf.render", params, abs).await? {
-                Ok(done) => done,
+            let mut stream = match self.ext_stream(ctx, "pdf.render", params, abs)? {
+                Ok(stream) => stream,
                 Err(e) => return Ok(Err(e)),
             };
-            let mut rest = streamed.as_slice();
-            for image in value["images"].as_array().map(Vec::as_slice).unwrap_or_default() {
-                let size = usize::try_from(image["bytes"].as_u64().unwrap_or(0)).unwrap_or(usize::MAX).min(rest.len());
-                let (data, tail) = rest.split_at(size);
-                rest = tail;
+            let mut chunks = VecDeque::new();
+            let mut received = 0usize;
+            let value = loop {
+                match guarded(ctx, "read", stream.next()).await? {
+                    Some(ExtFrame::Chunk(bytes)) => {
+                        received = received.saturating_add(bytes.len());
+                        if received > batch.len() * PDF_PAGE_IMAGE_MAX_BYTES {
+                            return Ok(Err(pdf_image_stream_error("page images exceed the attachment byte limit")));
+                        }
+                        if !bytes.is_empty() {
+                            chunks.push_back(bytes);
+                        }
+                    }
+                    Some(ExtFrame::Done(Ok(value))) => break value,
+                    Some(ExtFrame::Done(Err(error))) => return Ok(Err(error)),
+                    None => return Ok(Err(ExtError::UnknownWorker)),
+                }
+            };
+            let Some(images) = value["images"].as_array().filter(|images| images.len() == batch.len()) else {
+                return Ok(Err(pdf_image_stream_error("the renderer returned the wrong number of images")));
+            };
+            let mut offset = 0;
+            for (image, &page) in images.iter().zip(batch) {
+                let size = image["bytes"].as_u64().and_then(|n| usize::try_from(n).ok()).unwrap_or(0);
+                if image["page"].as_u64() != Some(page) || size == 0 || size > received || size > PDF_PAGE_IMAGE_MAX_BYTES {
+                    return Ok(Err(pdf_image_stream_error("invalid page image length or page number")));
+                }
+                let data = take_pdf_image(&mut chunks, &mut offset, size);
+                received -= size;
                 let pixels = |key: &str| image[key].as_u64().and_then(|n| u32::try_from(n).ok());
                 out.push((
-                    image["page"].as_u64().unwrap_or(0),
+                    page,
                     ToolPart::Image {
                         mime: image["mimeType"].as_str().unwrap_or("image/png").to_owned(),
-                        data: ImageData::Bytes(data.to_vec()),
+                        data: ImageData::Bytes(data),
                         width: pixels("width"),
                         height: pixels("height"),
                     },
                 ));
+            }
+            if received != 0 {
+                return Ok(Err(pdf_image_stream_error("extra bytes after the page images")));
             }
         }
         Ok(Ok(out))
@@ -2106,10 +2193,7 @@ impl ReadTool {
             }
             Ok(None) => {
                 if bytes.len() > IMAGE_MAX_BYTES {
-                    return Ok(Body::text(format!(
-                        "Error: image \"{display}\" is {} bytes, over the {IMAGE_MAX_BYTES}-byte inline-view cap (image resizing unavailable: install the optional \"sharp\" dependency to auto-downsample). Convert/resize before reading.",
-                        bytes.len()
-                    )));
+                    return Ok(Body::text(image_inline_refusal(display, bytes.len() as u64)));
                 }
                 let base64_len = bytes.len().div_ceil(3) * 4;
                 if base64_len > IMAGE_MAX_BASE64 {
@@ -2359,12 +2443,47 @@ fn page_list(pages: &[u64]) -> String {
 }
 
 /// `capPdfText`: the text cut to `max` bytes of UTF-8, the cut marked.
-fn cap_pdf_text(text: &str, max: usize) -> String {
-    let kept = byte_prefix(text, max);
-    if kept.len() == text.len() {
-        return text.to_owned();
+fn cap_pdf_text(mut text: String, max: usize) -> String {
+    if text.len() > max {
+        text.truncate(byte_prefix(&text, max).len());
+        text.push_str("\n\n");
+        text.push_str(&cap_marker(&format_cap_size(max), "PDF text cut", None, "read a narrower pages range"));
     }
-    format!("{kept}\n\n{}", cap_marker(&format_cap_size(max), "PDF text cut", None, "read a narrower pages range"))
+    text
+}
+
+fn take_text(value: &mut JsonValue, key: &str) -> Option<String> {
+    match value.get_mut(key)?.take() {
+        JsonValue::String(text) => Some(text),
+        _ => None,
+    }
+}
+
+fn image_inline_refusal(display: &str, size: u64) -> String {
+    format!("Error: image \"{display}\" is {size} bytes, over the {IMAGE_MAX_BYTES}-byte inline-view cap (image resizing unavailable: install the optional \"sharp\" dependency to auto-downsample). Convert/resize before reading.")
+}
+
+fn pdf_image_stream_error(message: &str) -> ExtError {
+    ExtError::Failed { code: "failed".to_owned(), message: message.to_owned() }
+}
+
+/// Consume exactly one checked image length, reusing its chunk when already contiguous.
+fn take_pdf_image(chunks: &mut VecDeque<Vec<u8>>, offset: &mut usize, size: usize) -> Vec<u8> {
+    if *offset == 0 && chunks.front().is_some_and(|chunk| chunk.len() == size) {
+        return chunks.pop_front().expect("image chunk");
+    }
+    let mut image = Vec::with_capacity(size);
+    while image.len() < size {
+        let chunk = chunks.front().expect("checked image length");
+        let taken = (chunk.len() - *offset).min(size - image.len());
+        image.extend_from_slice(&chunk[*offset..*offset + taken]);
+        *offset += taken;
+        if *offset == chunk.len() {
+            chunks.pop_front();
+            *offset = 0;
+        }
+    }
+    image
 }
 
 /// What a page without a text layer shows (`scannedPageBodies`): its page image, or a note in place of its text.

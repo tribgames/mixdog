@@ -17,7 +17,7 @@ use std::sync::PoisonError;
 use mixdog_fsio::Unlaned;
 use mixdog_pdf::inspect::{
     Detail, InspectError, InspectOptions, Inspection, MAX_PDF_PAGES, PDF_INTAKE_TIMEOUT_MS, PageRange,
-    inspect_pdf_buffer,
+    inspect_pdf_input,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -123,7 +123,7 @@ fn inspect_options(params: &Value, cancel: &tokio_util::sync::CancellationToken)
 }
 
 /// `{pageCount, text, truncated, pages}`, or the counts, as `inspectPdfBuffer` returns them.
-fn inspection_value(inspection: Inspection) -> Value {
+fn inspection_value(inspection: Inspection, read_pages: bool) -> Value {
     let count = inspection.page_count;
     match inspection.detail {
         Detail::Nothing => json!({"pageCount": count, "text": "", "truncated": false}),
@@ -131,8 +131,21 @@ fn inspection_value(inspection: Inspection) -> Value {
             json!({"pageCount": count, "textPages": text_pages, "textChars": text_chars})
         }
         Detail::Text { text, truncated, pages } => {
-            let pages: Vec<Value> = pages.into_iter().map(|page| json!({"page": page.page, "text": page.text})).collect();
-            json!({"pageCount": count, "text": text, "truncated": truncated, "pages": pages})
+            let pages: Vec<Value> = pages.into_iter().map(|page| {
+                let mut entry = json!({"page": page.page});
+                entry["text"] = Value::String(page.text);
+                if read_pages {
+                    entry["hasTextLayer"] = Value::Bool(page.has_text_layer);
+                }
+                entry
+            }).collect();
+            let mut value = json!({"pageCount": count});
+            value["pages"] = Value::Array(pages);
+            if !read_pages {
+                value["text"] = Value::String(text);
+                value["truncated"] = Value::Bool(truncated);
+            }
+            value
         }
     }
 }
@@ -158,8 +171,14 @@ fn inspect(ctx: CallCtx) -> HandlerResult {
     }
     let bytes = mixdog_fsio::read(&Unlaned, &file).map_err(|error| read_error(&error, &file))?;
     let options = inspect_options(&ctx.params, &ctx.cancel);
-    let inspection = inspect_pdf_buffer(&bytes, &options).map_err(|error| failure(&error))?;
-    Ok(Outcome::value(inspection_value(inspection)))
+    let read_pages = ctx.params.get("readPages").and_then(Value::as_bool) == Some(true);
+    let sha256 = (ctx.params["includeSha256"].as_bool() == Some(true)).then(|| pdf_key(&bytes));
+    let inspection = inspect_pdf_input(bytes, &options, read_pages).map_err(|error| failure(&error))?;
+    let mut result = inspection_value(inspection, read_pages);
+    if let Some(sha256) = sha256 {
+        result["sha256"] = Value::String(sha256);
+    }
+    Ok(Outcome::value(result))
 }
 
 /// `Buffer.from(data, 'base64')` of the call's `data`.
@@ -175,8 +194,8 @@ fn pdf_key(bytes: &[u8]) -> String {
 /// `extractPdfText`: a PDF longer than `MAX_PDF_PAGES` is read for its first pages. A PDF the parser rejects is a property of
 /// the bytes, so it is the fixed text (and is remembered); a call that was cancelled is no property of the bytes, so it fails
 /// and nothing is remembered.
-fn extract_pdf_text(bytes: &[u8], cancel: &tokio_util::sync::CancellationToken) -> Result<String, CodedError> {
-    let key = pdf_key(bytes);
+fn extract_pdf_text(bytes: Vec<u8>, cancel: &tokio_util::sync::CancellationToken) -> Result<String, CodedError> {
+    let key = pdf_key(&bytes);
     if let Some(text) = PDF_TEXT_MEMO.lock().unwrap_or_else(PoisonError::into_inner).get(&key) {
         return Ok(text);
     }
@@ -189,7 +208,7 @@ fn extract_pdf_text(bytes: &[u8], cancel: &tokio_util::sync::CancellationToken) 
         cancel: Some(Arc::new(move || token.is_cancelled())),
         ..InspectOptions::default()
     };
-    let text = match inspect_pdf_buffer(bytes, &options) {
+    let text = match inspect_pdf_input(bytes, &options, true) {
         Ok(Inspection { detail: Detail::Text { text, .. }, .. }) => text,
         Ok(_) => String::new(),
         Err(InspectError::Cancelled) => return Err(CodedError::cancelled()),
@@ -201,7 +220,7 @@ fn extract_pdf_text(bytes: &[u8], cancel: &tokio_util::sync::CancellationToken) 
 
 fn pdf_text(ctx: CallCtx) -> HandlerResult {
     let bytes = data_bytes(&ctx.params)?;
-    let text = extract_pdf_text(&bytes, &ctx.cancel)?;
+    let text = extract_pdf_text(bytes, &ctx.cancel)?;
     Ok(Outcome::value(json!({"text": text})))
 }
 
@@ -217,7 +236,7 @@ fn pdf_counts(ctx: CallCtx) -> HandlerResult {
         cancel: Some(Arc::new(move || token.is_cancelled())),
         ..InspectOptions::default()
     };
-    match inspect_pdf_buffer(&bytes, &options) {
+    match inspect_pdf_input(bytes, &options, false) {
         Ok(Inspection { page_count, detail: Detail::Counts { text_pages, text_chars } }) => Ok(Outcome::value(
             json!({"counts": {"pageCount": page_count, "textPages": text_pages, "textChars": text_chars}}),
         )),
@@ -253,17 +272,17 @@ mod tests {
     fn a_pdf_the_parser_rejects_is_the_fixed_text_and_is_remembered() {
         let token = CancellationToken::new();
         let bytes = b"this is not a pdf";
-        assert_eq!(extract_pdf_text(bytes, &token).unwrap(), PDF_UNREADABLE_TEXT);
+        assert_eq!(extract_pdf_text(bytes.to_vec(), &token).unwrap(), PDF_UNREADABLE_TEXT);
         let key = pdf_key(bytes);
         assert_eq!(PDF_TEXT_MEMO.lock().unwrap().get(&key).as_deref(), Some(PDF_UNREADABLE_TEXT));
-        assert_eq!(extract_pdf_text(b"", &token).unwrap(), PDF_UNREADABLE_TEXT);
+        assert_eq!(extract_pdf_text(Vec::new(), &token).unwrap(), PDF_UNREADABLE_TEXT);
     }
 
     #[test]
     fn a_cancelled_extraction_fails_and_remembers_nothing() {
         let token = CancellationToken::new();
         token.cancel();
-        let error = extract_pdf_text(b"%PDF-1.4 not far enough", &token).unwrap_err();
+        let error = extract_pdf_text(b"%PDF-1.4 not far enough".to_vec(), &token).unwrap_err();
         assert_eq!(error.code, "cancelled");
         assert!(PDF_TEXT_MEMO.lock().unwrap().get(&pdf_key(b"%PDF-1.4 not far enough")).is_none());
     }

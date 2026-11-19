@@ -17,7 +17,7 @@ import type { DesktopSessionStateUpdate, DesktopSessionSummary, DesktopStreamPos
 import { remoteSessionIdOf, withRemoteSession } from '../blank-snapshot';
 import { createChatHostApi, type ChatHostApi } from '../../renderer/remote-chat-host';
 import { createChatApi, createRosterFeed, remoteSession, sharedFor, type ChatClient, type RosterClient } from '../../renderer/remote-protocol-chat';
-import { DESKTOP_TRANSCRIPT_TAIL_ITEMS } from './transcript-support';
+import { DESKTOP_TRANSCRIPT_TAIL_BYTES, DESKTOP_TRANSCRIPT_TAIL_ITEMS } from './transcript-support';
 import type { ProtocolConnection } from '../../main/protocol/connection';
 import { coreErrorForWindow } from './core-error';
 import { summariesOfThreadRows } from './thread-rows';
@@ -30,10 +30,14 @@ export interface SessionLane {
   listSessions(): Promise<DesktopSessionSummary[]>;
   subscribeSessions(listener: (sessions: DesktopSessionSummary[]) => void): () => void;
   subscribeSessionStates(listener: (update: DesktopSessionStateUpdate) => void): () => void;
+  /** The stored tail for a paint preview, without starting a runtime or publishing a state frame. */
+  previewSession(sessionId: string): Promise<SessionSnapshot>;
   /** Node's `prefetchSession`: the session's transcript tail is published as a state frame (`readTraceId` names it). */
   prefetchSession(sessionId: string, itemLimit?: number, readTraceId?: string): Promise<boolean>;
   /** The followed thread's state is published again, whole. */
   requestSessionStateResync(sessionId: string): void;
+  /** Whether an attach still owes a usable transcript; held projections must not be delivered meanwhile. */
+  transcriptPending(sessionId: string): boolean;
   /** The threads whose changes this lane's listeners use (a window's shown sessions and its reads): a change of any other
    *  thread is not projected. Without one, every followed thread is. */
   setInterest(interested: ((threadId: string) => boolean) | null): void;
@@ -116,6 +120,15 @@ export function createSessionLane({
     return entry ? { epoch: entry.feed.epoch, seq: entry.feed.seq, order: entry.order } : undefined;
   };
   const projectionOf = (fold: SessionFold) => (fold.origin ? projected.get(fold.origin) : undefined);
+  const transcriptPending = (threadId: string): boolean => {
+    const client = held();
+    const subscription = client?.threadSubscription?.(threadId);
+    return Boolean(subscription && (
+      subscription.snapshotPending ||
+      subscription.replayPending ||
+      (subscription.followed && !client?.feedPosition(threadId))
+    ));
+  };
   /** A change of a thread the store announced: its state is published when the change ends one of the core's frames, or
    *  is a snapshot or a change of the thread's server requests, and only when what the state is made of changed.
    *
@@ -147,7 +160,7 @@ export function createSessionLane({
   const publish = (threadId: string): boolean => {
     const client = held();
     const fold = client?.store.thread(threadId)?.state;
-    if (!client || !fold) return false;
+    if (!client || !fold || transcriptPending(threadId)) return false;
     // Every publication of a thread, whatever asked for it, makes it one of the threads a host change republishes.
     shown.add(threadId);
     const snapshot = decorated(
@@ -173,7 +186,10 @@ export function createSessionLane({
   };
   const offStore = protocol.onStoreChange((change) => {
     if (change.type === 'thread' && change.threadId) {
-      if (!interested(change.threadId) || !due(change.threadId)) return;
+      // Approval updates share this signal with transcript folds. The request stays in the client and is
+      // projected with the usable transcript, not with the old or partly replayed fold.
+      if (!interested(change.threadId) || transcriptPending(change.threadId)) return;
+      if (!change.replayComplete && !due(change.threadId)) return;
       publish(change.threadId);
     } else if (change.type === 'section' && (change.section === 'hostShellJobs' || (change.section === 'hostState' && change.key === 'remoteSession'))) {
       republishShown();
@@ -225,8 +241,22 @@ export function createSessionLane({
       stateListeners.add(listener);
       return () => void stateListeners.delete(listener);
     },
+    async previewSession(sessionId) {
+      const client = await live();
+      if (client.store.thread(sessionId)) return null;
+      const page = (await call('thread/items/list', {
+        threadId: sessionId,
+        limit: DESKTOP_TRANSCRIPT_TAIL_ITEMS,
+        byteBudget: DESKTOP_TRANSCRIPT_TAIL_BYTES,
+      })) as { data?: Parameters<typeof sessionReducer.initial>[0][] };
+      if (!page.data?.length) return null;
+      // The page is chronological. Do not expose scrollback or live state before the pane gets its real lane.
+      const fold = sessionReducer.initial({ thread: { id: sessionId }, items: page.data, hasOlder: false });
+      return decorated(client, desktopSessionState(fold, []));
+    },
     async prefetchSession(sessionId, itemLimit, readTraceId) {
       const client = await live();
+      if (transcriptPending(sessionId)) return true;
       const lastItems = typeof itemLimit === 'number' ? itemLimit : DESKTOP_TRANSCRIPT_TAIL_ITEMS;
       const fold = client.store.thread(sessionId)?.state;
       if (!fold) {
@@ -247,6 +277,7 @@ export function createSessionLane({
     requestSessionStateResync(sessionId) {
       publish(sessionId);
     },
+    transcriptPending,
     setInterest(next) {
       interest = next;
     },

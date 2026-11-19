@@ -19,6 +19,7 @@ use mixdog_js::JsRegex;
 use mixdog_protocol::JsonValue;
 use mixdog_tools::desktop::host::BrowserCommandClock;
 use mixdog_tools::desktop::host::BrowserTimingLog;
+use mixdog_tools::desktop::host::BrowserToolReply;
 use mixdog_tools::desktop::host::HOST_COMMAND_FAILED;
 use mixdog_tools::desktop::host::HostCommandError;
 use mixdog_tools::desktop::host::HostCommands;
@@ -384,6 +385,13 @@ impl HostCommands for SecretHostCommands {
             }
             "secret_bind" => self.fill.bind_through(thread, input).await,
             _ => self.inner.browser(thread, action, input, cancel).await,
+        }
+    }
+
+    async fn browser_for_tool(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &mixdog_rt::CancellationToken) -> Result<BrowserToolReply, HostCommandError> {
+        match action {
+            "secret_input" | "secret_bind" => self.browser(thread, action, input, cancel).await.map(Into::into),
+            _ => self.inner.browser_for_tool(thread, action, input, cancel).await,
         }
     }
 

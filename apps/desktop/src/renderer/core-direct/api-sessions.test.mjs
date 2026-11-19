@@ -21,10 +21,19 @@ function fakeClient(answer) {
   const storeListeners = new Set();
   const sections = new Map();
   const folds = new Map();
+  const followed = new Set();
+  const restoring = new Set();
+  const snapshotPending = new Set();
+  const replayPending = new Set();
+  const requests = [];
   return {
     calls,
     sections,
     folds,
+    restoring,
+    snapshotPending,
+    replayPending,
+    requests,
     status: { state: 'ready' },
     server: { connection: { device: 'Desk PC' } },
     store: {
@@ -42,13 +51,27 @@ function fakeClient(answer) {
     subscribeApp: async () => undefined,
     resumeThread: async (threadId, window) => {
       calls.push({ method: 'thread/resume', params: { threadId, window } });
+      followed.add(threadId);
       folds.set(threadId, { feed: { id: threadId, epoch: 'e1', seq: 1 }, order: 1, state: sessionReducer.initial({ thread: { id: threadId }, items: [] }) });
       queueMicrotask(() => storeListeners.forEach((l) => l({ type: 'thread', threadId })));
       return {};
     },
-    unsubscribeThread: async (threadId) => void calls.push({ method: 'thread/unsubscribe', params: { threadId } }),
+    threadSubscription: (threadId) => ({
+      followed: followed.has(threadId), held: false, restoring: restoring.has(threadId),
+      snapshotPending: snapshotPending.has(threadId), replayPending: replayPending.has(threadId),
+      restoresStarted: 0, connection: 1,
+    }),
+    feedPosition: (threadId) => {
+      const fold = folds.get(threadId);
+      return fold && { epoch: fold.feed.epoch, seq: fold.feed.seq, order: fold.order };
+    },
+    unsubscribeThread: async (threadId) => {
+      followed.delete(threadId);
+      folds.delete(threadId);
+      calls.push({ method: 'thread/unsubscribe', params: { threadId } });
+    },
     respond: () => undefined,
-    pendingServerRequests: () => [],
+    pendingServerRequests: () => requests,
     on: (l) => (listeners.add(l), () => listeners.delete(l)),
     close: async () => undefined,
     emitStore: (change) => storeListeners.forEach((l) => l(change)),
@@ -226,6 +249,130 @@ test('a session whose registration went empty and back is delivered again: a new
   folding(client, S1, [row('m1', 'live')]);
   client.emitStore({ type: 'thread', threadId: S1 });
   assert.equal(seen.length, delivered + 1);
+});
+
+test('showing an already followed session delivers its hidden fold without another resume', async () => {
+  const { client, api } = await opened();
+  await client.resumeThread(S2, { lastItems: 32 });
+  client.calls.length = 0;
+  const seen = [];
+  api.subscribeSessionState((update) => seen.push(update));
+  folding(client, S2, [row('held', 'already followed')]);
+  client.emitStore({ type: 'thread', threadId: S2 });
+  assert.deepEqual(seen, []);
+  await api.setVisibleSessions([S2]);
+  await api.setVisibleSessions([S2]);
+  assert.deepEqual(seen.map(({ frameSource, snapshot }) => [frameSource, snapshot.items[0].id]), [['live', 'held']]);
+  assert.deepEqual(sent(client), []);
+});
+
+test('opening during a current-cursor restore delivers the held state once when the restore settles', async () => {
+  const { client, api } = await opened();
+  await client.resumeThread(S2, { lastItems: 32 });
+  folding(client, S2, [row('held', 'no newer events')]);
+  client.calls.length = 0;
+  client.restoring.add(S2);
+  const seen = [];
+  api.subscribeSessionState((update) => seen.push(update.snapshot.items[0].id));
+  await api.setVisibleSessions([S2]);
+  assert.deepEqual(seen, []);
+  client.restoring.delete(S2);
+  client.emitStore({ type: 'subscription', feedId: S2, state: 'restored' });
+  assert.deepEqual(seen, ['held']);
+  assert.deepEqual(sent(client), []);
+});
+
+test('re-entering before unsubscribe settles delivers the replacement snapshot, not the old fold first', async () => {
+  const { client, api } = await opened();
+  const started = Promise.withResolvers();
+  const release = Promise.withResolvers();
+  const unsubscribe = client.unsubscribeThread;
+  client.unsubscribeThread = async (id) => {
+    started.resolve();
+    await release.promise;
+    await unsubscribe(id);
+  };
+  const seen = [];
+  const arrived = Promise.withResolvers();
+  api.subscribeSessionState(({ snapshot }) => {
+    seen.push(snapshot ? snapshot.items.map(({ id }) => id) : null);
+    if (seen.length === 3) arrived.resolve();
+  });
+  await api.setVisibleSessions([S1]);
+  await tick();
+  await api.setVisibleSessions([]);
+  await started.promise;
+  await api.setVisibleSessions([S1]);
+  folding(client, S1, [row('old', 'from the closing subscription')]);
+  client.emitStore({ type: 'thread', threadId: S1 });
+  assert.deepEqual(seen, [[], null]);
+  release.resolve();
+  await arrived.promise;
+  assert.deepEqual(seen, [[], null, []]);
+  assert.deepEqual(client.calls.map(({ method }) => method), ['thread/resume', 'thread/unsubscribe', 'thread/resume']);
+});
+
+test('an approval during snapshot restore is delivered with the replacement transcript, not the old fold', async () => {
+  const { client, api } = await opened();
+  await client.resumeThread(S2, { lastItems: 32 });
+  folding(client, S2, [row('old', 'before reconnect')]);
+  client.calls.length = 0;
+  client.restoring.add(S2);
+  const seen = [];
+  api.subscribeSessionState(({ snapshot }) => seen.push([snapshot.items[0].id, snapshot.toolApproval]));
+  await api.setVisibleSessions([S2]);
+  client.restoring.delete(S2);
+  client.snapshotPending.add(S2);
+  client.emitStore({ type: 'subscription', feedId: S2, state: 'restored' });
+  const approval = { kind: 'shell', command: 'ls' };
+  client.requests.push({ id: 7, method: 'item/tool/requestApproval', params: { threadId: S2, order: 1, card: approval } });
+  client.emitStore({ type: 'thread', threadId: S2 });
+  assert.deepEqual(seen, []);
+  folding(client, S2, [row('fresh', 'after reconnect')]);
+  client.snapshotPending.delete(S2);
+  client.emitStore({ type: 'thread', threadId: S2 });
+  assert.deepEqual(seen, [['fresh', approval]]);
+  assert.deepEqual(sent(client), []);
+});
+
+test('opening during a missed-event replay delivers only the transcript at the replay boundary', async () => {
+  const { client, api } = await opened();
+  await client.resumeThread(S2, { lastItems: 32 });
+  folding(client, S2, [row('old', 'before reconnect')]);
+  client.calls.length = 0;
+  client.restoring.add(S2);
+  const seen = [];
+  api.subscribeSessionState(({ snapshot }) => seen.push(snapshot.items.map(({ id }) => id)));
+  await api.setVisibleSessions([S2]);
+  client.restoring.delete(S2);
+  client.replayPending.add(S2);
+  client.emitStore({ type: 'subscription', feedId: S2, state: 'restored' });
+  folding(client, S2, [row('partial', 'still replaying')]);
+  client.emitStore({ type: 'thread', threadId: S2 });
+  assert.deepEqual(seen, []);
+  folding(client, S2, [row('restored', 'caught up')]);
+  client.replayPending.delete(S2);
+  client.emitStore({ type: 'thread', threadId: S2, replayComplete: true });
+  assert.deepEqual(seen, [['restored']]);
+  assert.deepEqual(sent(client), []);
+});
+
+test('cache-only resync redelivers the visible baseline with its position and never reads an unfollowed thread', async () => {
+  const { client, api } = await opened();
+  const seen = [];
+  const arrived = Promise.withResolvers();
+  api.subscribeSessionState((frame) => {
+    seen.push(frame);
+    arrived.resolve();
+  });
+  await api.setVisibleSessions([S1]);
+  await arrived.promise;
+  api.resyncSessionState(S1, { cachedOnly: true });
+  api.resyncSessionState(S2, { cachedOnly: true });
+  assert.equal(seen.length, 2);
+  assert.deepEqual(seen[1], seen[0]);
+  assert.ok(seen[1].streamPosition);
+  assert.deepEqual(client.calls.map(({ method }) => method), ['thread/resume']);
 });
 
 test('the frame of a requested read passes the filter and carries the trace id', async () => {

@@ -226,6 +226,85 @@ async fn a_carried_mark_the_parent_never_applied_is_applied_at_the_next_start() 
     assert_eq!(marks.redact_text("parent", CODE), "[redacted]", "and carried to the parent again");
 }
 
+/// A failed startup must leave the original durable mark available for another attempt.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn startup_retires_a_pending_mark_only_after_its_logs_are_safe() {
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let index = index_over(data.path(), tokens).await;
+    {
+        let marks = Arc::new(SensitiveStore::default());
+        let threads = store_over(data.path(), index.clone(), tokens, &marks).await;
+        create(&threads, tokens, "parent", vec![row("r", &format!("the code is {CODE}"))]).await;
+        marks.carry("child", "parent");
+        assert!(marks.remember("child", &[fill(CODE)]));
+        threads.projected().await;
+    }
+    let pending = data.path().join("sensitive/pending");
+    let original = std::fs::read_dir(&pending).expect("pending dir").next().expect("a mark").expect("entry").path();
+    let session = data.path().join("sessions/parent");
+    let log = session.join("log.000000");
+    let displaced = session.join("unavailable");
+    std::fs::rename(&log, &displaced).expect("make the owed log unavailable");
+    let marks = Arc::new(SensitiveStore::default());
+    let threads = store_over(data.path(), index, tokens, &marks).await;
+    assert!(threads.settle_marks(tokens.durability_io).await.is_err(), "do not serve an unsettled log");
+    assert!(original.is_file(), "a failed recovery must not consume the only durable mark");
+
+    std::fs::rename(displaced, log).expect("restore the owed log");
+    threads.settle_marks(tokens.durability_io).await.expect("the mark settles on retry");
+    assert_eq!(holding(data.path(), &[CODE]), Vec::<String>::new());
+    assert!(std::fs::read_dir(pending).expect("pending dir").next().is_none(), "the settled mark is retired");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn startup_retry_finishes_a_swapped_rewrite_before_retiring_its_mark() {
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let index = index_over(data.path(), tokens).await;
+    let title = format!("code {CODE}");
+    {
+        let marks = Arc::new(SensitiveStore::default());
+        let threads = store_over(data.path(), index.clone(), tokens, &marks).await;
+        create(&threads, tokens, "parent", vec![commit(json!({
+            "k":"meta","change":{"inline":{"set":{"title":title},"unset":[]}}
+        }))]).await;
+        assert!(marks.remember("parent", &[fill(CODE)]));
+        threads.projected().await;
+    }
+    let pending = data.path().join("sensitive/pending");
+    let original = std::fs::read_dir(&pending).expect("pending dir").next().expect("a mark").expect("entry").path();
+    let session = data.path().join("sessions/parent");
+    let staged = data.path().join(mixdog_store::log_rewrite::REWRITE_DIR).join("parent");
+    let indexed_title = || async {
+        index.lead_row("parent").await.expect("index read").expect("indexed session").row["title"].clone()
+    };
+    let marks = Arc::new(SensitiveStore::default());
+    let threads = store_over(data.path(), index.clone(), tokens, &marks).await;
+    index.refuse_next_reproject();
+    assert!(threads.settle_marks(tokens.durability_io).await.is_err(), "index failure must prevent serving");
+    assert!(holding(&session, &[CODE]).is_empty(), "the log has already been swapped");
+    assert!(!holding(&staged, &[CODE]).is_empty(), "the staged old log still holds the code");
+    assert_eq!(indexed_title().await, json!(title), "the old index row still holds the code");
+    assert!(original.is_file(), "the mark is still owed after the swap");
+
+    // A directory where the intent file belongs is an inspection failure, not a missing intent.
+    let intent = staged.join("intent");
+    let saved_intent = data.path().join("saved-intent");
+    std::fs::rename(&intent, &saved_intent).expect("set the intent aside");
+    std::fs::create_dir(&intent).expect("put a directory where the intent belongs");
+    assert!(threads.settle_marks(tokens.durability_io).await.is_err(), "a malformed rewrite must prevent serving");
+    assert!(original.is_file(), "failed inspection must not retire the mark");
+    assert!(!holding(&staged, &[CODE]).is_empty(), "failed inspection must not discard the staged old log");
+    std::fs::remove_dir(&intent).expect("remove the fixture directory");
+    std::fs::rename(saved_intent, intent).expect("restore the intent");
+
+    threads.settle_marks(tokens.durability_io).await.expect("same-store retry settles the rewrite");
+    assert_eq!(indexed_title().await, json!("code [redacted]"));
+    assert!(!staged.exists(), "the staged old log is gone");
+    assert!(std::fs::read_dir(pending).expect("pending dir").next().is_none(), "the mark is retired");
+}
+
 /// (c) Twenty model-context reads issued while the index is behind (its projections held, as a carried mark's rewrite of
 /// another thread holds them) wait for it off the lane: a row's commit job is still taken, and each read answers once the
 /// index catches up.

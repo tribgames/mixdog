@@ -394,6 +394,22 @@ async fn a_docx_gives_its_paragraph_text_by_bytes_and_by_path_and_a_file_that_is
     };
     let text = by_path["text"].as_str().unwrap_or_else(|| panic!("{by_path}"));
     assert!(text.contains("Hello World") && text.contains("Second paragraph"), "{text:?}");
+
+    // A ZIP comment adds raw bytes, not inflated part bytes. Keep the end-of-directory record readable.
+    let budget = bytes.len();
+    let mut padded = bytes.clone();
+    padded[budget - 2..].copy_from_slice(&256u16.to_le_bytes());
+    padded.resize(budget + 256, b'x');
+    std::fs::write(&path, padded).unwrap();
+    call.params["maxContainerBytes"] = json!(budget);
+    let mut stream = pool.call(call.clone()).expect("the call is accepted");
+    let bounded = loop {
+        if let ExtFrame::Done(outcome) = stream.next().await.expect("the stream ends with Done") {
+            break outcome.unwrap();
+        }
+    };
+    assert_eq!(bounded["text"], by_path["text"]);
+
     // A file outside the approved folders is refused with the guard's code and its own message, and is not read.
     let elsewhere = tempfile::tempdir().unwrap();
     let outside_path = elsewhere.path().join("secret.docx");

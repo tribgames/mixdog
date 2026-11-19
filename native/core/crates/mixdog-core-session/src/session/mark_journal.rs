@@ -18,6 +18,7 @@ type PendingMarkUpdate = (String, Vec<String>, BTreeMap<String, u64>);
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
+use std::io;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -26,10 +27,16 @@ use std::sync::PoisonError;
 use serde_json::Value;
 use serde_json::json;
 
-/// What a start reads back: the carries, and each pending mark (its file number, origin, values and listed sessions).
 pub(crate) struct Loaded {
     pub carries: Vec<(String, String)>,
-    pub pending: Vec<(u64, String, Vec<String>, Vec<String>)>,
+    pub pending: BTreeMap<u64, PendingMark>,
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct PendingMark {
+    pub origin: String,
+    pub values: Vec<String>,
+    pub sessions: BTreeMap<String, u64>,
 }
 
 #[derive(Default)]
@@ -82,41 +89,41 @@ impl MarksOnDisk {
 
     /// Every file of the journal, read on a lane job at start; the next file number follows the highest found.
     #[allow(clippy::disallowed_methods, reason = "runs inside a lane job at start")]
-    pub(crate) fn load(&self) -> Loaded {
-        let read = |path: &Path| std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
-        let text = |value: &Value| value.as_str().map(str::to_owned);
-        let carries: Vec<(String, String)> = read(&self.dir.join("carries.json"))
-            .and_then(|v| v.as_array().cloned())
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|pair| Some((text(pair.get(0)?)?, text(pair.get(1)?)?)))
-            .collect();
-        let mut pending = Vec::new();
-        for entry in std::fs::read_dir(self.dir.join("pending")).into_iter().flatten().flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let Some(n) = name.strip_suffix(".json").and_then(|n| n.parse::<u64>().ok()) else { continue };
-            let Some(mark) = read(&entry.path()) else { continue };
-            let values: Vec<String> = mark["values"].as_array().into_iter().flatten().filter_map(text).collect();
-            let sessions: Vec<String> = mark["sessions"].as_object().map(|s| s.keys().cloned().collect()).unwrap_or_default();
-            pending.push((n, text(&mark["origin"]).unwrap_or_default(), values, sessions));
+    pub(crate) fn load(&self) -> io::Result<Loaded> {
+        let carries: Vec<(String, String)> = match std::fs::read(self.dir.join("carries.json")) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid sensitive carry journal"))?,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => return Err(e),
+        };
+        let mut pending = BTreeMap::new();
+        let entries = match std::fs::read_dir(self.dir.join("pending")) {
+            Ok(entries) => Some(entries),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+            Err(e) => return Err(e),
+        };
+        for entry in entries.into_iter().flatten() {
+            let entry = entry?;
+            let name = entry.file_name();
+            let Some(n) = name.to_str().and_then(|name| name.strip_suffix(".json")).and_then(|n| n.parse::<u64>().ok()) else { continue };
+            let mark = serde_json::from_slice(&std::fs::read(entry.path())?)
+                .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid pending sensitive mark"))?;
+            pending.insert(n, mark);
         }
-        pending.sort_by_key(|p| p.0);
+        let next = match pending.last_key_value() {
+            Some((&last, _)) => last.checked_add(1).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "sensitive mark journal is full"))?,
+            None => 0,
+        };
         let mut state = self.lock();
         state.carries.extend(carries.iter().cloned());
-        state.next = state.next.max(pending.last().map_or(0, |p| p.0 + 1));
-        Loaded { carries, pending }
+        state.next = state.next.max(next);
+        Ok(Loaded { carries, pending })
     }
 
-    /// A pending mark read back at start, once it was marked again (journaled anew): its old file goes.
-    pub(crate) fn forget(&self, n: u64) {
-        Self::remove(&self.pending_path(n));
-    }
-
-    /// The sessions some pending mark still lists.
-    pub(crate) fn owed(&self) -> Vec<String> {
-        let state = self.lock();
-        let owed: BTreeSet<String> = state.pending.values().flat_map(|(_, _, sessions)| sessions.keys().cloned()).collect();
-        owed.into_iter().collect()
+    /// Retire the original recovery records only after every owed rewrite, including index replacement, is durable.
+    pub(crate) fn forget_recovered(&self, recovered: Vec<u64>) {
+        for n in recovered {
+            Self::remove(&self.pending_path(n));
+        }
     }
 
     /// `session`'s log was rewritten for every value it held at `version`: each pending mark it held by then drops it, and

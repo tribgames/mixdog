@@ -254,6 +254,8 @@ export function sessionDiffRowWithPatch(row: SessionDiffRow, patch: string): Ses
 export type ParsedSessionDiff = {
   rows: SessionDiffRow[];
   partsByPath: ReadonlyMap<string, SessionDiffPart[]>;
+  /** Characters retained by parsed sections, in addition to the raw reply. */
+  retainedPatchChars: number;
   /** FNV-1a over a row's inline patch text, by row path. */
   digests: ReadonlyMap<string, string>;
   /** The result's whole content (patch, files, flags) as one digest. */
@@ -488,6 +490,7 @@ function* sessionDiffParseSteps(
     ranges = [];
   }
   const partsByPath = new Map<string, SessionDiffPart[]>();
+  let retainedPatchChars = 0;
   for (const [start, end] of ranges) {
     yield end - start;
     let part: SessionDiffPart;
@@ -498,6 +501,11 @@ function* sessionDiffParseSteps(
     }
     const path = partPath(part);
     if (!path) continue;
+    // The rows and path index share these parts. Ranged patches also share
+    // their display string; synthetic ranges produce a separate string.
+    retainedPatchChars += part.patch.length;
+    if (part.renderPatch !== part.patch) retainedPatchChars += part.renderPatch.length;
+    for (const hunk of part.hunks) retainedPatchChars += hunk.length;
     const parts = partsByPath.get(path) || [];
     parts.push(part);
     partsByPath.set(path, parts);
@@ -558,5 +566,5 @@ function* sessionDiffParseSteps(
     index.add(rows[rows.length - 1] as SessionDiffRow, rows.length - 1);
     yield fileUnit(parts);
   }
-  return { rows, partsByPath, digests, fingerprint, index: index.finish(rows) };
+  return { rows, partsByPath, retainedPatchChars, digests, fingerprint, index: index.finish(rows) };
 }

@@ -8,7 +8,7 @@ import { ServerFolderDialog } from './settings/connection-dialogs';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { ErrorNotice } from './ErrorNotice';
 import { ExtensionDetailDialog, ExtensionField } from './settings/extension-detail';
-import { displayProjectFolder } from './ProjectEditorDialog';
+import { displayProjectFolder } from './project-folder-label';
 import './desktop/extension-dialog.css';
 
 function listServerFolders(path: string) {

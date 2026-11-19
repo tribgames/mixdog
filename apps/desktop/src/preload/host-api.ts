@@ -209,8 +209,8 @@ export function createHostApi({ invokeIpc, subscribeIpc, ipcRenderer, webUtils, 
     visualizeConsumeGesture: (target) => invokeIpc(DESKTOP_IPC.visualizeConsumeGesture, target),
     visualizePanelSize: (size) => invokeIpc(DESKTOP_IPC.visualizePanelSize, size),
     onBrowserSessionReleased: (listener) => subscribeIpc(DESKTOP_IPC.browserSessionReleased, listener),
-    browserSetActiveGuest: (sessionId, webContentsId, active) =>
-      invokeIpc(DESKTOP_IPC.browserSetActiveGuest, sessionId, webContentsId, active),
+    browserSetActiveGuest: (sessionId, webContentsId, active, pixels, pane) =>
+      invokeIpc(DESKTOP_IPC.browserSetActiveGuest, sessionId, webContentsId, active, pixels, pane),
     browserPanelShown: (sessionId, shown, pane) => invokeIpc(DESKTOP_IPC.browserPanelShown, sessionId, shown, pane),
     browserReleasePage: (pageId) => invokeIpc(DESKTOP_IPC.browserReleasePage, pageId),
     browserPageControl: (sessionId, input) => invokeIpc(DESKTOP_IPC.browserPageControl, sessionId, input),

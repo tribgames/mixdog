@@ -9,6 +9,7 @@
 #![allow(clippy::disallowed_types, reason = "mixdog-store::sqlite is the sanctioned home of rusqlite")]
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::path::Path;
 use std::path::PathBuf;
@@ -1695,6 +1696,8 @@ struct Shared {
     /// Projections a test makes fail.
     #[cfg(any(test, feature = "test-support"))]
     archive_faults: std::sync::atomic::AtomicUsize,
+    #[cfg(feature = "test-support")]
+    refuse_reproject: std::sync::atomic::AtomicBool,
     /// The next projection's bookkeeping a test holds once its write answered: `arrived` is told, then `go` is awaited.
     #[cfg(any(test, feature = "test-support"))]
     archive_ack_hold: Mutex<Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>>,
@@ -1875,6 +1878,8 @@ impl SqliteStore {
                 archive_reads,
                 #[cfg(any(test, feature = "test-support"))]
                 archive_faults: std::sync::atomic::AtomicUsize::new(0),
+                #[cfg(feature = "test-support")]
+                refuse_reproject: std::sync::atomic::AtomicBool::new(false),
                 #[cfg(any(test, feature = "test-support"))]
                 archive_ack_hold: Mutex::default(),
                 writer: Mutex::new(Some(handle)),
@@ -1946,17 +1951,15 @@ impl SqliteStore {
     /// settled only by a projection that read its state after the failure was noted (its read sequence is past the debt's), so an
     /// older projection answered late never clears a newer failure; a failure leaves every one of them owed.
     pub async fn project_archive(&self, sessions: Vec<String>) -> Result<(), DbError> {
+        let mut seen = HashSet::new();
         let mut all: Vec<String> = self.owed().keys().cloned().collect();
-        for id in sessions {
-            if !all.contains(&id) {
-                all.push(id);
-            }
-        }
+        seen.extend(all.iter().cloned());
+        all.extend(sessions.into_iter().filter(|id| seen.insert(id.clone())));
         if all.is_empty() {
             return Ok(());
         }
         let read = Arc::new(std::sync::atomic::AtomicU64::new(0));
-        let projected = self.project_archive_once(all.clone(), read.clone()).await;
+        let projected = self.project_archive_once(all, read.clone()).await;
         #[cfg(any(test, feature = "test-support"))]
         {
             let held = self.shared.archive_ack_hold.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
@@ -1969,11 +1972,11 @@ impl SqliteStore {
         match &projected {
             Ok(()) => {
                 let read = read.load(std::sync::atomic::Ordering::SeqCst);
-                owed.retain(|id, debt| !(all.contains(id) && *debt < read));
+                owed.retain(|id, debt| !(seen.contains(id) && *debt < read));
             }
             Err(_) => {
                 let noted = self.shared.archive_reads.load(std::sync::atomic::Ordering::SeqCst);
-                for id in all {
+                for id in seen {
                     let debt = owed.entry(id).or_insert(noted);
                     *debt = (*debt).max(noted);
                 }
@@ -2054,7 +2057,17 @@ impl SqliteStore {
     /// The rows of `session` (under `<data>/sessions`) rebuilt from its rewritten log, the replaced rows overwritten in
     /// the database and gone from the WAL; resolves once that is done.
     pub async fn reproject(&self, rewrite: Rewritten) -> Result<(), DbError> {
+        #[cfg(feature = "test-support")]
+        if self.shared.refuse_reproject.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            return Err(DbError::Write("the test's injected rewrite projection failure".into()));
+        }
         self.ask(|ack| Command::Reproject { rewrite, ack }).await
+    }
+
+    /// Refuse the next request to replace a rewritten session's rows.
+    #[cfg(feature = "test-support")]
+    pub fn refuse_next_reproject(&self) {
+        self.shared.refuse_reproject.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// The UI language changed: placeholder titles refold in maintenance steps.

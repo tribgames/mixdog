@@ -14,8 +14,7 @@ interface BootWarmupTask {
 }
 
 /** Lane order. Rail menus first (a click lands there soonest), then the
- *  focused pane's dock, then open-tab transcripts and their chunks, and the
- *  settings sweep last — it only has to beat the user to the gear icon. */
+ *  focused pane's dock, then open-tab transcripts and their chunks. */
 export const BOOT_WARMUP = Object.freeze({
   sidebarPanel: 20,
   /** The rail usage flyout, so its first open paints rows, not a placeholder. */
@@ -45,8 +44,6 @@ export const BOOT_WARMUP = Object.freeze({
   /** The subscription usage that dialog opens on, so its first open paints
    *  instead of waiting on a cold ledger read. */
   quotaUsage: 74,
-  settingsPreload: 80,
-  settingsMount: 85,
   /** A phone's side-sheet pane chunks (diff, Terminal, Browser, Visualize, editor),
    *  downloaded only — they evaluate on their first open: the lane's tail,
    *  after everything its first screen needs. */

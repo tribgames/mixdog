@@ -314,3 +314,19 @@ test('oversized diffs are delivered without being retained', async () => {
   assert.equal((await fetchSessionDiff('large')).patch, result.patch);
   assert.equal(peekSessionDiff('large'), null);
 });
+
+test('a raw patch that fits alone is not cached if its parsed representations exceed the budget', async () => {
+  const body = `+${'x'.repeat(Math.floor(SESSION_DIFF_CACHE_MAX_CHARS / 3))}`;
+  const patch = PATCH.replace('@@ -1 +1 @@\n-old\n+new', `@@ context\n-old\n${body}`);
+  const result = { ...RESULT, patch };
+  const previousWindow = globalThis.window;
+  globalThis.window = { mixdogDesktop: { invokeCapability: async () => ({ value: result }) } };
+  try {
+    assert.equal(await fetchSessionDiff('large-parsed'), result);
+    assert.equal(peekSessionDiff('large-parsed'), null, 'the raw reply, its hunks and the rewritten display patch do not fit together');
+    primeSessionDiff('large-parsed', { ...result });
+    assert.equal(peekSessionDiff('large-parsed'), null, 'priming follows the same budget');
+  } finally {
+    globalThis.window = previousWindow;
+  }
+});

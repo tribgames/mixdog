@@ -6,9 +6,10 @@
  */
 import type { WebContents } from 'electron';
 
-import { persistFrameImage } from '../frame-files';
+import { persistBrowserScreenshot } from '../frame-files';
 import type { BrowserCommand, BrowserCommandResult, BrowserSnapshotResultOptions } from './host-types';
 import type { BrowserReplyHost } from './reply';
+import { type EncodedBrowserScreenshot, screenshotWireImage } from './screenshot-image';
 
 type ReplyScreenshotHost = Pick<BrowserReplyHost, 'state' | 'captureScreenshot' | 'bindVisualGrounding'>;
 
@@ -18,17 +19,17 @@ type ReplyScreenshotHost = Pick<BrowserReplyHost, 'state' | 'captureScreenshot' 
 export async function attachFrame(
   result: BrowserCommandResult,
   command: BrowserCommand,
-  capture: { mimeType: string; data: string },
+  capture: EncodedBrowserScreenshot,
   frameId: string
 ): Promise<BrowserCommandResult> {
   if (String(command.image_output || 'inline') === 'file') {
-    const stored = await persistFrameImage('browser', String(command.session_id || 'browser'), frameId, capture);
+    const stored = await persistBrowserScreenshot(String(command.session_id || 'browser'), frameId, capture);
     if (stored) {
       result.text += `\n\nFrame written to ${stored.path} (${stored.bytes} bytes).`;
       return result;
     }
   }
-  result.image = { mimeType: capture.mimeType, data: capture.data };
+  result.image = screenshotWireImage(capture);
   return result;
 }
 

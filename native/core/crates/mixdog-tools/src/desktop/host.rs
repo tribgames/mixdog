@@ -10,6 +10,7 @@ use mixdog_core_api::CoreError;
 use mixdog_core_api::HostCapability;
 use mixdog_core_api::HostChannel;
 use mixdog_core_api::HostError;
+use mixdog_browser_engine::reply::reply::ReplyImage;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolErrorCode;
@@ -52,12 +53,28 @@ pub enum HostCommandError {
     Cancelled,
 }
 
+/// A browser tool reply. A local engine can carry its screenshot separately
+/// from the JSON metadata; forwarded commands keep their original wire reply.
+pub struct BrowserToolReply {
+    pub value: JsonValue,
+    pub screenshot: Option<ReplyImage>,
+}
+
+impl From<JsonValue> for BrowserToolReply {
+    fn from(value: JsonValue) -> Self {
+        Self { value, screenshot: None }
+    }
+}
+
 /// The typed `host/*` command channel for one thread: the server's outgoing router resolves the
 /// thread's host claimant and keeps the JSON-RPC error intact.
 #[async_trait]
 pub trait HostCommands: Send + Sync {
     /// Ends with `HostCommandError::Cancelled` when `cancel` fires first, abandoning the request.
     async fn browser(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError>;
+    async fn browser_for_tool(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<BrowserToolReply, HostCommandError> {
+        self.browser(thread, action, input, cancel).await.map(Into::into)
+    }
     /// `cwd` is the session's working directory (`options.cwd`), which the pane resolves files against.
     async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError>;
 }
@@ -211,6 +228,11 @@ pub(super) fn bridge_error(message: &str) -> ToolError {
 /// A successful `browser` result value as tool output: text (default `OK`), then the image.
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured tool error and existing call contract by value without an extra boxing allocation")]
 pub fn browser_output(value: &Value) -> ToolOutcome {
+    render_browser_output(value, None)
+}
+
+#[allow(clippy::result_large_err, reason = "Keep the canonical structured tool error by value")]
+pub(super) fn render_browser_output(value: &Value, screenshot: Option<ReplyImage>) -> ToolOutcome {
     let empty = serde_json::Map::new();
     let value = value.as_object().unwrap_or(&empty);
     let mut text = value.get("text").and_then(Value::as_str).filter(|t| !t.is_empty()).unwrap_or("OK").to_owned();
@@ -220,7 +242,9 @@ pub fn browser_output(value: &Value) -> ToolOutcome {
     // The image and the attached download (`result.file`) become the parts their kind is (`browser_media`); a download that stays
     // on disk takes the reply's "Attached" sentence back, so `text` is settled before it leads the parts.
     let mut media = Vec::new();
-    if let Some(image) = value.get("image").and_then(Value::as_object) {
+    if let Some(screenshot) = screenshot {
+        media.extend(super::browser_media::screenshot_part(screenshot)?);
+    } else if let Some(image) = value.get("image").and_then(Value::as_object) {
         media.extend(super::browser_media::image_part(image)?);
     }
     if let Some(file) = value.get("file").and_then(Value::as_object) {

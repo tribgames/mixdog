@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
 import test from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
@@ -13,7 +14,16 @@ window.requestAnimationFrame = (callback) => window.setTimeout(callback, 0);
 window.cancelAnimationFrame = (handle) => window.clearTimeout(handle);
 
 const { createRoot } = await import('react-dom/client');
+const editorRequests = [];
+const editorObserver = registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (/\/ProjectEditorDialog(?:\.tsx)?$/.test(specifier)) editorRequests.push(specifier);
+    return nextResolve(specifier, context);
+  },
+});
+test.after(() => editorObserver.deregister());
 const { ProjectListSection } = await import('./ProjectListSection.tsx');
+const { projectEditorDialogModule } = await import('./first-screen-deferred.ts');
 const { initUiLanguage, setUiLanguagePreference } = await import('./i18n.ts');
 
 // Custom names that collide with app catalog keys ("History", "Settings",
@@ -58,6 +68,7 @@ test('custom project names stay literal in rows and the memory scope picker unde
       })
     )
   );
+  assert.deepEqual(editorRequests, [], 'rendering the project list does not request its editor');
   assert.deepEqual(
     [...host.querySelectorAll('.projects-list:not(.projects-common-instructions) b')].map((node) => node.textContent),
     customLabels
@@ -65,8 +76,16 @@ test('custom project names stay literal in rows and the memory scope picker unde
   // App-authored copy still translates.
   assert.equal(host.querySelector('.projects-common-instructions b').textContent, '공통 지침');
 
-  await act(async () => host.querySelector('.projects-common-instructions button').click());
-  await act(async () => new Promise((resolve) => window.setTimeout(resolve, 20)));
+  const editorReady = Promise.withResolvers();
+  const unsubscribe = projectEditorDialogModule.subscribe(editorReady.resolve);
+  try {
+    await act(async () => {
+      host.querySelector('.projects-common-instructions button').click();
+      await editorReady.promise;
+    });
+  } finally {
+    unsubscribe();
+  }
   await act(async () => document.querySelector('button[aria-label="메모리 추가"]').click());
   const select = document.querySelector('select[aria-label="메모리 범위"]');
   assert.ok(select, 'memory scope picker renders');

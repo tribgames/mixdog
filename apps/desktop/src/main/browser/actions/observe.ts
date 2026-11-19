@@ -5,6 +5,7 @@
 import { persistFrameImage } from '../../frame-files';
 import { boundedInteger, browserCharLimit, EXTRACT_DEFAULT_CHARS, EXTRACT_DEFAULT_LIMIT, EXTRACT_MAX_LIMIT, MAX_PRINTED_PDF_BYTES, READ_DEFAULT_CHARS, READ_MAX_CHARS } from '../host-types';
 import { redactBrowserText, redactBrowserUrl } from '../redaction';
+import { screenshotWireImage } from '../screenshot-image';
 import { browserVisualLocatorExpression, type BrowserVisualLocatorPayload } from '../visual-locator';
 import { actionRef } from './target';
 import { type BrowserActionContext, defineBrowserActions } from './types';
@@ -145,7 +146,7 @@ export const observationActions = defineBrowserActions({
       text:
         `${snapshot.text}\n\nVisual locate query: ${JSON.stringify(query)}\n${candidates}\n\n` +
         `Visual screenshot: ${refSet.snapshotId} is ${capture.width}x${capture.height} image px; viewport ${refSet.viewportWidth}x${refSet.viewportHeight} CSS px. Use candidate centers with click and this snapshotId.`,
-      image: { mimeType: capture.mimeType, data: capture.data },
+      image: screenshotWireImage(capture),
     };
   },
 

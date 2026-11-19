@@ -3,9 +3,8 @@
 //! layer holds (`LocalMemory` for the close-time ingest, `SessionSearchIngest` for the
 //! per-turn search copy, the process's `SensitiveStore`), built once over them.
 //!
-//! The embedding model stays off the boot path, as in Node: the schema opens from the
-//! model's dimensions (saved measurement, else its profile; an unprofiled model is measured by a
-//! cold warm-up at the first start) and the model otherwise loads on demand (`MemoryRuntime`).
+//! Schema opening never starts the embedding model. A custom model without known
+//! dimensions starts with an untyped vector column; its first real vector supplies them.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -16,8 +15,7 @@ use futures::future::BoxFuture;
 
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_js::to_number;
-use mixdog_rt::{DurabilityIo, LaneToken, MaintenanceIo, TaskClass};
-use mixdog_statefile::{Opts, write_json};
+use mixdog_rt::{DurabilityIo, MaintenanceIo, TaskClass};
 use serde_json::Value;
 use mixdog_workspace::watcher::FolderWatcher;
 
@@ -37,7 +35,7 @@ use crate::memory::recall::period::Clock;
 use crate::memory::recall::{QueryEmbedder, Recall, RecallDeps};
 use crate::memory::reindex::Reindex;
 use crate::memory::runtime::{MemoryRuntime, RuntimeFlags};
-use crate::memory::schema::ensure_memory_schema;
+use crate::memory::schema::ensure_memory_schema_with_dims;
 use crate::memory::sensitive::SensitiveStore;
 use crate::memory::service::{LocalMemory, MemoryModule, MemoryService, SessionSource};
 use crate::memory::tool::MemoryCallers;
@@ -132,43 +130,17 @@ pub(crate) async fn release_on_failure<T, E>(open: impl std::future::Future<Outp
     }
 }
 
-/// `_initStore`'s dimensions: the saved measurement of this identity, else the profile's, else a
-/// cold warm-up that measures them (and saves the result). A model the profiles do not list
-/// therefore needs the embedding model installed and loadable at the first start.
-pub(crate) async fn resolve_dims(data_dir: &Path, lane: DurabilityIo, identity: &Value, model_id: &str, runtime: Option<&MemoryRuntime>) -> Result<usize> {
+/// Existing installations can provide a saved dimension; no model is consulted.
+pub(crate) async fn resolve_dims(data_dir: &Path, lane: DurabilityIo, identity: &Value, model_id: &str) -> Option<usize> {
     let path = data_dir.join(EMBEDDING_META);
     let saved = fsio::read(lane, &path).await.ok().and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
     if let Some(saved) = saved.filter(|saved| ["provider", "model", "dtype"].iter().all(|key| saved[key] == identity[key])) {
         let dims = to_number(&saved["dims"]);
-        if dims.is_finite() && dims > 0.0 {
-            return Ok(dims as usize);
+        if dims > 0.0 && dims <= 16_000.0 && dims.fract() == 0.0 {
+            return Some(dims as usize);
         }
     }
-    if let Some(known) = config::known_dims(model_id) {
-        return Ok(known);
-    }
-    let unavailable = |why: &str| MemoryError::Embedding(format!("memory-service: embedding dims unavailable {why}"));
-    let runtime = runtime.ok_or_else(|| unavailable("without an embedding model"))?;
-    if !runtime.flags().warmup_can_start() {
-        return Err(unavailable("while warmup is disabled"));
-    }
-    runtime.cold_warmup().await.map_err(MemoryError::Embedding)?;
-    let loaded = runtime.embedder().warmup().await.map_err(MemoryError::Embedding)?;
-    let dims = loaded.ok_or_else(|| unavailable("because the model is not installed"))?.dims();
-    let mut meta = identity.clone();
-    meta["dims"] = Value::from(dims);
-    let written = lane
-        .submit_wait(&mixdog_rt::CancellationToken::new(), move |proof| write_json(proof, &path, &meta, &Opts { lock: true, ..Opts::default() }))
-        .await;
-    match written {
-        Ok(job) => {
-            if let Ok(Err(error)) = job.await {
-                mixdog_rt::memory_stderr!("[memory-service] could not persist embedding-meta: {error}");
-            }
-        }
-        Err(error) => mixdog_rt::memory_stderr!("[memory-service] could not persist embedding-meta: {error:?}"),
-    }
-    Ok(dims)
+    config::known_dims(model_id)
 }
 
 /// Node's text for a use after the stop ended (`ensurePgInstance`, `supervisor.mjs:648`).
@@ -540,9 +512,8 @@ impl MemoryStack {
             };
             let (memory_db, search_db) = (deferred(Schema::Memory), deferred(Schema::SessionSearch));
             let search = SessionSearchIngest::new(SessionSearchDb::over(search_db.clone()), sensitive.clone());
-            // `embedQuery` (`query-hybrid-search.mjs:39`): a cold model is warmed within the recall's bounded wait.
             let query: Option<Arc<dyn QueryEmbedder>> = embedder.clone().map(|provider| {
-                Arc::new(crate::memory::recall::readiness::RecallEmbedder::new(provider, flags.secondary)) as Arc<dyn QueryEmbedder>
+                Arc::new(crate::memory::recall::readiness::RecallEmbedder::new(provider, flags.secondary).with_schema(memory_db.clone())) as Arc<dyn QueryEmbedder>
             });
             let recall = Recall::new(RecallDeps {
                 db: memory_db.clone(),
@@ -807,7 +778,6 @@ impl MemoryStack {
             PgRuntimeSource::Dir(dir) => dir.clone(),
             PgRuntimeSource::Install(install) => install(cancel.clone()).await?,
         };
-        let dims = self.until_cancelled(cancel, resolve_dims(&self.data_dir, self.lane, &self.identity, &self.model_id, self.runtime.as_deref())).await?;
         let runtime = PgRuntime::new(runtime_dir);
         // The start reports to the stop record synchronously where each fact becomes true: its admission before the spawn, the attach or the
         // readiness before `ensure` returns (`StackLaunch`). No await separates an established cluster from its record.
@@ -836,7 +806,8 @@ impl MemoryStack {
             self.until_cancelled(cancel, async {
                 // The bootstrap connections and the pools' drivers are the stack's transport from before they connect.
                 let memory_db = Db::open(&cluster, Schema::Memory, self.scope.clone()).await?;
-                ensure_memory_schema(&memory_db, dims, &self.identity).await?;
+                let dims = resolve_dims(&self.data_dir, self.lane, &self.identity, &self.model_id).await;
+                ensure_memory_schema_with_dims(&memory_db, dims, &self.identity).await?;
                 // Root vectors made under the older root text are replaced by the paced sweep;
                 // an existing sweep keeps its progress.
                 start_root_embed_sweep(&memory_db).await?;
@@ -1230,9 +1201,6 @@ impl MemoryStack {
             _ => None,
         };
         let flushed = !forced && self.flushed.load(std::sync::atomic::Ordering::SeqCst);
-        if let Some(runtime) = &self.runtime {
-            runtime.shutdown();
-        }
         if let Some(cycles) = &self.cycles {
             cycles.reset_in_flight();
         }

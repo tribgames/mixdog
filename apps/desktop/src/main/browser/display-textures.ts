@@ -25,6 +25,7 @@ export function createBrowserDisplayTextures(host: {
     release(): void;
   };
   const frames = new WeakMap<WebContents, Frame>();
+  const panels = new WeakSet<WebContents>();
   const attached = new WeakSet<WebContents>();
   let serial = 0;
   const clear = (guest: WebContents) => {
@@ -33,6 +34,13 @@ export function createBrowserDisplayTextures(host: {
     old?.release();
   };
   return {
+    setPanelActive(guest: WebContents, active: boolean): void {
+      if (active) panels.add(guest);
+      else {
+        panels.delete(guest);
+        clear(guest);
+      }
+    },
     attach(guest: WebContents): void {
       if (attached.has(guest)) return;
       attached.add(guest);
@@ -40,7 +48,7 @@ export function createBrowserDisplayTextures(host: {
         if (!event.texture) return;
         const texture = event.texture;
         // A popup widget's texture is not the page; keep the page's last frame.
-        if (texture.textureInfo.widgetType !== 'frame') {
+        if (!panels.has(guest) || texture.textureInfo.widgetType !== 'frame') {
           texture.release();
           return;
         }

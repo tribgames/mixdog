@@ -5,6 +5,7 @@ import {
   answeredSessionDiffSignal,
   fetchSessionDiff,
   peekSessionDiff,
+  sessionDiffBinding,
   sameSessionDiff as sameDiff,
 } from './session-diff-cache';
 import { useTurnChangesEpoch } from './turn-changes-model';
@@ -125,7 +126,13 @@ export function useSessionDiffRefresh({
         const changed = !(last?.sessionId === sessionId && sameDiff(last.result, next));
         lastAdopted.current = { sessionId, result: next };
         const shown = asked.current;
-        if (!(shown.sessionId === sessionId && !shown.loading && !shown.error && sameDiff(shown.result, next))) {
+        const binding = sessionDiffBinding(next);
+        // An omitted file can change even when its list metadata is identical.
+        const omittedChanged =
+          binding && binding.omitted.size > 0 && binding.revision !== sessionDiffBinding(shown.result)?.revision;
+        if (
+          shown.sessionId !== sessionId || shown.loading || shown.error || omittedChanged || !sameDiff(shown.result, next)
+        ) {
           apply({ sessionId, result: next, loading: false, error: '' });
         }
         if (!background || changed || missedAdoption.current) {

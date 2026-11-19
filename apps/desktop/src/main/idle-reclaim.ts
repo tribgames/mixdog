@@ -9,6 +9,7 @@
 // the user cannot notice: window unfocused, no turn streaming, and one release
 // per quiet stretch. The V8 heap is NOT forced down from here; main/index.ts
 // caps the renderer's old space instead, which is the supported lever.
+import type { BrowserWindow } from 'electron';
 import type { SessionSnapshot } from '../shared/contract';
 import { turnInProgress } from './turn-attention';
 
@@ -88,6 +89,20 @@ export function createIdleReclaim(hooks: IdleReclaimHooks): IdleReclaim {
       cancel();
     },
   };
+}
+
+export function attachWindowIdleReclaim(
+  window: Pick<BrowserWindow, 'on' | 'once' | 'isDestroyed' | 'isFocused'>,
+  hooks: Pick<IdleReclaimHooks, 'reclaim' | 'delayMs'>
+): IdleReclaim {
+  const controller = createIdleReclaim({
+    ...hooks,
+    isFocused: () => window.isDestroyed() || window.isFocused(),
+  });
+  window.on('focus', controller.onFocus);
+  window.on('blur', controller.onBlur);
+  window.once('closed', controller.dispose);
+  return controller;
 }
 
 /** The subset of Electron's WebContents this module drives. */

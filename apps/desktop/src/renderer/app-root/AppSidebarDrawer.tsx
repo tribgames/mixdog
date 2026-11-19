@@ -18,7 +18,7 @@ import { SidebarDiffColumn } from '../sidebar-diff-column';
 import type { StarterGuide as StarterGuideComponent } from '../StarterGuide';
 import { starterGuideModule } from '../first-screen-deferred';
 import { useDeferredModule } from '../deferred-module';
-import { settingsViewModule, warmSettingsView } from '../app-shell-components';
+import { settingsViewModule } from '../app-shell-components';
 import { desktopFeatureEnabled } from '../desktop-feature-config';
 import type { useAppShellPanels } from '../use-app-shell-panels';
 import type { useAppSideDocks } from '../use-app-side-docks';
@@ -134,12 +134,8 @@ export function AppSidebarDrawer({
   useEdgeSwipeDrawers({ sidebarOpen, openSidebar, applySidebarOpen });
   // The rail and the starter guide are memoised; their handlers and items
   // keep one identity across App commits (a session switch is several).
-  // The settings module loads while the drawer is open. A tap that beats it
-  // leaves the drawer as it is until the module resolves, then opens the
-  // dialog with its complete animation, unless the user moved on meanwhile.
-  useEffect(() => {
-    if (sidebarOpen) warmSettingsView();
-  }, [sidebarOpen]);
+  // The first Settings tap keeps the drawer in place until the dialog can
+  // render, unless the user moves on while its module loads.
   const { request: requestSettingsOpen, cancel: cancelSettingsOpen } = useSettingsOpenRequest({
     module: settingsViewModule,
     waits: () => desktopFeatureEnabled('settings'),
@@ -204,7 +200,6 @@ export function AppSidebarDrawer({
         onInstallDesktopUpdate={installRailDesktopUpdate}
         onOpenProviders={openRailProviders}
         onOpenUsageStats={openUsageStats}
-        onPrefetchSettings={warmSettingsView}
         navigationItems={navigationItems}
         activeNavigationId={sidebarOpen ? activeSideViews.left : null}
         onSelectNavigation={selectSideView}

@@ -172,10 +172,10 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
         mode
     };
     let batch_mode = if mode == "search" { "symbol_search" } else { mode };
-    let warnings = std::cell::RefCell::new(Warnings::default());
+    let mut warnings = Warnings::default();
+    warnings.collect(one_file, &root, &graph);
     // A mode's failure fails the call; inside a fan-out it is that section's `Error:` body (`_fanoutSections`).
     let raw = |a: &Args| -> Result<Section, String> {
-        warnings.borrow_mut().collect(one_file, &root, &graph);
         answer(mode, a, &base, default_cwd, &root, &graph, a.file.as_deref()).map(Section::whole)
     };
     let caught = |section: Result<Section, String>| section.unwrap_or_else(|e| Section::whole(format!("Error: {e}")));
@@ -213,7 +213,6 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
         }
         one(&args)
     }?;
-    let warnings = warnings.into_inner();
     if graph.source_stale() || !graph.resolver_inputs_current() {
         if attempt == 0 {
             attempt = 1;

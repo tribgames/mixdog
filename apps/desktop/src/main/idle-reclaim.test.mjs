@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
 
-import { createIdleReclaim, purgeRendererMemory } from './idle-reclaim.ts';
+import { attachWindowIdleReclaim, createIdleReclaim, purgeRendererMemory } from './idle-reclaim.ts';
 
 // The release is a pure logic timer, so the tests drive it with mock timers
 // instead of sleeping on the real clock.
@@ -91,6 +92,27 @@ test('dispose cancels a pending release', async (t) => {
   reclaim.dispose();
   elapse(t, 40);
   assert.equal(calls.length, 0);
+});
+
+test('closing the window retires its reclaim controller without affecting a replacement', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const calls = [];
+  function attach(name) {
+    const window = Object.assign(new EventEmitter(), { isDestroyed: () => false, isFocused: () => false });
+    const controller = attachWindowIdleReclaim(window, { delayMs: 20, reclaim: () => calls.push(name) });
+    window.emit('blur');
+    return { window, controller };
+  }
+  const first = attach('first');
+  const second = attach('second');
+  first.window.emit('closed');
+  elapse(t, 20);
+  assert.deepEqual(calls, ['second']);
+
+  first.controller.onSnapshot({ busy: true });
+  first.controller.onSnapshot({ busy: false });
+  elapse(t, 20);
+  assert.deepEqual(calls, ['second'], 'a late session update cannot rearm the closed window');
 });
 
 test('purge drops renderer caches', async () => {

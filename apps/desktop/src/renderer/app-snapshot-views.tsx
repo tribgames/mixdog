@@ -180,7 +180,7 @@ export const PaneConversation = memo(function PaneConversation({
   const lane = heldSnapshot ?? liveLane;
   const { readUnavailable, retryRead } = useSessionLaneRead({
     sessionId,
-    hasLane: lane !== null,
+    hasLane: lane !== null && lane.transcriptPreview !== true,
     hidden,
     reconcileOnMount,
     read: requestSessionRead,
@@ -391,7 +391,7 @@ export const PaneConversation = memo(function PaneConversation({
     (row: TranscriptAssistantRowProps) => <PaneAssistantRow {...row} sessionId={sessionId} hidden={hidden} />,
     [sessionId, hidden]
   );
-  const unavailable = readUnavailable && lane === null && !hidden;
+  const unavailable = readUnavailable && !hidden;
   return (
     <>
       <Conversation

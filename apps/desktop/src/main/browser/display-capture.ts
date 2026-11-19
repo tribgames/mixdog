@@ -23,18 +23,21 @@ export function createBrowserDisplayCapture(sharedTextures = false) {
   const stream = createBrowserDisplayStream(encode);
   /** `pixels` is the exact frame size the guest composites at (frame-pixels);
    *  a frame of any other size belongs to an older geometry. */
-  return function capture(
+  return Object.assign(capture, { release: stream.release });
+  function capture(
     guest: WebContents,
     documentId = '',
-    pixels?: { width: number; height: number }
+    pixels?: { width: number; height: number },
+    signal?: AbortSignal
   ): Promise<BrowserScreenshotCapture> {
+    signal?.throwIfAborted();
     const key = `${documentId}:${pixels?.width ?? ''}:${pixels?.height ?? ''}`;
     const existing = pending.get(guest);
     if (existing) {
       if (existing.documentId === key) return existing.work;
       // Wait out the old native request, but never label its pixels as the
       // document that navigated while that request was outstanding.
-      return existing.work.catch(() => undefined).then(() => capture(guest, documentId, pixels));
+      return existing.work.catch(() => undefined).then(() => capture(guest, documentId, pixels, signal));
     }
     // Popups with native (non-offscreen) views do not emit paint events.
     // They retain the single-flight native path, not a silent stream fallback.
@@ -56,5 +59,5 @@ export function createBrowserDisplayCapture(sharedTextures = false) {
       })
       .catch(() => {});
     return work;
-  };
+  }
 }

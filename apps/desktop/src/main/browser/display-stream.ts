@@ -20,7 +20,8 @@ export function createBrowserDisplayStream(
     close(): void;
   };
   const streams = new WeakMap<WebContents, Stream>();
-  return async function sample(
+  return Object.assign(sample, { release: (guest: WebContents) => streams.get(guest)?.close() });
+  async function sample(
     guest: WebContents,
     key: string,
     pixels?: { width: number; height: number }
@@ -111,5 +112,5 @@ export function createBrowserDisplayStream(
     // A newer paint may have arrived while the first one was being awaited.
     if (stream.latest === image) stream.encoded = result;
     return result;
-  };
+  }
 }

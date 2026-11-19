@@ -194,7 +194,8 @@ export interface SectionEntry {
 }
 
 export type StoreChange =
-  | { readonly type: 'thread'; readonly threadId: string }
+  /** `replayComplete` marks the fold of the last missed event, not the attach acknowledgement. */
+  | { readonly type: 'thread'; readonly threadId: string; readonly replayComplete?: true }
   | { readonly type: 'section'; readonly section: SectionName; readonly key: string | null }
   /**
    * A whole `app/snapshot` is folded. Until then the store still holds the previous app state, whole and consistent: the
@@ -204,6 +205,8 @@ export type StoreChange =
   | { readonly type: 'appSnapshot' }
   /** A subscription was re-attached after a reconnect. `feedId` is the thread id, or `app`. Its snapshot (or the missed notifications) follows as ordinary changes. */
   | { readonly type: 'subscription'; readonly feedId: string; readonly state: 'restored' }
+  /** The restore settled after the caller withdrew the subscription; a concurrent unsubscribe may still need reconciliation. */
+  | { readonly type: 'subscription'; readonly feedId: string; readonly state: 'cancelled' }
   /** Re-attaching failed with a typed error (the `subscriptionLost` client event); the subscription is dropped and a thread's fold is gone. */
   | { readonly type: 'subscription'; readonly feedId: string; readonly state: 'lost'; readonly error: ClientErrorDetail };
 
@@ -278,6 +281,23 @@ export type ResumeOptions = Pick<CallOptions, 'sent' | 'timeoutMs'> & {
 /** Mutation params carry `opId`; the library assigns it, the caller may pin it through `CallOptions` or the params. */
 export type CallParams<P> = P extends { opId: infer O } ? Omit<P, 'opId'> & { opId?: O } : P;
 
+export interface ThreadSubscription {
+  /** This client follows the thread and will restore it on reconnect. A cached fold alone does not imply this. */
+  readonly followed: boolean;
+  /** This client owns the control thread it started. */
+  readonly held: boolean;
+  /** A reconnect restore of this thread is still in flight. */
+  readonly restoring: boolean;
+  /** A resume is outstanding or its replacement snapshot has not finished folding. */
+  readonly snapshotPending: boolean;
+  /** The missed events promised by the attach have not all folded yet. */
+  readonly replayPending: boolean;
+  /** Number of restores started across all threads on this client. */
+  readonly restoresStarted: number;
+  /** Generation of the client's current transport connection. */
+  readonly connection: number;
+}
+
 export interface ProtocolClient<S = Json> {
   readonly store: FoldStore<S>;
   /** Latest `initialize` result (replaced on every reconnect). */
@@ -302,6 +322,8 @@ export interface ProtocolClient<S = Json> {
 
   /** Equal windows share an outstanding resume. `join` also accepts a larger window; `force` sends a new resume for recovery. */
   resumeThread(threadId: string, window: ResumeWindow, options?: ResumeOptions): Promise<ThreadResumeResponse>;
+  /** Reads local subscription bookkeeping without sending a request or opening the thread. */
+  threadSubscription(threadId: string): ThreadSubscription;
   /** Checks every live subscription owned by this connection, including that it still has the expected view feeds. */
   confirmFeeds(feedIds: readonly string[]): Promise<boolean>;
   /** `thread/unsubscribe`; drops the folded thread. Never stops work (X10). */

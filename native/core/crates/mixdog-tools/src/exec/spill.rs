@@ -28,6 +28,9 @@ use mixdog_rt::SpawnIo;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
+use super::codepage::Label;
+use super::codepage::decode_shell_bytes;
+
 const STDOUT_SUFFIX: &str = ".stdout.log";
 const STDERR_SUFFIX: &str = ".stderr.log";
 /// The ownership record of a job's logs, `<task id>.owner.json` beside them: who wrote them and whether that job has
@@ -162,6 +165,49 @@ fn log_tail(path: &Path, cap: usize) -> std::io::Result<(u64, Vec<u8>)> {
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
     Ok((from, bytes))
+}
+
+/// Compaction only accepts an entire capture. Never read past its known size even if a
+/// log was replaced or grew after the process settled.
+pub(super) async fn read_capture_logs(
+    lane: InteractiveIo,
+    cancel: &CancellationToken,
+    logs: [PathBuf; 2],
+    sizes: [u64; 2],
+    oems: [Option<Label>; 2],
+) -> Option<(String, String)> {
+    let job = lane.submit(cancel, move |_| {
+        let read = |i: usize| {
+            let bytes = match capture_log(&logs[i], sizes[i]) {
+                Ok(bytes) => bytes?,
+                Err(_) if sizes[i] == 0 => Vec::new(),
+                Err(_) => return None,
+            };
+            // Reuse the log buffer when its encoding needs no conversion.
+            Some(match String::from_utf8(bytes) {
+                Ok(mut text) => {
+                    if oems[i].is_some() && text.starts_with('\u{feff}') {
+                        text.drain(..'\u{feff}'.len_utf8());
+                    }
+                    text
+                }
+                Err(error) => decode_shell_bytes(error.as_bytes(), oems[i]),
+            })
+        };
+        Some((read(0)?, read(1)?))
+    }).ok()?;
+    job.await.ok()?
+}
+
+fn capture_log(path: &Path, size: u64) -> std::io::Result<Option<Vec<u8>>> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    if file.metadata()?.len() != size {
+        return Ok(None);
+    }
+    let mut bytes = vec![0; size as usize];
+    file.read_exact(&mut bytes)?;
+    Ok((file.read(&mut [0])? == 0).then_some(bytes))
 }
 
 /// How long a job's logs are kept (`SHELL_OUTPUT_RETENTION_MS`): transcripts keep naming them, so

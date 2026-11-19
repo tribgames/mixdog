@@ -130,6 +130,11 @@ pub trait TakeoverPort: Send + Sync {
 #[async_trait]
 pub trait BlobPort: Send + Sync {
     async fn read(&self, digest: &str) -> Result<Bytes, String>;
+
+    /// A digest-verified size, when supported without materializing the blob.
+    async fn verified_size(&self, _digest: &str) -> Result<Option<u64>, String> {
+        Ok(None)
+    }
 }
 
 /// The files the engine reads facts of (upload paths) and writes (screen frames of a run).

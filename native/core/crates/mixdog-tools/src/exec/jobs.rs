@@ -4,6 +4,7 @@
 //! the task rows and the shell-job strips. The jobs add what that registry does not hold: the
 //! captured output with its read cursors and the model-facing text.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::Path;
@@ -570,6 +571,41 @@ impl Stream {
     }
 }
 
+/// Foreground delivery can borrow UTF-8 capture bytes, or use bounded edges for a spilled stream.
+pub(super) struct ForegroundStream<'a> {
+    stream: &'a Stream,
+    pub log: &'a Path,
+}
+
+impl ForegroundStream<'_> {
+    /// The text of the retained bytes (the same tail that diagnostics have always inspected).
+    pub fn capture(&self) -> Cow<'_, str> {
+        let bytes = self.stream.bytes();
+        if self.stream.oem.is_none() {
+            return String::from_utf8_lossy(bytes);
+        }
+        match std::str::from_utf8(bytes) {
+            Ok(text) => Cow::Borrowed(text.strip_prefix('\u{feff}').unwrap_or(text)),
+            Err(_) => Cow::Owned(decode_shell_bytes(bytes, self.stream.oem)),
+        }
+    }
+
+    pub fn spilled_piece(&self) -> Option<Piece<'static>> {
+        let stream = self.stream;
+        (stream.base > 0).then(|| {
+            let mut cursor = Cursor {
+                dropped: Some(Dropped { lines_before: 0, head: stream.first.clone() }),
+                ..Cursor::new(stream.oem)
+            };
+            let label = stream.probe(&mut cursor.sniffer, true);
+            if let Some(label) = label {
+                cursor.decoder.force(label);
+            }
+            read_range(stream, &mut cursor, 0, stream.end(), true, label, &shown_path(self.log)).piece
+        })
+    }
+}
+
 struct JobState {
     stdout: Stream,
     stderr: Stream,
@@ -701,7 +737,7 @@ pub struct ReadOptions {
 }
 
 struct Range {
-    piece: Piece,
+    piece: Piece<'static>,
     bytes: usize,
     lines: usize,
     text: String,
@@ -1332,12 +1368,17 @@ impl Job {
         self.time_limit_ms.saturating_sub(promoted.saturating_sub(self.started_ms)).max(1)
     }
 
-    /// The capture of both streams that memory holds as text, for a foreground result: the whole of each stream unless
-    /// memory dropped its start (see `spilled_pieces`).
-    pub fn captured(&self) -> (String, String) {
+    pub(super) fn foreground_streams<T>(&self, f: impl FnOnce([ForegroundStream<'_>; 2]) -> T) -> T {
         let state = self.state();
-        let all = |s: &Stream| decode_shell_bytes(s.bytes(), s.oem);
-        (all(&state.stdout), all(&state.stderr))
+        f([
+            ForegroundStream { stream: &state.stdout, log: &self.stdout_log },
+            ForegroundStream { stream: &state.stderr, log: &self.stderr_log },
+        ])
+    }
+
+    /// An owned snapshot for compaction, which can be held across an archive write.
+    pub fn captured(&self) -> (String, String) {
+        self.foreground_streams(|[out, err]| (out.capture().into_owned(), err.capture().into_owned()))
     }
 
     /// Whether memory dropped the start of either stream: `captured` then holds only the end of it, and only the log the
@@ -1363,28 +1404,7 @@ impl Job {
             let state = self.state();
             ([state.stdout.end(), state.stderr.end()], [state.stdout.oem, state.stderr.oem])
         };
-        let logs = spill::read_log_tails(lane, cancel, [self.stdout_log.clone(), self.stderr_log.clone()], usize::MAX).await;
-        let whole = |index: usize| (logs[index].0 == 0 && logs[index].1.len() as u64 == ends[index]).then(|| decode_shell_bytes(&logs[index].1, oems[index]));
-        Some((whole(0)?, whole(1)?))
-    }
-
-    /// Each stream whose start memory dropped, in the delivery shape of a foreground capture that spilled to its log
-    /// (`shellLogPiece`): the whole stream read with a fresh cursor. `None` for a stream memory holds whole.
-    pub fn spilled_pieces(&self) -> [Option<Piece>; 2] {
-        let state = self.state();
-        [(&state.stdout, &self.stdout_log), (&state.stderr, &self.stderr_log)].map(|(stream, log)| {
-            (stream.base > 0).then(|| {
-                let mut cursor = Cursor {
-                    dropped: Some(Dropped { lines_before: 0, head: stream.first.clone() }),
-                    ..Cursor::new(stream.oem)
-                };
-                let label = stream.probe(&mut cursor.sniffer, true);
-                if let Some(label) = label {
-                    cursor.decoder.force(label);
-                }
-                read_range(stream, &mut cursor, 0, stream.end(), true, label, &shown_path(log)).piece
-            })
-        })
+        spill::read_capture_logs(lane, cancel, [self.stdout_log.clone(), self.stderr_log.clone()], ends, oems).await
     }
 
     /// Output not yet delivered, in the shared delivery shape (`readShellTaskOutput`). Moves the
@@ -1393,7 +1413,7 @@ impl Job {
         let mut state = self.state();
         let replay = options.tail;
         let mut growth = Vec::new();
-        let mut sections: Vec<(String, Piece)> = Vec::new();
+        let mut sections: Vec<(String, Piece<'static>)> = Vec::new();
         let state = &mut *state;
         for (name, stream, log) in [
             ("stdout", &mut state.stdout, &self.stdout_log),

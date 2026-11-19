@@ -8,6 +8,8 @@
 //! kernel, bicubic (Catmull-Rom) for Lanczos3, whose four taps ring far less at a hard edge than Lanczos3's six (which
 //! is what keeps a flat-coloured picture small once it is written as a JPEG).
 
+use std::borrow::Cow;
+
 use crate::decode::Raster;
 
 /// The size `resize(box_width, box_height, { fit: 'inside', withoutEnlargement })` gives a `width` x `height` image.
@@ -148,9 +150,13 @@ fn from_floats(buffer: &[f32], channels: usize) -> impl Fn(usize, &mut [f32; 4])
 /// Fits `raster` inside `box_width` x `box_height` keeping the aspect ratio. A result of the size the picture already
 /// has is the picture itself.
 pub fn fit_inside(raster: &Raster, box_width: u32, box_height: u32, without_enlargement: bool) -> Raster {
+    fit_inside_view(raster, box_width, box_height, without_enlargement).into_owned()
+}
+
+pub(crate) fn fit_inside_view(raster: &Raster, box_width: u32, box_height: u32, without_enlargement: bool) -> Cow<'_, Raster> {
     let (out_w, out_h) = output_size(raster.width, raster.height, box_width, box_height, without_enlargement);
     if (out_w, out_h) == (raster.width, raster.height) {
-        return raster.clone();
+        return Cow::Borrowed(raster);
     }
     let channels = raster.channels();
     let premultiply = raster.has_alpha;
@@ -179,7 +185,7 @@ pub fn fit_inside(raster: &Raster, box_width: u32, box_height: u32, without_enla
         let tall = pass_y(source, w_in, out_h as usize, channels, &taps_y);
         pass_x(from_floats(&tall, channels), w_in, out_h as usize, out_w as usize, channels, &taps_x)
     };
-    Raster { width: out_w, height: out_h, has_alpha: raster.has_alpha, data: quantize(&floats, channels, premultiply) }
+    Cow::Owned(Raster { width: out_w, height: out_h, has_alpha: raster.has_alpha, data: quantize(&floats, channels, premultiply) })
 }
 
 fn to_byte(value: f32) -> u8 {

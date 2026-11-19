@@ -26,17 +26,12 @@ impl SensitiveValues for Marked {
     fn version(&self, _: &str) -> Option<String> {
         self.0.lock().unwrap().clone()
     }
-    fn redact_messages(&self, session_id: &str, messages: &[Value]) -> Vec<Value> {
-        messages
-            .iter()
-            .map(|m| {
-                let mut m = m.clone();
-                if let Some(text) = m["content"].as_str() {
-                    m["content"] = Value::String(self.redact_text(session_id, text));
-                }
-                m
-            })
-            .collect()
+    fn redact_message(&self, session_id: &str, message: &Value) -> Value {
+        let mut message = message.clone();
+        if let Some(text) = message["content"].as_str() {
+            message["content"] = Value::String(self.redact_text(session_id, text));
+        }
+        message
     }
     fn redact_text(&self, _: &str, text: &str) -> String {
         if self.0.lock().unwrap().is_some() { text.replace(SECRET, "[redacted]") } else { text.to_owned() }

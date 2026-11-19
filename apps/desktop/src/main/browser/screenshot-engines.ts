@@ -3,33 +3,19 @@ import type { WebContents } from 'electron';
 import { nativeImage } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';
-import { validatedScreenshot } from './screenshot-image';
-import {
-  browserScreenshotBytesFitBudget,
-  type BrowserScreenshotOptions,
-  type BrowserScreenshotRect,
-} from './screenshot-policy';
-
-export interface BrowserScreenshotCapture {
-  data: string;
-  width: number;
-  height: number;
-  mimeType: 'image/jpeg' | 'image/png';
-  fullPage: boolean;
-  /** The document box a full-page capture clipped, in CSS pixels. */
-  pageRect?: BrowserScreenshotRect;
-}
+import { type EncodedBrowserScreenshot, type ScreenshotCropInput, validatedScreenshot } from './screenshot-image';
+import { browserScreenshotBytesFitBudget, type BrowserScreenshotOptions } from './screenshot-policy';
 
 export function encodeImage(
   image: Electron.NativeImage,
   options: BrowserScreenshotOptions
-): BrowserScreenshotCapture | null {
+): EncodedBrowserScreenshot | null {
   const size = image.getSize();
   if (size.width < 1 || size.height < 1) return null;
-  const data = options.format === 'png' ? image.toPNG() : image.toJPEG(options.quality);
-  if (!browserScreenshotBytesFitBudget(data.length)) return null;
+  const bytes = options.format === 'png' ? image.toPNG() : image.toJPEG(options.quality);
+  if (!browserScreenshotBytesFitBudget(bytes.length)) return null;
   return {
-    data: data.toString('base64'),
+    bytes,
     width: size.width,
     height: size.height,
     mimeType: options.format === 'png' ? 'image/png' : 'image/jpeg',
@@ -54,8 +40,9 @@ export async function captureViaCdp(
   slow: { timeoutMs: number },
   guest: WebContents,
   options: BrowserScreenshotOptions,
-  signal?: AbortSignal
-): Promise<BrowserScreenshotCapture | null> {
+  signal?: AbortSignal,
+  retainCropSource = false
+): Promise<ScreenshotCropInput | null> {
   const shot = await cdp.call<{ data?: string }>(
     guest,
     'Page.captureScreenshot',
@@ -66,7 +53,9 @@ export async function captureViaCdp(
     signal,
     slow
   );
-  return shot.data ? validatedScreenshot(shot.data, options, (bytes) => nativeImage.createFromBuffer(bytes)) : null;
+  return shot.data
+    ? validatedScreenshot(shot.data, options, (bytes) => nativeImage.createFromBuffer(bytes), retainCropSource)
+    : null;
 }
 
 /** `capturePage` bounded by a timeout and the caller's abort signal. */
@@ -99,7 +88,7 @@ export async function captureViaNative(
   options: BrowserScreenshotOptions,
   timeoutMs: number,
   signal?: AbortSignal
-): Promise<BrowserScreenshotCapture | null> {
+): Promise<EncodedBrowserScreenshot | null> {
   if (options.fullPage) return null;
   signal?.throwIfAborted();
   return encodeImage(await captureViewportImage(guest, timeoutMs, signal), options);

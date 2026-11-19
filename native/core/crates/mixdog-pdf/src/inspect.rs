@@ -70,11 +70,12 @@ impl Default for InspectOptions {
     }
 }
 
-/// The text of one page, before the output budget cuts it.
+/// The text of one page and its layer classification before any output cut.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PageText {
     pub page: u64,
     pub text: String,
+    pub has_text_layer: bool,
 }
 
 /// What was asked of the pages.
@@ -359,22 +360,34 @@ fn number_or(value: f64, fallback: f64) -> f64 {
 /// Inspects a PDF (`inspectPdfBuffer`). With `timeout_ms` above zero, a document that has not finished by then answers
 /// [`InspectError::Timeout`]; without it there is no deadline.
 pub fn inspect_pdf_buffer(buffer: &[u8], options: &InspectOptions) -> Result<Inspection, InspectError> {
-    if buffer.is_empty() {
-        return Err(InspectError::Empty);
-    }
+    inspect_pdf_input(buffer, options, false)
+}
+
+/// Inspects owned or shared PDF bytes without first copying them into a temporary `Vec`.
+/// `bound_page_text` limits the per-page payload to what a caller's output budget could display.
+pub fn inspect_pdf_input(
+    buffer: impl Into<Arc<[u8]>>,
+    options: &InspectOptions,
+    bound_page_text: bool,
+) -> Result<Inspection, InspectError> {
     let deadline = options.timeout_ms.filter(|ms| *ms > 0.0).and_then(|ms| {
         let span = Duration::try_from_secs_f64(ms / 1000.0).ok()?;
         Some((Instant::now().checked_add(span)?, ms))
     });
     let watch = Arc::new(Watch { deadline, external: options.cancel.clone(), expired: AtomicBool::new(false) });
+    watch.check()?;
+    let buffer = buffer.into();
+    watch.check()?;
+    if buffer.is_empty() {
+        return Err(InspectError::Empty);
+    }
     let reader_watch = watch.clone();
     let open = OpenOptions {
         password: options.password.clone().filter(|password| !password.is_empty()),
         cancel: Some(Arc::new(move || reader_watch.stopped())),
         ..OpenOptions::default()
     };
-    watch.check()?;
-    let document = Document::open(buffer.to_vec(), &open).map_err(|error| watch.map(error))?;
+    let document = Document::open(buffer, &open).map_err(|error| watch.map(error))?;
     let page_count = u64::try_from(document.num_pages().max(0)).unwrap_or(0);
     if let Some(limit) = options.max_pages
         && page_count > limit
@@ -388,7 +401,7 @@ pub fn inspect_pdf_buffer(buffer: &[u8], options: &InspectOptions) -> Result<Ins
     if !options.extract_text {
         return Ok(Inspection { page_count, detail: Detail::Nothing });
     }
-    extract(&document, page_count, options, &watch)
+    extract(&document, page_count, options, &watch, bound_page_text)
 }
 
 /// The text of one page, by its 1-based number.
@@ -399,7 +412,7 @@ fn page_text(document: &Document, fonts: &FontLoader, number: u64, watch: &Watch
     Ok(content_text(&content))
 }
 
-fn extract(document: &Document, page_count: u64, options: &InspectOptions, watch: &Watch) -> Result<Inspection, InspectError> {
+fn extract(document: &Document, page_count: u64, options: &InspectOptions, watch: &Watch, bound_page_text: bool) -> Result<Inspection, InspectError> {
     let count = page_count as f64;
     let (range_from, range_to) = options.page_range.map_or((f64::NAN, f64::NAN), |range| (range.from, range.to));
     let from = number_or(range_from, 1.0).max(1.0);
@@ -418,16 +431,37 @@ fn extract(document: &Document, page_count: u64, options: &InspectOptions, watch
             return Err(InspectError::InvalidPage);
         }
         let page = number as u64;
-        let body = page_text(document, &fonts, page, watch)?;
-        let block = format!("--- Page {page} ---\n{}", if body.is_empty() { "(no extractable text on this page)" } else { &body });
-        pages.push(PageText { page, text: body });
+        let mut body = page_text(document, &fonts, page, watch)?;
+        let has_text_layer = page_has_text_layer(&body);
         let separator_bytes = if chunks.is_empty() { 0 } else { 2 };
         let remaining = byte_limit - bytes as f64 - separator_bytes as f64;
-        if remaining <= 0.0 {
+        let bounded = if remaining > 0.0 {
+            let head = format!("--- Page {page} ---\n");
+            let text = if body.is_empty() { "(no extractable text on this page)" } else { &body };
+            // Up to three more bytes retain the complete scalar at the cut, without copying the whole page.
+            let mut end = (remaining as usize).min(text.len());
+            while !text.is_char_boundary(end) {
+                end += 1;
+            }
+            Some(bounded_utf8(&(head + &text[..end]), remaining))
+        } else {
+            None
+        };
+        if bound_page_text {
+            // Keep one whole scalar beyond the display budget so the tool can still report a cut.
+            let mut end = (byte_limit as usize).saturating_add(1).min(body.len());
+            while !body.is_char_boundary(end) {
+                end += 1;
+            }
+            if end < body.len() {
+                body = body[..end].to_owned();
+            }
+        }
+        pages.push(PageText { page, text: body, has_text_layer });
+        let Some(bounded) = bounded else {
             truncated = true;
             break;
-        }
-        let bounded = bounded_utf8(&block, remaining);
+        };
         if !chunks.is_empty() {
             chunks.push("\n\n".to_owned());
             bytes += 2;
@@ -571,6 +605,25 @@ mod tests {
         assert_eq!(inspect_pdf_buffer(b"%PDF-1.4", &cancelled).unwrap_err(), InspectError::Cancelled);
         let fine = Watch { deadline: None, external: None, expired: AtomicBool::new(false) };
         assert_eq!(fine.check(), Ok(()));
+    }
+
+    #[test]
+    fn inspection_checks_cancellation_on_both_sides_of_input_conversion() {
+        struct Input<'a>(&'a AtomicBool);
+
+        impl From<Input<'_>> for Arc<[u8]> {
+            fn from(input: Input<'_>) -> Self {
+                assert!(!input.0.swap(true, Ordering::Relaxed), "cancelled input must not be converted");
+                Arc::from(&b"not a PDF"[..])
+            }
+        }
+
+        let cancelled = Arc::new(AtomicBool::new(true));
+        let flag = Arc::clone(&cancelled);
+        let options = InspectOptions { cancel: Some(Arc::new(move || flag.load(Ordering::Relaxed))), ..InspectOptions::default() };
+        assert_eq!(inspect_pdf_input(Input(&cancelled), &options, false), Err(InspectError::Cancelled));
+        cancelled.store(false, Ordering::Relaxed);
+        assert_eq!(inspect_pdf_input(Input(&cancelled), &options, false), Err(InspectError::Cancelled));
     }
 }
 

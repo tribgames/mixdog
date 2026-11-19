@@ -177,8 +177,7 @@ impl ToolModulesHost for ServicesToolModulesHost {
                 let Some(embedder) = self.parts.embedder.as_ref() else {
                     return Ok(None);
                 };
-                embedder.install(None, &self.cancel).await.map_err(|error| error.to_string())?;
-                embedder.warmup().await.map(|_| None)
+                embedder.install(None, &self.cancel).await.map(|()| None).map_err(|error| error.to_string())
             }
             "office" => {
                 self.parts.effects.prepare_office_fonts().await;

@@ -13,7 +13,6 @@ const Nothing = () => null;
 
 const STUBS = {
   './process-shim.ts': {},
-  './remote-shim.ts': {},
   './font-faces-styles.ts': {},
   './bootstrap-styles.ts': {},
   './webview-zoom.ts': {},

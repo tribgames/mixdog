@@ -14,11 +14,13 @@ use serde_json::Value;
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 
-use super::{BATCH_SIZE, RawEmbedFlush, is_raw_embeddable};
+use super::{BatchDemand, RawEmbedFlush, is_raw_embeddable};
 use crate::memory::error::MemoryError;
 use crate::memory::pg::db::{Db, Lease};
 use crate::memory::recall::hybrid::embedding_to_sql;
 use crate::tool_state::onnx_runtime_supported;
+
+const BATCH_SIZE: usize = 32;
 
 /// `ROOT_EMBED_SWEEP_META_KEY`.
 pub const ROOT_EMBED_SWEEP_META_KEY: &str = "embedding.root_text_v2";
@@ -154,6 +156,9 @@ impl RawEmbedFlush {
         let started = tokio::time::Instant::now();
         let mut done = RootFlush::default();
         let mut cursor: Option<i64> = None;
+        // Admit a pass only when its first cache miss is known. Keep the
+        // demand across claim transactions, not across paced reindex passes.
+        let mut demand = None;
         self.ensure_cache_table().await?;
         check(cancel)?;
         loop {
@@ -165,8 +170,8 @@ impl RawEmbedFlush {
             }
             // Newest roots first, so a model migration restores current work before deep history.
             let client = Lease::take(&self.db).await?;
-            let ids = match self.claim_roots(&client, cursor).await {
-                Ok(ids) => ids,
+            let (ids, more_visible) = match self.claim_roots(&client, cursor).await {
+                Ok(claim) => claim,
                 Err(error) => {
                     let rollback = client.rollback().await;
                     // Discarded whatever the rollback did: the claim's state is unknown.
@@ -183,6 +188,7 @@ impl RawEmbedFlush {
                 }
             };
             if ids.is_empty() {
+                drop(demand.take());
                 client.commit().await?;
                 client.release(None).await;
                 break;
@@ -190,9 +196,18 @@ impl RawEmbedFlush {
             cursor = ids.last().copied();
             done.attempted += ids.len();
             let (mut batch_done, mut aborted) = (false, false);
+            let short_claim = ids.len() < BATCH_SIZE;
+            let batch_demand = if short_claim || !more_visible {
+                BatchDemand::Finish(demand.take())
+            } else {
+                BatchDemand::Continue(&mut demand)
+            };
             let synced = match check(cancel) {
-                Ok(()) => self.sync_roots(&client, &ids, false, cancel).await,
-                Err(cancelled) => Err(cancelled),
+                Ok(()) => self.sync_roots(&client, &ids, false, cancel, batch_demand).await,
+                Err(cancelled) => {
+                    drop(batch_demand);
+                    Err(cancelled)
+                }
             };
             match synced {
                 Ok(written) => {
@@ -222,7 +237,9 @@ impl RawEmbedFlush {
             if aborted {
                 return Err(FlushFailure::Cancelled);
             }
-            if ids.len() < BATCH_SIZE {
+            // Lookahead only controls model lifetime. After a full claim, still
+            // probe below the cursor: an older row may have committed meanwhile.
+            if short_claim {
                 break;
             }
         }
@@ -232,35 +249,44 @@ impl RawEmbedFlush {
     /// `syncRootEmbedding(db, rootId)`: embeds one root now; true when its vector was written.
     pub async fn sync_root(&self, root_id: i64, cancel: &CancellationToken) -> Result<bool, FlushFailure> {
         let client = self.db.client().await?;
-        Ok(!self.sync_roots(&client, &[root_id], false, cancel).await?.is_empty())
+        Ok(!self.sync_roots(&client, &[root_id], false, cancel, BatchDemand::Finish(None)).await?.is_empty())
     }
 
-    async fn claim_roots(&self, client: &Lease, cursor: Option<i64>) -> Result<Vec<i64>, tokio_postgres::Error> {
+    async fn claim_roots(&self, client: &Lease, cursor: Option<i64>) -> Result<(Vec<i64>, bool), tokio_postgres::Error> {
         client.begin().await?;
+        const PENDING: &str = "is_root = 1 AND embedding IS NULL AND (element IS NOT NULL OR summary IS NOT NULL)";
+        let sql = format!(
+            "SELECT id FROM entries WHERE {PENDING} AND ($2::bigint IS NULL OR id < $2)
+             ORDER BY id DESC LIMIT $1 FOR UPDATE SKIP LOCKED"
+        );
         let rows = client
-            .query(
-                "SELECT id FROM entries
-                 WHERE is_root = 1 AND embedding IS NULL
-                   AND (element IS NOT NULL OR summary IS NOT NULL)
-                   AND ($2::bigint IS NULL OR id < $2)
-                 ORDER BY id DESC
-                 LIMIT $1
-                 FOR UPDATE SKIP LOCKED",
-                &[&(BATCH_SIZE as i64), &cursor],
-            )
+            .query(&sql, &[&(BATCH_SIZE as i64), &cursor])
             .await?;
-        Ok(rows.iter().map(|row| row.get::<_, i64>(0)).collect())
+        let ids: Vec<i64> = rows.iter().map(|row| row.get(0)).collect();
+        let mut more = false;
+        if ids.len() == BATCH_SIZE && let Some(last) = ids.last() {
+            // A row that the next claim would skip is not outstanding inference demand.
+            // Release the probe's lock without releasing any row in the actual claim.
+            client.batch_execute("SAVEPOINT next_root").await?;
+            more = client.query_opt(
+                &format!("SELECT id FROM entries WHERE {PENDING} AND id < $1 ORDER BY id DESC LIMIT 1 FOR UPDATE SKIP LOCKED"),
+                &[last],
+            ).await?.is_some();
+            client.batch_execute("ROLLBACK TO SAVEPOINT next_root; RELEASE SAVEPOINT next_root").await?;
+        }
+        Ok((ids, more))
     }
 
     /// `syncBatchEmbeddings`: embeds the roots `ids` from their current text and writes each vector
     /// where the text is unchanged since it was read. `replace` writes over an existing vector
     /// (the sweep) instead of filling a missing one. Answers the ids that received a vector.
-    pub(super) async fn sync_roots(
+    async fn sync_roots(
         &self,
         client: &deadpool_postgres::Object,
         ids: &[i64],
         replace: bool,
         cancel: &CancellationToken,
+        demand: BatchDemand<'_>,
     ) -> Result<Vec<i64>, FlushFailure> {
         check(cancel)?;
         if !self.embeds() {
@@ -273,17 +299,11 @@ impl RawEmbedFlush {
         if rows.is_empty() {
             return Ok(Vec::new());
         }
-        let expected = client
-            .query_opt("SELECT value FROM meta WHERE key = 'embedding.current_dims'", &[])
-            .await?
-            .and_then(|row| row.get::<_, Value>(0).as_f64())
-            .unwrap_or(0.0);
-        check(cancel)?;
         let rows: Vec<Row> = rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4))).collect();
         let texts: Vec<String> =
             rows.iter().map(|(_, element, summary, content, role)| root_embed_text(element.as_deref(), summary.as_deref(), role.as_deref(), content.as_deref())).collect();
         let wanted: Vec<String> = texts.iter().filter(|text| !text.is_empty()).cloned().collect();
-        let vectors = self.cached_embed_batch(client, &wanted, &mut None).await?;
+        let vectors = self.cached_embed_batch(client, &wanted, &mut None, demand).await?;
         check(cancel)?;
         let mut updates: Vec<Update> = Vec::new();
         let mut next = 0usize;
@@ -295,10 +315,6 @@ impl RawEmbedFlush {
             let vector = &vectors[next];
             next += 1;
             if vector.is_empty() {
-                continue;
-            }
-            if expected > 0.0 && vector.len() as f64 != expected {
-                mixdog_rt::memory_stderr!("[embed] dim mismatch (id={id} got={} expected={expected})", vector.len());
                 continue;
             }
             updates.push(Update { id, vector: embedding_to_sql(vector), element, summary, content });
@@ -377,7 +393,7 @@ impl RawEmbedFlush {
     pub async fn sweep_root_text(&self, batch: usize, cancel: &CancellationToken) -> Result<SweepStep, FlushFailure> {
         check(cancel)?;
         let finished = SweepStep { claimed: 0, replaced: 0, done: true };
-        if !onnx_runtime_supported() {
+        if !self.embeds() || batch == 0 {
             return Ok(finished);
         }
         self.ensure_cache_table().await?;
@@ -425,7 +441,7 @@ impl RawEmbedFlush {
             .await?;
         let ids: Vec<i64> = rows.iter().map(|row| row.get::<_, i64>(0)).collect();
         check(cancel)?;
-        let written = if ids.is_empty() { Vec::new() } else { self.sync_roots(client, &ids, true, cancel).await? };
+        let written = if ids.is_empty() { Vec::new() } else { self.sync_roots(client, &ids, true, cancel, BatchDemand::Finish(None)).await? };
         let done = ids.len() < batch;
         let next = ids.iter().min().copied().unwrap_or(cursor);
         client

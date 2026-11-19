@@ -100,34 +100,33 @@ pub fn search_rows(session_id: &str, messages: &[Value]) -> Vec<SearchRow> {
 /// [`search_rows`] of the messages that follow the first `start` of a transcript: each row keeps the ordinal (and so the
 /// identity) it has in the whole transcript, so the rows of a tail are the rows the whole transcript would give for it.
 pub fn search_rows_from(session_id: &str, messages: &[Value], start: usize) -> Vec<SearchRow> {
-    let mut rows = Vec::new();
     if session_id.is_empty() {
-        return rows;
+        return Vec::new();
     }
-    for (index, message) in messages.iter().enumerate() {
-        let index = start + index;
-        if !message.is_object() {
-            continue;
-        }
-        let Some(role) = normalize_ingest_role(message.get("role")) else { continue };
-        if should_exclude_ingest_message(message) {
-            continue;
-        }
-        let raw = session_message_content_for_ingest(message);
-        let content = cap_content(js_trim(&strip_system_reminders(&raw)));
-        if content.is_empty() {
-            continue;
-        }
-        rows.push(SearchRow {
-            source_ref: stable_session_source_ref(session_id, message, role, &raw, index),
-            session_id: session_id.to_owned(),
-            ordinal: i32::try_from(index).unwrap_or(i32::MAX),
-            role,
-            ts: message_ts(message),
-            content,
-        });
+    messages.iter().enumerate().filter_map(|(index, message)| search_row(session_id, message, start + index)).collect()
+}
+
+pub(crate) fn search_row(session_id: &str, message: &Value, index: usize) -> Option<SearchRow> {
+    if session_id.is_empty() || !message.is_object() {
+        return None;
     }
-    rows
+    let role = normalize_ingest_role(message.get("role"))?;
+    if should_exclude_ingest_message(message) {
+        return None;
+    }
+    let raw = session_message_content_for_ingest(message);
+    let content = cap_content(js_trim(&strip_system_reminders(&raw)));
+    if content.is_empty() {
+        return None;
+    }
+    Some(SearchRow {
+        source_ref: stable_session_source_ref(session_id, message, role, &raw, index),
+        session_id: session_id.to_owned(),
+        ordinal: i32::try_from(index).unwrap_or(i32::MAX),
+        role,
+        ts: message_ts(message),
+        content,
+    })
 }
 
 #[derive(Clone)]
@@ -373,11 +372,10 @@ impl SessionSearchDb {
         Ok(rows.iter().map(|row| (row.get(0), row.get(1))).collect())
     }
 
-    pub(crate) async fn store_backfill(&self, session_id: &str, messages: &[Value], stamp: &str) -> Result<()> {
-        let rows = search_rows(session_id, messages);
+    pub(crate) async fn store_backfill(&self, session_id: &str, rows: &[SearchRow], stamp: &str) -> Result<()> {
         transaction(&self.db, async |tx| {
             tx.batch_execute("SET LOCAL lock_timeout = 0").await?;
-            insert_rows(&***tx, &rows).await?;
+            insert_rows(&***tx, rows).await?;
             tx.execute(RECORD_STAMP, &[&session_id, &stamp]).await?;
             Ok(())
         }).await

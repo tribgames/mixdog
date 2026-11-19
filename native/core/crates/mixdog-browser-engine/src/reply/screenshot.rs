@@ -57,12 +57,37 @@ impl ImageOutput {
     }
 }
 
+fn unreadable_screenshot(error: String) -> ReplyError {
+    ReplyError::new(format!("browser screenshot could not be read: {error}"))
+}
+
+fn oversized_inline(length: u64) -> ReplyError {
+    ReplyError::new(format!(
+        "browser screenshot is {length} bytes; an image in the reply may weigh {MAX_INLINE_IMAGE_BYTES} bytes at most. Use image_output:file to keep the pixels beside the run"
+    ))
+}
+
+/// For an inspection-only screenshot going inline, skip allocating a blob
+/// that cannot be attached. The advertised size is only a hint: the store
+/// must still check the digest and establish the actual size.
+pub async fn read_capture_for_output(result: &HostBrowserScreenshotResult, full_page: bool, blobs: &dyn BlobPort, output: ImageOutput) -> Result<CapturedScreenshot, ReplyError> {
+    if output == ImageOutput::Inline && result.data.is_none()
+        && let Some(blob) = &result.blob
+        && blob.size > MAX_INLINE_IMAGE_BYTES as i64
+        && let Some(length) = blobs.verified_size(&blob.digest).await.map_err(unreadable_screenshot)?
+        && length > MAX_INLINE_IMAGE_BYTES as u64
+    {
+        return Err(oversized_inline(length));
+    }
+    read_capture(result, full_page, blobs).await
+}
+
 /// The picture of a `host/browser/screenshot` result: the inline data, else the blob read by its digest.
 pub async fn read_capture(result: &HostBrowserScreenshotResult, full_page: bool, blobs: &dyn BlobPort) -> Result<CapturedScreenshot, ReplyError> {
     let bytes = if let Some(data) = &result.data {
         Bytes::from(STANDARD.decode(data).map_err(|_| ReplyError::new("browser screenshot answered a picture that is not valid base64"))?)
     } else if let Some(blob) = &result.blob {
-        blobs.read(&blob.digest).await.map_err(|error| ReplyError::new(format!("browser screenshot could not be read: {error}")))?
+        blobs.read(&blob.digest).await.map_err(unreadable_screenshot)?
     } else {
         return Err(ReplyError::new("browser screenshot answered no picture"));
     };
@@ -85,9 +110,7 @@ pub async fn attach_frame(files: &dyn FilePort, reply: &mut ToolReply, output: I
         return Ok(());
     }
     if length > MAX_INLINE_IMAGE_BYTES {
-        return Err(ReplyError::new(format!(
-            "browser screenshot is {length} bytes; an image in the reply may weigh {MAX_INLINE_IMAGE_BYTES} bytes at most. Use image_output:file to keep the pixels beside the run"
-        )));
+        return Err(oversized_inline(length as u64));
     }
     reply.image = Some(ReplyImage { mime_type: capture.mime_type.clone(), bytes: capture.bytes.clone() });
     Ok(())
@@ -208,6 +231,33 @@ mod tests {
         assert_eq!(lost.message, "browser screenshot could not be read: gone");
         assert_eq!(read_capture(&result(json!({})), false, &none).await.unwrap_err().message, "browser screenshot answered no picture");
         assert!(read_capture(&result(json!({"data": "***"})), false, &none).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn oversized_inline_blobs_are_refused_by_verified_size_not_the_wire_hint() {
+        struct Stored(Result<u64, String>);
+
+        #[async_trait]
+        impl BlobPort for Stored {
+            async fn read(&self, _: &str) -> Result<Bytes, String> {
+                Ok(Bytes::from_static(b"png"))
+            }
+
+            async fn verified_size(&self, _: &str) -> Result<Option<u64>, String> {
+                self.0.clone().map(Some)
+            }
+        }
+
+        let limit = MAX_INLINE_IMAGE_BYTES as u64;
+        let answer = result(json!({"blob": {"digest": "sha256:ab", "size": limit + 1}}));
+        let over = read_capture_for_output(&answer, false, &Stored(Ok(limit + 2)), ImageOutput::Inline).await.unwrap_err();
+        assert!(over.message.starts_with(&format!("browser screenshot is {} bytes;", limit + 2)), "{}", over.message);
+        let corrupt = read_capture_for_output(&answer, false, &Stored(Err("blob corrupt".into())), ImageOutput::Inline).await.unwrap_err();
+        assert_eq!(corrupt.message, "browser screenshot could not be read: blob corrupt");
+        let small = read_capture_for_output(&answer, false, &Stored(Ok(3)), ImageOutput::Inline).await.unwrap();
+        assert_eq!(small.bytes.as_ref(), b"png");
+        let file = read_capture_for_output(&answer, false, &Stored(Err("size not needed".into())), ImageOutput::File).await.unwrap();
+        assert_eq!(file.bytes.as_ref(), b"png");
     }
 
     #[tokio::test]

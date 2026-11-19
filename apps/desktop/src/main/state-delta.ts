@@ -1,7 +1,6 @@
-// Identity-preserving snapshot delta shared by daemon, Electron, and remote
-// transports. Decoders retain unchanged field/item objects, so only appended
-// transcript entries, appended streaming text, and changed state fields cross
-// the structured-clone/JSON boundary.
+// Snapshot deltas for legacy IPC and remote clients, plus session projection
+// reconciliation for direct-core renderers. Decoders retain unchanged objects,
+// so only changed fields and new transcript rows or text cross the wire.
 import type { ViewResumePoint } from '../shared/remote-view-resume';
 import { streamingPartialSuffix } from '../shared/streaming-partial';
 

@@ -136,14 +136,17 @@ impl RenderedImage {
 
     /// The image as Node's result lists it, its PNG in base64.
     pub fn to_json(&self) -> Value {
-        match self {
+        self.json(true)
+    }
+
+    fn json(&self, inline_png: bool) -> Value {
+        let mut entry = match self {
             RenderedImage::Page(page) => json!({
                 "page": page.page,
                 "path": page.path,
                 "width": page.width,
                 "height": page.height,
                 "mimeType": MIME_TYPE,
-                "data": STANDARD.encode(&page.png),
             }),
             RenderedImage::Sheet(sheet) => json!({
                 "page": sheet.pages[0],
@@ -152,7 +155,6 @@ impl RenderedImage {
                 "width": sheet.width,
                 "height": sheet.height,
                 "mimeType": MIME_TYPE,
-                "data": STANDARD.encode(&sheet.png),
                 "pageImages": sheet.page_images.iter().map(|page| json!({
                     "page": page.page,
                     "width": page.width,
@@ -161,7 +163,13 @@ impl RenderedImage {
                     "data": STANDARD.encode(&page.png),
                 })).collect::<Vec<_>>(),
             }),
+        };
+        if inline_png {
+            entry["data"] = Value::String(STANDARD.encode(self.png()));
+        } else {
+            entry["bytes"] = Value::from(self.png().len());
         }
+        entry
     }
 }
 
@@ -206,9 +214,18 @@ pub struct RenderedPages {
 impl RenderedPages {
     /// The result as Node's `renderPdfPages` returns it.
     pub fn to_json(&self) -> Value {
+        self.json(true)
+    }
+
+    /// Metadata for the worker protocol, which carries the top-level PNGs separately.
+    pub fn streamed_json(&self) -> Value {
+        self.json(false)
+    }
+
+    fn json(&self, inline_png: bool) -> Value {
         json!({
             "pageCount": self.page_count,
-            "images": self.images.iter().map(RenderedImage::to_json).collect::<Vec<_>>(),
+            "images": self.images.iter().map(|image| image.json(inline_png)).collect::<Vec<_>>(),
             "visualCoverage": self.visual_coverage.to_json(),
         })
     }
