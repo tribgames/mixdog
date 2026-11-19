@@ -28,7 +28,7 @@ use crate::summary::get;
 /// Not deleted sessions with their first log file in place, in catalog order (newest activity
 /// first, ties by id) after the keyset position. `?1`: agent-only sessions included; `?2`/`?3`:
 /// the position; `?4`: the row cap (-1: none).
-const LIST_SQL: &str = "SELECT summary, newest_file_no FROM sessions
+const LIST_SQL: &str = "SELECT summary, newest_file_no, EXISTS (SELECT 1 FROM withheld_sessions w WHERE w.id = sessions.id) FROM sessions
      WHERE deleted = 0 AND log_id <> '' AND (?1 OR visibility IS NOT 'agent-only')
        AND (?2 IS NULL OR activity < ?2 OR (activity = ?2 AND id > ?3))
      ORDER BY activity DESC, id ASC LIMIT ?4";
@@ -42,7 +42,7 @@ pub struct Listed {
 
 fn list_on(c: &Connection, agent_only: bool, after: Option<&CatalogCursor>, limit: Option<usize>) -> Result<Vec<Listed>, DbError> {
     let mut stmt = c.prepare_cached(LIST_SQL)?;
-    let found: Vec<(String, u32)> = stmt
+    let found: Vec<(String, u32, bool)> = stmt
         .query_map(
             params![
                 agent_only,
@@ -50,13 +50,17 @@ fn list_on(c: &Connection, agent_only: bool, after: Option<&CatalogCursor>, limi
                 after.map(|a| a.id.clone()),
                 limit.map_or(-1, |n| i64::try_from(n).unwrap_or(i64::MAX))
             ],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?
         .collect::<Result<_, _>>()?;
+    // A session owing its sensitive rewrite is listed without its content, decided in the statement that read its row.
     found
         .into_iter()
-        .map(|(summary, newest_file_no)| match serde_json::from_str::<Value>(&summary) {
-            Ok(Value::Object(row)) => Ok(Listed { row, newest_file_no }),
+        .map(|(summary, newest_file_no, withheld)| match serde_json::from_str::<Value>(&summary) {
+            Ok(Value::Object(mut row)) => {
+                super::lead::withhold(withheld, &mut row);
+                Ok(Listed { row, newest_file_no })
+            }
             _ => Err(DbError::Sqlite(rusqlite::Error::InvalidColumnType(0, "summary".into(), rusqlite::types::Type::Text))),
         })
         .collect()

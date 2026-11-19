@@ -41,11 +41,15 @@ fn output_count(output: Option<&Value>, thoughts: Option<&Value>) -> Option<f64>
     explicit_zero.then_some(0.0)
 }
 
-fn token_usage(fields: &[(&str, f64)], output: Option<f64>) -> Option<Map<String, Value>> {
-    let mut usage: Map<String, Value> = fields.iter().filter(|(_, value)| *value > 0.0).map(|(key, value)| ((*key).to_owned(), json_number(*value))).collect();
-    if let Some(output) = output {
-        usage.insert("outputTokens".to_owned(), json_number(output));
-    }
+/// A count reported as a field: only above zero.
+fn positive(value: f64) -> Option<f64> {
+    (value > 0.0).then_some(value)
+}
+
+/// `tokenUsage(fields)`: the fields that hold a value, in the order given (Node's key order, which the ledger row
+/// keeps); none at all is `None`.
+fn token_usage(fields: &[(&str, Option<f64>)]) -> Option<Map<String, Value>> {
+    let usage: Map<String, Value> = fields.iter().filter_map(|(key, value)| value.map(|value| ((*key).to_owned(), json_number(value)))).collect();
     (!usage.is_empty()).then_some(usage)
 }
 
@@ -70,14 +74,12 @@ pub fn gemini_usage(meta: &Value) -> Option<Value> {
     }
     let details = pick(meta, &["candidatesTokensDetails", "candidates_tokens_details"]);
     let image_tokens: f64 = entries(details).iter().filter(|entry| modality(entry).to_uppercase() == "IMAGE").map(|entry| count(pick(entry, &["tokenCount", "token_count"]))).sum();
-    token_usage(
-        &[
-            ("inputTokens", count(pick(meta, &["promptTokenCount", "prompt_token_count"]))),
-            ("cachedTokens", count(pick(meta, &["cachedContentTokenCount", "cached_content_token_count"]))),
-            ("outputImageTokens", image_tokens),
-        ],
-        output_count(pick(meta, &["candidatesTokenCount", "candidates_token_count"]), pick(meta, &["thoughtsTokenCount", "thoughts_token_count"])),
-    )
+    token_usage(&[
+        ("inputTokens", positive(count(pick(meta, &["promptTokenCount", "prompt_token_count"])))),
+        ("cachedTokens", positive(count(pick(meta, &["cachedContentTokenCount", "cached_content_token_count"])))),
+        ("outputTokens", output_count(pick(meta, &["candidatesTokenCount", "candidates_token_count"]), pick(meta, &["thoughtsTokenCount", "thoughts_token_count"]))),
+        ("outputImageTokens", positive(image_tokens)),
+    ])
     .map(Value::Object)
 }
 
@@ -87,14 +89,12 @@ pub fn interactions_usage(usage: &Value) -> Option<Value> {
         return None;
     }
     let video_tokens: f64 = entries(usage.get("output_tokens_by_modality")).iter().filter(|entry| modality(entry).to_lowercase() == "video").map(|entry| count(entry.get("tokens"))).sum();
-    token_usage(
-        &[
-            ("inputTokens", count(usage.get("total_input_tokens"))),
-            ("cachedTokens", count(usage.get("total_cached_tokens"))),
-            ("outputVideoTokens", video_tokens),
-        ],
-        output_count(usage.get("total_output_tokens"), usage.get("total_thought_tokens")),
-    )
+    token_usage(&[
+        ("inputTokens", positive(count(usage.get("total_input_tokens")))),
+        ("cachedTokens", positive(count(usage.get("total_cached_tokens")))),
+        ("outputTokens", output_count(usage.get("total_output_tokens"), usage.get("total_thought_tokens"))),
+        ("outputVideoTokens", positive(video_tokens)),
+    ])
     .map(Value::Object)
 }
 
@@ -103,13 +103,11 @@ pub fn responses_usage(usage: &Value) -> Option<Value> {
     if !truthy(Some(usage)) || !is_object(usage) {
         return None;
     }
-    token_usage(
-        &[
-            ("inputTokens", count(usage.get("input_tokens"))),
-            ("cachedTokens", count(usage.get("input_tokens_details").and_then(|d| d.get("cached_tokens")))),
-        ],
-        output_count(usage.get("output_tokens"), None),
-    )
+    token_usage(&[
+        ("inputTokens", positive(count(usage.get("input_tokens")))),
+        ("cachedTokens", positive(count(usage.get("input_tokens_details").and_then(|d| d.get("cached_tokens"))))),
+        ("outputTokens", output_count(usage.get("output_tokens"), None)),
+    ])
     .map(Value::Object)
 }
 
@@ -130,13 +128,11 @@ fn reported_cost(value: Option<&Value>) -> Option<&Value> {
 pub fn image_api_usage(body: &Value) -> Option<Value> {
     let none = Value::Null;
     let usage = body.get("usage").filter(|u| truthy(Some(u)) && is_object(u)).unwrap_or(&none);
-    let tokens = token_usage(
-        &[
-            ("inputTokens", count(usage.get("prompt_tokens"))),
-            ("outputImageTokens", count(usage.get("completion_tokens_details").and_then(|d| d.get("image_tokens")))),
-        ],
-        output_count(usage.get("completion_tokens"), None),
-    );
+    let tokens = token_usage(&[
+        ("inputTokens", positive(count(usage.get("prompt_tokens")))),
+        ("outputTokens", output_count(usage.get("completion_tokens"), None)),
+        ("outputImageTokens", positive(count(usage.get("completion_tokens_details").and_then(|d| d.get("image_tokens"))))),
+    ]);
     let source = body.get("paymentSource");
     let paid_in_usd = if truthy(source) { source.map(value_to_string).unwrap_or_default().to_uppercase() == "USD" } else { false };
     let usd = if paid_in_usd { body.get("cost") } else { None };

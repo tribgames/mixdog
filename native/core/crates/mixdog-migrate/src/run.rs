@@ -981,8 +981,8 @@ impl Migrator {
             match progress.state {
                 ItemState::Disposed => continue,
                 ItemState::Verified => {
-                    if driver.keeps_sources(item) {
-                        // The sources are the target.
+                    if driver.keeps_sources(item) || crate::stores::keeps_catalog_item(item, &self.roots.data) {
+                        // The sources are the target, or a database that is not Mixdog's.
                     } else if self.core_serves() {
                         for source in &item.sources {
                             shared.fault(&format!("delete:{k}:before"))?;

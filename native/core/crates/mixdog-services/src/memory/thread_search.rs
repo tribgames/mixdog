@@ -26,14 +26,23 @@ const DOMAIN: &str = "memory";
 const LIMIT: i64 = 50;
 const MAX_QUERY_UNITS: usize = 1_024;
 
+/// The sessions a search must not answer now (those owing a sensitive rewrite: their copy holds text from before it).
+pub type HiddenSessions = Arc<dyn Fn() -> Vec<String> + Send + Sync>;
+
 /// Its searches are scoped operations of the memory stack's owner (`MemoryStack::search_access`).
 pub struct ThreadSearchService {
     search: MemoryAccess,
+    hidden: Option<HiddenSessions>,
 }
 
 impl ThreadSearchService {
     pub fn new(search: MemoryAccess) -> Arc<Self> {
-        Arc::new(Self { search })
+        Arc::new(Self { search, hidden: None })
+    }
+
+    /// [`Self::new`] that never answers the sessions `hidden` names when a search runs.
+    pub fn hiding(search: MemoryAccess, hidden: HiddenSessions) -> Arc<Self> {
+        Arc::new(Self { search, hidden: Some(hidden) })
     }
 
     /// `requiredSessionContentQuery` then the search: `[{ sessionId, snippet, rank }]`.
@@ -43,9 +52,10 @@ impl ThreadSearchService {
             return Err(failed(DOMAIN, "session search query is invalid."));
         }
         let query = text.to_owned();
+        let hidden = self.hidden.as_ref().map(|hidden| hidden()).unwrap_or_default();
         let hits = self
             .search
-            .run("services.memory.thread-search", move |db| async move { SessionSearchDb::over(db).search(&query, LIMIT).await })
+            .run("services.memory.thread-search", move |db| async move { SessionSearchDb::over(db).search_excluding(&query, LIMIT, &hidden).await })
             .await
             .map_err(|e| failed(DOMAIN, e.to_string()))?;
         let mut out = Vec::with_capacity(hits.len());

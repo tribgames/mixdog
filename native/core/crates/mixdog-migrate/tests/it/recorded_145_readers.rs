@@ -55,7 +55,19 @@ async fn usage_stats_on_the_migrated_ledger_are_what_1_4_5_answered() {
     for (options, want) in all {
         let now = want["generatedAt"].as_i64().expect("generatedAt");
         let asked: UsageStatsOptions = serde_json::from_value(options.clone()).expect("options");
-        let got = ledger.get_usage_stats(asked, || now).await.expect("usage stats");
+        let mut got = ledger.get_usage_stats(asked, || now).await.expect("usage stats");
+        without_departures(&mut got);
         assert_eq!(got, want, "usage stats for {options}");
+    }
+}
+
+/// Where the core deliberately answers other than 1.4.5:
+/// - every model row names its `speedTier` (`standard`, `fast` or `ultrafast`): 1.4.5 knew only `fast: true`, which
+///   the core still writes beside a non-standard tier, and could not tell Ultra Fast from Fast.
+fn without_departures(stats: &mut Value) {
+    for provider in stats.get_mut("providers").and_then(Value::as_array_mut).into_iter().flatten() {
+        for model in provider.get_mut("models").and_then(Value::as_array_mut).into_iter().flatten() {
+            model.as_object_mut().expect("a model row").remove("speedTier");
+        }
     }
 }

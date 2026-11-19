@@ -114,6 +114,49 @@ const RETIRED_FILES: &[&str] = &[
     "cache.local.json",
 ];
 
+const CATALOG_APPLICATION_ID: i64 = 0x4d58_5343;
+
+fn session_catalog_name() -> &'static str {
+    "session-catalog.sqlite"
+}
+
+/// Whether `session-catalog.sqlite` and its WAL/SHM are left where they are. 1.4.5 refused a database that is not its own
+/// (another `application_id`) and moved aside only proven corruption, so it is retired only when it is Mixdog's, an empty
+/// database or proven corrupt; a lock, an access error or any other answer that proves none of these keeps it.
+pub(crate) fn keeps_catalog(data: &std::path::Path) -> bool {
+    use rusqlite::ErrorCode;
+    let path = data.join(session_catalog_name());
+    // Only a file known to be absent has nothing to keep: a metadata error proves nothing, so it keeps the set.
+    match std::fs::metadata(&path) {
+        Ok(meta) if meta.is_file() => {}
+        Ok(_) => return false,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
+        Err(_) => return true,
+    }
+    let corrupt = |e: &rusqlite::Error| {
+        matches!(e.sqlite_error_code(), Some(ErrorCode::NotADatabase | ErrorCode::DatabaseCorrupt))
+    };
+    let Ok(conn) = rusqlite::Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY) else {
+        return true;
+    };
+    let id: rusqlite::Result<i64> = conn.pragma_query_value(None, "application_id", |r| r.get(0));
+    let objects: rusqlite::Result<i64> = conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get(0));
+    match (id, objects) {
+        (Ok(id), Ok(objects)) => id != CATALOG_APPLICATION_ID && !(id == 0 && objects == 0),
+        (Err(e), _) | (_, Err(e)) => !corrupt(&e),
+    }
+}
+
+/// Whether `item` retires a file of the catalog set that [`keeps_catalog`] keeps; asked again at disposal, since a resumed
+/// run reuses the plan an earlier build journaled.
+pub(crate) fn keeps_catalog_item(item: &ManifestItem, data: &std::path::Path) -> bool {
+    let rel = item.key.as_str().split_once("/data/").map_or("", |(_, r)| r);
+    item.kind == K::Retired
+        && RETIRED_FILES.contains(&rel)
+        && rel.starts_with(session_catalog_name())
+        && keeps_catalog(data)
+}
+
 /// 1.4.5's attachment tree, which the core never changes: it stays whole for a rollback, and its blobs are taken in by
 /// `crate::legacy_blobs` alone. Only a manifest an earlier build planned has items there (its blobs as
 /// `store/attachmentBlobs`, its census files and cut writes as retire items); such an item settles with its sources left
@@ -493,7 +536,11 @@ impl StoresDriver {
                 None,
             )?)
         };
+        let foreign_catalog = keeps_catalog(&roots.data);
         for rel in RETIRED_FILES {
+            if foreign_catalog && rel.starts_with(session_catalog_name()) {
+                continue;
+            }
             if durable::is_file(&roots.data.join(rel)) {
                 let source = sink.source(D, rel, false)?;
                 retire(sink, rel.to_string(), vec![source])?;

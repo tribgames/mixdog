@@ -156,6 +156,8 @@ impl World {
         let path = dir.path().join("i.sqlite");
         let (append_rows, step_rows) =
             if seed.is_multiple_of(7) { (APPEND_ROWS, STEP_ROWS) } else { (1 + (seed % 3) as usize, 1 + ((seed / 3) % 3) as usize) };
+        // The writer opens only a built index (an empty file is rebuilt from the logs): build the empty one first.
+        drop(open_writer(&path, Some(&runtime_ddl())).expect("index"));
         let mut w = Writer::start(&path).expect("writer");
         w.conn.pragma_update(None, "synchronous", "OFF").expect("pragma");
         w.append_rows = append_rows;

@@ -36,6 +36,8 @@ fn every_size_has_its_purge_test() {
 fn purge_size(chunk: usize) {
     for indexed in SIZES[mixdog_rt::testing::chunk_range(SIZES.len(), chunk, 1)].iter().copied() {
         let dir = tempfile::tempdir().unwrap();
+        // The writer opens only a built index (an empty file is rebuilt from the logs): build the empty one first.
+        drop(open_writer(&dir.path().join("store.sqlite"), Some(&runtime_ddl())).unwrap());
         let mut w = Writer::start(&dir.path().join("store.sqlite")).unwrap();
         w.conn
             .execute_batch(

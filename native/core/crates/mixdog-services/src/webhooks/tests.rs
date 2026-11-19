@@ -197,6 +197,29 @@ async fn content_type_json_and_self_comment_gates() {
     assert_eq!((reply.status, reply.body), (400, json!({"error":"invalid JSON"})));
 }
 
+#[tokio::test]
+async fn a_body_with_an_escaped_lone_surrogate_is_valid_json() {
+    let f = fx(WebhookConfig::default());
+    let body = br#"{"title":"cut \ud83d here"}"#;
+    let h = headers(&[JSON_CT, ("x-hub-signature-256", &sign("s3", body))]);
+    let reply = f.svc.handle_post("/webhook/hook", &h, body).await;
+    assert_ne!(reply.status, 400, "JSON.parse accepts a lone surrogate escape");
+    assert_eq!(f.dispatched.0.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_hostile_body_is_refused_before_it_is_built() {
+    let f = fx(WebhookConfig::default());
+    let deep = format!("{}{}", "[".repeat(100_000), "]".repeat(100_000));
+    let wide = format!("[{}0]", "0,".repeat(300_000));
+    for body in [deep, wide] {
+        let h = headers(&[JSON_CT, ("x-hub-signature-256", &sign("s3", body.as_bytes()))]);
+        let reply = f.svc.handle_post("/webhook/hook", &h, body.as_bytes()).await;
+        assert_eq!((reply.status, reply.body), (400, json!({"error":"invalid JSON"})));
+    }
+    assert!(f.dispatched.0.lock().unwrap().is_empty());
+}
+
 #[cfg(node_twin)]
 /// The virtual clock the replay sets before each case, as the recording's `virtualClock` places its cases.
 struct CaseClock(std::sync::atomic::AtomicI64);

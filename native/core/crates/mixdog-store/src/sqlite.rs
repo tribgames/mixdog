@@ -26,6 +26,11 @@ mod model_tests;
 #[cfg(test)]
 mod purge_tests;
 pub mod listing;
+mod withheld;
+#[cfg(test)]
+pub(crate) use withheld::WITHHELD_DDL;
+#[cfg(test)]
+mod withheld_tests;
 
 use mixdog_rt::CancellationToken;
 use mixdog_rt::InLane;
@@ -179,6 +184,9 @@ fn open_writer(path: &Path, ddl: Option<&str>) -> Result<Connection, DbError> {
         }
     };
     conn.pragma_update(None, "secure_delete", "ON").map_err(|e| DbError::Write(e.to_string()))?;
+    // Every index a writer opens holds it, a projection's included, so a rebuilt index and a fresh projection have the
+    // same tables.
+    conn.execute_batch(withheld::WITHHELD_DDL)?;
     Ok(conn)
 }
 
@@ -212,6 +220,8 @@ pub(crate) fn needs_rebuild(e: &DbError) -> bool {
 pub struct RebuildProgress {
     done: std::sync::atomic::AtomicU64,
     total: std::sync::atomic::AtomicU64,
+    /// Sessions of the work that failed: counted apart from `done`, never done in this boot.
+    failed: std::sync::atomic::AtomicU64,
     /// Told after every change; set once by whoever publishes. It must not block: it runs on the rebuild's reader threads.
     changed: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>>,
 }
@@ -232,13 +242,32 @@ impl RebuildProgress {
     pub fn begin(&self, total: usize) {
         use std::sync::atomic::Ordering::SeqCst;
         self.done.store(0, SeqCst);
+        self.failed.store(0, SeqCst);
         self.total.store(total as u64, SeqCst);
+        self.tell();
+    }
+
+    /// Adds `more` sessions of further work to what is counted, keeping what is done: a second step of the same boot (the owed rewrites of
+    /// the sensitive marks) shows on the same bar, which never goes back.
+    pub fn extend(&self, more: usize) {
+        self.total.fetch_add(more as u64, std::sync::atomic::Ordering::SeqCst);
         self.tell();
     }
 
     pub fn advance(&self) {
         self.done.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.tell();
+    }
+
+    /// One session of the work failed: it is no longer to come, and it is not done.
+    pub fn fail(&self) {
+        self.failed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.tell();
+    }
+
+    /// How many sessions of the work failed ([`Self::fail`]).
+    pub fn failed(&self) -> u64 {
+        self.failed.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     fn tell(&self) {
@@ -436,6 +465,10 @@ fn set_status_on(tx: &Transaction, session: &str, status: SessionStatus, damage:
 /// A deleted session no other session forks from (a purged fork takes its edge with it).
 const PURGEABLE_SQL: &str = "SELECT id FROM sessions s WHERE deleted = 1
     AND NOT EXISTS (SELECT 1 FROM fork_edges e WHERE e.base = s.id) LIMIT 1";
+/// The next session [`PURGEABLE_SQL`] could answer that does not owe its sensitive rewrite (a purge while serving).
+const PURGEABLE_ALL_SQL: &str = "SELECT id FROM sessions s WHERE deleted = 1
+    AND NOT EXISTS (SELECT 1 FROM fork_edges e WHERE e.base = s.id)
+    AND NOT EXISTS (SELECT 1 FROM withheld_sessions w WHERE w.id = s.id) LIMIT 1";
 
 /// The tables holding a session's rows, with their keys: a purge step deletes by key.
 const PURGE_TABLES: [(&str, &str); 19] = [
@@ -515,7 +548,8 @@ fn scan_session_dirs(lane: &InLane<MaintenanceIo>, sessions: &Path, rebuilding: 
 }
 
 /// The agent-only sessions in list order (`sessions_visibility_recent`).
-pub(crate) const AGENT_ONLY_SQL: &str = "SELECT summary FROM sessions WHERE visibility = 'agent-only'
+pub(crate) const AGENT_ONLY_SQL: &str = "SELECT summary, EXISTS (SELECT 1 FROM withheld_sessions w WHERE w.id = sessions.id)
+    FROM sessions WHERE visibility = 'agent-only'
     AND deleted = 0 AND log_id <> '' ORDER BY activity DESC, id";
 
 const UPSERT_SQL: &str = "
@@ -551,13 +585,19 @@ ON CONFLICT(id) DO UPDATE SET
 /// `sessions.listed` of each session the index can answer for, in order ([`SqliteStore::listed`]).
 fn listed_on(c: &Connection, sessions: &[String]) -> Result<Vec<Option<Option<String>>>, DbError> {
     // A fork whose inherited state is still being computed keeps the row it had (`upsert_edge`): that row does not hold
-    // what its log says since.
+    // what its log says since. A session owing its sensitive rewrite is one the index cannot answer for (decided in the
+    // statement that reads the row): its record is the source, and refuses it.
     let mut row = c.prepare_cached(
         "SELECT listed FROM sessions WHERE id = ?1 AND log_id <> '' AND deleted = 0 AND dirty = 0 AND status = 'ok'
+         AND NOT EXISTS (SELECT 1 FROM withheld_sessions w WHERE w.id = sessions.id)
          AND coalesce((SELECT state FROM message_views v WHERE v.session = sessions.id ORDER BY valid_from DESC LIMIT 1), '') <> 'pending'",
     )?;
     sessions.iter().map(|session| Ok(row.query_row([session], |r| r.get::<_, Option<String>>(0)).optional()?)).collect()
 }
+
+/// A `sessions` row's withheld state, as a column of the statement that reads the row: the row and the decision are one
+/// snapshot ([`withheld`]).
+pub(crate) const WITHHELD_COL: &str = "EXISTS (SELECT 1 FROM withheld_sessions w WHERE w.id = sessions.id)";
 
 fn upsert(tx: &Transaction<'_>, head: &CatalogHead, dirty: DirtyMark, labels: &PlaceholderLabels, archive: Option<&ArchiveSnapshot>) -> rusqlite::Result<usize> {
     upsert_edge(tx, head, dirty, labels, false, archive).map(|(written, _)| written)
@@ -736,6 +776,11 @@ enum Command {
     Archive { sessions: Vec<String>, read: Arc<std::sync::atomic::AtomicU64>, ack: Ack },
     /// Drop the index rows of a deleted session whose folder is gone.
     Purge { session: String, ack: Ack },
+    /// Exactly these sessions are withheld ([`SqliteStore::withhold`]).
+    Withhold { sessions: Vec<String>, ack: Ack },
+    /// A withheld session, its rows rebuilt from its rewritten log, is answered in full from the commit on, and its row is
+    /// told as changed ([`SqliteStore::release_withheld`]).
+    Release { session: String, ack: Ack },
     /// Rebuild a session's rows from its rewritten log ([`Writer::reproject`]).
     Reproject { rewrite: Rewritten, ack: Ack },
     /// Frames of a session the reconcile read from its log; with `finish`, its row and damage,
@@ -1209,11 +1254,24 @@ impl Writer {
                             let changed = tx
                                 .prepare_cached("UPDATE sessions SET archived = ?2, archived_at = ?3 WHERE id = ?1 AND (archived <> ?2 OR archived_at IS NOT ?3)")?
                                 .execute(params![session, archived_at.is_some(), archived_at])?;
-                            if let Some(before) = before.filter(|before| watch && changed > 0 && before.archived != archived_at.is_some()) {
+                            if let Some(mut before) = before.filter(|before| watch && changed > 0 && before.archived != archived_at.is_some()) {
+                                // The row of a session owing its sensitive rewrite is told without its content.
+                                if withheld::is_withheld_in(&tx, session)? {
+                                    before.summary = withheld::blank_summary(&before.summary);
+                                    before.user_name = None;
+                                }
                                 let after = StoredRow { archived: archived_at.is_some(), ..before.clone() };
                                 edges.push(RowEdge { id: session.clone(), before: Some(before), after });
                             }
                         }
+                        acks.push(ack);
+                    }
+                    Command::Withhold { sessions, ack } => {
+                        Writer::withhold_on(&tx, &sessions)?;
+                        acks.push(ack);
+                    }
+                    Command::Release { session, ack } => {
+                        edges.extend(Writer::release_on(&tx, &session, watch)?);
                         acks.push(ack);
                     }
                     Command::Close => unreachable!("the writer stops before it queues a close"),
@@ -1698,6 +1756,9 @@ struct Shared {
     archive_faults: std::sync::atomic::AtomicUsize,
     #[cfg(feature = "test-support")]
     refuse_reproject: std::sync::atomic::AtomicBool,
+    /// What a test runs inside the next worker-index load, after its rows were read and before its read transaction ends.
+    #[cfg(test)]
+    worker_read_hold: std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>,
     /// The next projection's bookkeeping a test holds once its write answered: `arrived` is told, then `go` is awaited.
     #[cfg(any(test, feature = "test-support"))]
     archive_ack_hold: Mutex<Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>>,
@@ -1880,6 +1941,8 @@ impl SqliteStore {
                 archive_faults: std::sync::atomic::AtomicUsize::new(0),
                 #[cfg(feature = "test-support")]
                 refuse_reproject: std::sync::atomic::AtomicBool::new(false),
+                #[cfg(test)]
+                worker_read_hold: std::sync::Mutex::default(),
                 #[cfg(any(test, feature = "test-support"))]
                 archive_ack_hold: Mutex::default(),
                 writer: Mutex::new(Some(handle)),
@@ -1983,6 +2046,17 @@ impl SqliteStore {
             }
         }
         projected
+    }
+
+    /// Records `sessions` as owed a projection without waiting for the writer: [`search`](Self::search) and the next
+    /// [`project_archive`](Self::project_archive) settle them.
+    pub fn owe_archive(&self, sessions: Vec<String>) {
+        let noted = self.shared.archive_reads.load(std::sync::atomic::Ordering::SeqCst);
+        let mut owed = self.owed();
+        for id in sessions {
+            let debt = owed.entry(id).or_insert(noted);
+            *debt = (*debt).max(noted);
+        }
     }
 
     fn owed(&self) -> std::sync::MutexGuard<'_, HashMap<String, u64>> {
@@ -2228,12 +2302,14 @@ impl SqliteStore {
     /// `session` frame (1.4.5 reads such a file as no session) or that was deleted.
     pub async fn summary(&self, session: &str) -> Result<Option<String>, DbError> {
         let session = session.to_owned();
-        self.read(move |c| {
-            Ok(c.prepare_cached("SELECT summary FROM sessions WHERE id = ?1 AND log_id <> '' AND deleted = 0")?
-                .query_row([&session], |r| r.get(0))
-                .optional()?)
-        })
-        .await
+        let found: Option<(String, bool)> = self
+            .read(move |c| {
+                Ok(c.prepare_cached(&format!("SELECT summary, {WITHHELD_COL} FROM sessions WHERE id = ?1 AND log_id <> '' AND deleted = 0"))?
+                    .query_row([&session], |r| Ok((r.get(0)?, r.get(1)?)))
+                    .optional()?)
+            })
+            .await?;
+        Ok(found.map(|(summary, withheld)| if withheld { withheld::blank_summary(&summary) } else { summary }))
     }
 
     /// The header members a listing reads of a session (`worker::LISTED_FIELDS`), from its catalog row. The outer `None`:
@@ -2300,7 +2376,10 @@ impl SqliteStore {
     pub async fn title(&self, session: &str) -> Result<Option<String>, DbError> {
         let session = session.to_owned();
         self.read(move |c| {
-            Ok(c.prepare_cached("SELECT title FROM sessions WHERE id = ?1 AND log_id <> '' AND deleted = 0")?
+            Ok(c.prepare_cached(
+                "SELECT title FROM sessions WHERE id = ?1 AND log_id <> '' AND deleted = 0
+                 AND NOT EXISTS (SELECT 1 FROM withheld_sessions w WHERE w.id = sessions.id)",
+            )?
                 .query_row([&session], |r| r.get(0))
                 .optional()?
                 .flatten())
@@ -2354,7 +2433,10 @@ impl SqliteStore {
     pub async fn purge_deleted(&self, lane: MaintenanceIo, data: PathBuf) -> Result<Vec<String>, DbError> {
         let mut purged = Vec::new();
         loop {
-            let found = self.read(|c| Ok(c.prepare_cached(PURGEABLE_SQL)?.query_row([], |r| r.get::<_, String>(0)).optional()?));
+            // A session owing its sensitive rewrite is not removed while its rewrite may be moving its folder
+            // (`PURGEABLE_ALL_SQL` leaves it out): a later purge (the next delete's, or the next start's) removes it once
+            // it is released.
+            let found = self.read(move |c| Ok(c.prepare_cached(PURGEABLE_ALL_SQL)?.query_row([], |r| r.get::<_, String>(0)).optional()?));
             let Some(session) = found.await? else { return Ok(purged) };
             let dir = data.join("sessions").join(&session);
             lane.submit(&CancellationToken::new(), move |lane| remove_session_dir(lane, &dir))
@@ -2385,11 +2467,17 @@ impl SqliteStore {
             }
             args.extend(tag.map(rusqlite::types::Value::from));
             let mut stmt = c.prepare_cached(sql)?;
+            // The row and its withheld state are one statement (`rows_sql!`'s fourth column).
             let rows = stmt.query_map(rusqlite::params_from_iter(args), |r| {
-                let worker = serde_json::from_str(r.get_ref(1)?.as_str()?).map_err(|e| {
+                let mut worker = serde_json::from_str(r.get_ref(1)?.as_str()?).map_err(|e| {
                     rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e))
                 })?;
-                Ok(WorkerRow { session: r.get(0)?, worker, summary: r.get(2)? })
+                let mut summary: String = r.get(2)?;
+                if r.get::<_, bool>(3)? {
+                    withheld::keep_structural(&mut worker);
+                    summary = withheld::blank_summary(&summary);
+                }
+                Ok(WorkerRow { session: r.get(0)?, worker, summary })
             })?;
             Ok(rows.collect::<Result<_, _>>()?)
         })
@@ -2400,8 +2488,14 @@ impl SqliteStore {
     /// every session written since, with the sessions in `also` read again whatever their revision; every listed session
     /// when `since` is `None` or a revision this index never reached. The revision and the rows are one read transaction,
     /// so they are one committed state, whichever connection or process wrote it (FORMAT.md §8.2 worker index revision).
+    ///
+    /// A row's withheld state is a column of the statement that reads it, in the same read transaction as the revision:
+    /// a release commits the cleared state and the moved revision together, so a load sees a row blank at the revision
+    /// before the release or in full at the one after, never blank at the later one.
     pub async fn worker_index_since(&self, since: Option<(u64, u64)>, also: Vec<String>) -> Result<crate::worker::WorkerIndexRead, DbError> {
         use crate::worker::IndexedSession;
+        #[cfg(test)]
+        let hold = self.shared.worker_read_hold.lock().expect("hold").take();
         self.read(move |c| {
             let tx = c.unchecked_transaction()?;
             let (revision, floor, generation) = tx.query_row(crate::worker::REVISION_SQL, [], |r| {
@@ -2415,10 +2509,19 @@ impl SqliteStore {
                     None => None,
                 };
                 let summary: Option<String> = r.get(4)?;
-                let agent = match summary {
+                let mut agent = match summary {
                     Some(summary) => Some((r.get(3)?, summary)),
                     None => None,
                 };
+                let mut worker: Option<serde_json::Map<String, serde_json::Value>> = worker;
+                if r.get::<_, bool>(5)? {
+                    if let Some(worker) = worker.as_mut() {
+                        withheld::keep_structural(worker);
+                    }
+                    if let Some((_, summary)) = agent.as_mut() {
+                        *summary = withheld::blank_summary(summary);
+                    }
+                }
                 Ok(IndexedSession { session: r.get(0)?, created_at: r.get(1)?, worker, agent })
             };
             let full = since.is_none_or(|(held, rev)| held != generation || rev > revision || rev < floor);
@@ -2455,6 +2558,11 @@ impl SqliteStore {
                     put(&mut sessions, found.unwrap_or_else(|| gone(id)));
                 }
             }
+            #[cfg(test)]
+            if let Some(hold) = hold {
+                hold();
+            }
+            tx.commit()?;
             Ok(crate::worker::WorkerIndexRead { revision, generation, full, sessions })
         })
         .await
@@ -2489,7 +2597,11 @@ impl SqliteStore {
         let (tag, owner) = (tag.to_owned(), owner.to_owned());
         self.read(move |c| {
             Ok(c.prepare_cached(crate::worker::NEWEST_TAG_SQL)?
-                .query_row([&tag, &owner], |r| Ok(TagSession { session: r.get(0)?, summary: r.get(1)? }))
+                .query_row([&tag, &owner], |r| {
+                    let summary: String = r.get(1)?;
+                    let summary = if r.get::<_, bool>(2)? { withheld::blank_summary(&summary) } else { summary };
+                    Ok(TagSession { session: r.get(0)?, summary })
+                })
                 .optional()?)
         })
         .await
@@ -2500,7 +2612,10 @@ impl SqliteStore {
     pub async fn agent_only_sessions(&self) -> Result<Vec<String>, DbError> {
         self.read(|c| {
             let mut stmt = c.prepare_cached(AGENT_ONLY_SQL)?;
-            let rows = stmt.query_map([], |r| r.get(0))?;
+            let rows = stmt.query_map([], |r| {
+                let summary: String = r.get(0)?;
+                Ok(if r.get::<_, bool>(1)? { withheld::blank_summary(&summary) } else { summary })
+            })?;
             Ok(rows.collect::<Result<_, _>>()?)
         })
         .await
@@ -2524,7 +2639,10 @@ impl SqliteStore {
                         after.as_ref().map(|a| a.activity),
                         after.as_ref().map(|a| a.id_key.clone())
                     ],
-                    |r| r.get(0),
+                    |r| {
+                        let summary: String = r.get(0)?;
+                        Ok(if r.get::<_, bool>(1)? { withheld::blank_summary(&summary) } else { summary })
+                    },
                 )?
                 .collect::<Result<_, _>>()?;
             Ok(rows)
@@ -3600,16 +3718,20 @@ pub(crate) const LIVE_ROWS_SQL: &str = "SELECT count(*), coalesce(sum(visible), 
 pub(crate) const LIVE_COMPACTION_SQL: &str = "SELECT ordinal, file_no, frame_offset FROM compactions
      WHERE session = ?1 AND ordinal < ?2 AND superseded_rev IS NULL ORDER BY ordinal DESC LIMIT 1";
 
-/// `(sql, ?1, limit)` of a session search (FORMAT.md §8.2); `?3..?5` are the keyset.
+/// `(sql, ?1, limit)` of a session search (FORMAT.md §8.2); `?3..?5` are the keyset. Its rows are `(summary, withheld)`, the
+/// withheld state read in the statement that reads the row: a query never matches a session owing its sensitive rewrite
+/// (what matched may be the value marked) and leaves it out before its limit; the recent list (no query) answers it, to be
+/// shown without its content.
 pub(crate) fn search_statement(query: &str, limit: usize) -> (String, String, usize) {
     let needle = fold(query.trim_matches(|c: char| (c.is_whitespace() && c != '\u{85}') || c == '\u{FEFF}'));
     let keyset = "(?3 IS NULL OR s.archived > ?3 OR (s.archived = ?3 AND (s.activity < ?4
         OR (s.activity = ?4 AND s.id_key > ?5))))";
+    let held = "EXISTS (SELECT 1 FROM withheld_sessions w WHERE w.id = s.id)";
     let len = needle.chars().count();
     let (sql, limit) = match len {
         0 => (
             format!(
-                "SELECT s.summary FROM sessions s WHERE s.deleted = 0 AND s.classification IN ('task','project')
+                "SELECT s.summary, {held} FROM sessions s WHERE s.deleted = 0 AND s.classification IN ('task','project')
                  AND s.archived = 0 AND ?1 = ?1 AND {keyset}
                  ORDER BY s.archived, s.activity DESC, s.id_key LIMIT ?2"
             ),
@@ -3617,19 +3739,19 @@ pub(crate) fn search_statement(query: &str, limit: usize) -> (String, String, us
         ),
         1 | 2 => (
             format!(
-                "SELECT s.summary FROM sessions s WHERE s.deleted = 0 AND s.classification IN ('task','project')
+                "SELECT s.summary, 0 FROM sessions s WHERE s.deleted = 0 AND s.classification IN ('task','project')
                  AND (instr(s.title_fold, ?1) OR instr(s.preview_fold, ?1) OR instr(s.cwd_fold, ?1)
                    OR instr(s.project_fold, ?1) OR instr(s.id_fold, ?1) OR instr(s.model_fold, ?1)
-                   OR instr(s.source_fold, ?1)) AND {keyset}
+                   OR instr(s.source_fold, ?1)) AND {keyset} AND NOT {held}
                  ORDER BY s.archived, s.activity DESC, s.id_key LIMIT ?2"
             ),
             limit,
         ),
         _ => (
             format!(
-                "SELECT s.summary FROM session_search f JOIN sessions s ON s.sid = f.rowid
+                "SELECT s.summary, 0 FROM session_search f JOIN sessions s ON s.sid = f.rowid
                  WHERE session_search MATCH ?1 AND s.deleted = 0 AND s.classification IN ('task','project')
-                 AND {keyset} ORDER BY s.archived, s.activity DESC, s.id_key LIMIT ?2"
+                 AND {keyset} AND NOT {held} ORDER BY s.archived, s.activity DESC, s.id_key LIMIT ?2"
             ),
             limit,
         ),

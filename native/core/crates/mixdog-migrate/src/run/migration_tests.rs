@@ -481,6 +481,82 @@ fn fixture_migrates_every_kind() {
     assert_eq!(migrator(&roots, None).run().unwrap(), complete);
 }
 
+/// A row-only child is a reaped one only when a parent that migrates carries its completion notification; a parent
+/// that merely mentions the child's id does not.
+#[test]
+fn a_row_only_child_named_in_a_parents_text_is_not_reaped_without_its_notification() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = fixture(dir.path());
+    let notice = "Async agent task t (completed) finished.\n\nResult:\nsurface: agent\nsessionId: sess_done\nstatus: completed\n\nthe body";
+    let session = json!({"id":"sess_p","messages":[
+        {"role":"user","content":"look at sess_kid please"},
+        {"role":"user","content":notice}]});
+    write(&roots.data, "sessions/sess_p.json", session.to_string().as_bytes());
+    let row = |id: &str| json!({"sessionId":id,"parentSessionId":"sess_p","tag":id,"status":"running"});
+    write(
+        &roots.data,
+        "agent-workers.json",
+        json!({"version":2,"workers":{"sess_kid":row("sess_kid"),"sess_done":row("sess_done")},"tombstones":[]})
+            .to_string()
+            .as_bytes(),
+    );
+    migrator(&roots, None).run().unwrap();
+    let manifest: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
+    let has = |key: &str| manifest.items.iter().any(|i| i.key.as_str() == key);
+    assert!(has("session/sess_kid"));
+    assert!(!has("session/sess_done"));
+}
+
+/// A parent's record is read once for the plan however many row-only children it has and whether an ownerless tombstone
+/// then needs every session's header. (A row naming only parents that are nowhere is dropped without a read.)
+#[test]
+fn a_parent_is_read_once_for_its_children_and_for_an_ownerless_tombstone() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = fixture(dir.path());
+    write(&roots.data, "sessions/sess_p.json", json!({"id":"sess_p","messages":[{"role":"user","content":"hi"}]}).to_string().as_bytes());
+    let row = |id: &str| json!({"sessionId":id,"parentSessionId":"sess_p","tag":id,"status":"running"});
+    write(
+        &roots.data,
+        "agent-workers.json",
+        json!({"version":2,"workers":{"sess_k1":row("sess_k1"),"sess_k2":row("sess_k2")},
+               "tombstones":[{"tag":"x","clientHostPid":7,"reapedAt":"2026-01-01T00:00:00.000Z"}]})
+        .to_string()
+        .as_bytes(),
+    );
+    crate::session::PLAN_READS.with(|r| r.borrow_mut().clear());
+    migrator(&roots, None).run().unwrap();
+    let reads = crate::session::PLAN_READS.with(|r| r.borrow().iter().filter(|id| *id == "sess_p").count());
+    assert_eq!(reads, 1);
+}
+
+/// A `session-catalog.sqlite` that is not Mixdog's (another application id) is left in place, as 1.4.5 refused it.
+#[test]
+fn a_foreign_session_catalog_database_is_not_retired() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = fixture(dir.path());
+    let foreign = roots.data.join("session-catalog.sqlite");
+    let conn = rusqlite::Connection::open(&foreign).unwrap();
+    conn.execute_batch("PRAGMA application_id=7; CREATE TABLE t(x);").unwrap();
+    drop(conn);
+    migrator(&roots, None).run().unwrap();
+    assert!(foreign.exists());
+}
+
+/// A catalog that does not answer (locked by its owner) proves neither ownership nor corruption: it stays, and a Mixdog
+/// one that answers is retired.
+#[test]
+fn a_session_catalog_that_does_not_answer_is_kept_and_one_that_does_is_retired() {
+    let dir = tempfile::tempdir().unwrap();
+    let roots = fixture(dir.path());
+    let path = roots.data.join("session-catalog.sqlite");
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    conn.execute_batch(&format!("PRAGMA application_id={}; CREATE TABLE t(x);", 0x4d58_5343)).unwrap();
+    conn.execute_batch("BEGIN EXCLUSIVE").unwrap();
+    assert!(crate::stores::keeps_catalog(&roots.data));
+    conn.execute_batch("COMMIT").unwrap();
+    assert!(!crate::stores::keeps_catalog(&roots.data));
+}
+
 /// Marker files naming no session that migrates are retired, journaled and removed: a
 /// release marker of a session that is gone, and a tombstone without a `sessionId` whose
 /// owner no session is.

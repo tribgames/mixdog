@@ -264,12 +264,51 @@ pub fn valid_endpoint_name(name: &str) -> bool {
     (1..=64).contains(&name.len()) && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
+/// Nesting and size a webhook body may have. `JSON.parse` is bounded by V8's stack; the parsed `Value` here would drop
+/// recursively and cost memory per member, so a hostile body is refused before it is built.
+const MAX_JSON_DEPTH: usize = 128;
+const MAX_JSON_NODES: usize = 200_000;
+
+/// `JSON.parse(text)` (lone surrogate escapes included) for a body within the depth and member budgets: a lexical pass
+/// over the text counts them without building anything.
+fn parse_body_json(text: &str) -> Result<Value, String> {
+    let (mut depth, mut nodes, mut in_string, mut escaped) = (0usize, 0usize, false, false);
+    for &byte in text.as_bytes() {
+        if in_string {
+            match (escaped, byte) {
+                (true, _) => escaped = false,
+                (false, b'\\') => escaped = true,
+                (false, b'"') => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'{' | b'[' => {
+                depth += 1;
+                nodes += 1;
+                if depth > MAX_JSON_DEPTH {
+                    return Err(format!("nesting deeper than {MAX_JSON_DEPTH}"));
+                }
+            }
+            b'}' | b']' => depth = depth.saturating_sub(1),
+            b',' => nodes += 1,
+            _ => {}
+        }
+        if nodes > MAX_JSON_NODES {
+            return Err(format!("more than {MAX_JSON_NODES} members"));
+        }
+    }
+    mixdog_js::json_parse(text).map_err(|e| e.to_string())
+}
+
 /// `Some(true)` for a probe whose header and in-body marker agree, `Some(false)` when
 /// they disagree. The marker sits inside the signed body, the header does not, so either
 /// alone is rejected. A probe never dispatches.
 fn test_probe(headers: &Headers, raw_body: &[u8]) -> Option<bool> {
     let header = headers.get(WEBHOOK_TEST_HEADER).is_some_and(|v| v == "1");
-    let marked = serde_json::from_str::<Value>(&String::from_utf8_lossy(raw_body))
+    let marked = parse_body_json(&String::from_utf8_lossy(raw_body))
         .ok()
         .is_some_and(|v| v.get(WEBHOOK_TEST_FIELD) == Some(&Value::Bool(true)));
     (header || marked).then_some(header && marked)
@@ -499,7 +538,8 @@ impl WebhookService {
             json!({})
         } else {
             // Node parses `rawBody.toString('utf8')`: invalid bytes become U+FFFD, not a 400.
-            serde_json::from_str(&body_text).map_err(|e| Failure::Invalid(e.to_string()))?
+            // `JSON.parse`: an escaped lone surrogate is valid there.
+            parse_body_json(&body_text).map_err(Failure::Invalid)?
         };
         // Our own issue comments carry this marker; forwarding one would self-trigger.
         let own_comment = event.as_deref() == Some("issue_comment")

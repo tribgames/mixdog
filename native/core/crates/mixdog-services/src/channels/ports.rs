@@ -112,6 +112,9 @@ pub trait ChannelSettings: Send + Sync {
     /// What the receiver verifies deliveries against: the global secret, the unsigned opt-in
     /// and the config-file endpoints.
     async fn webhook_config(&self) -> Result<WebhookConfig, String>;
+    /// Hands the running event pipeline the stored `events` section again
+    /// (`pipeline.reloadConfig(getConfig().events)`); a reload's sync calls it.
+    async fn reload_events(&self) {}
 }
 
 /// The relay tunnel's public base URL, once it has a hook identity (`readHookPublicBase`).
@@ -159,11 +162,14 @@ pub struct WebhookAutomation {
     gate: mixdog_rt::Gate,
     /// Ends the syncs that began before the last `stop`, so a stop never waits behind a stuck one.
     epoch: Mutex<tokio_util::sync::CancellationToken>,
+    /// No sync has run since the start or the last stop: Node's stop drops the event pipeline and the next sync builds
+    /// it afresh from the stored rules.
+    cold: std::sync::atomic::AtomicBool,
 }
 
 impl WebhookAutomation {
     pub fn new(settings: Arc<dyn ChannelSettings>, service: Arc<WebhookService>, listener: Arc<dyn WebhookListener>) -> Self {
-        Self { settings, service, listener, listening: Mutex::new(None), gate: mixdog_rt::Gate::new(), epoch: Mutex::default() }
+        Self { settings, service, listener, listening: Mutex::new(None), gate: mixdog_rt::Gate::new(), epoch: Mutex::default(), cold: true.into() }
     }
 
     fn epoch(&self) -> tokio_util::sync::CancellationToken {
@@ -182,6 +188,10 @@ impl WebhookAutomation {
         let mut settings = self.settings.webhook().await?;
         // The config-file endpoints are part of what is registered: the service holds them before it is asked.
         self.service.set_config(self.settings.webhook_config().await?);
+        // A reload re-reads the rules; so does the first sync after a stop, whose rules may have changed meanwhile.
+        if self.cold.swap(false, std::sync::atomic::Ordering::SeqCst) || reload {
+            self.settings.reload_events().await;
+        }
         // A stored value wins; nothing stored means "on while something is registered", asked afresh by every sync
         // (a save, a delete or an enable of an endpoint reloads the runtime, which syncs).
         let on = match settings.enabled {
@@ -211,6 +221,7 @@ impl WebhookAutomation {
     }
 
     async fn stop_turn(&self) {
+        self.cold.store(true, std::sync::atomic::Ordering::SeqCst);
         self.listening.lock().unwrap().take();
         if let Err(error) = self.listener.stop().await {
             tracing::warn!("mixdog channels: webhook listener stop failed: {error}");

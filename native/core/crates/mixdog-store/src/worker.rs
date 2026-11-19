@@ -135,7 +135,7 @@ pub struct TagSession {
 /// (`agent-tree.mjs` `listSessions`, `registry.ids()`), which a boot fills by rehydration
 /// from the stored listing, newest `updatedAt` first (`summary-cache.mjs`); its own ties
 /// fall to the directory scan, for which id stands.
-pub(crate) const NEWEST_TAG_SQL: &str = "SELECT id, summary FROM sessions
+pub(crate) const NEWEST_TAG_SQL: &str = "SELECT id, summary, EXISTS (SELECT 1 FROM withheld_sessions w WHERE w.id = sessions.id) FROM sessions
     WHERE agent_tag = ?1 AND agent_owner = ?2 AND deleted = 0 AND log_id <> ''
     ORDER BY created_at DESC, updated_at DESC, id LIMIT 1";
 
@@ -190,7 +190,8 @@ macro_rules! indexed_sql {
             "SELECT id, created_at,
                 CASE WHEN worker_tag IS NOT NULL AND deleted = 0 AND log_id <> '' THEN worker END,
                 activity,
-                CASE WHEN visibility = 'agent-only' AND deleted = 0 AND log_id <> '' THEN summary END
+                CASE WHEN visibility = 'agent-only' AND deleted = 0 AND log_id <> '' THEN summary END,
+                EXISTS (SELECT 1 FROM withheld_sessions w WHERE w.id = sessions.id)
             FROM sessions WHERE ",
             $cond
         )
@@ -229,7 +230,7 @@ fn positive_int(v: Option<&Value>) -> Option<i64> {
 macro_rules! rows_sql {
     ($cond:literal) => {
         concat!(
-            "SELECT id, worker, summary FROM sessions WHERE ",
+            "SELECT id, worker, summary, EXISTS (SELECT 1 FROM withheld_sessions w WHERE w.id = sessions.id) FROM sessions WHERE ",
             $cond,
             " AND deleted = 0 AND log_id <> '' ORDER BY created_at DESC, id"
         )

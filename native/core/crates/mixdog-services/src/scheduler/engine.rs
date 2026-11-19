@@ -426,7 +426,8 @@ impl Inner {
     }
 
     fn arm_cron(self: &Arc<Self>, schedule: &Schedule, expression: &str) {
-        let Ok(expr) = CronExpr::parse(expression) else {
+        // `isCronExpression` is `cron.validate`: an imported row may hold a nickname the stored form does not allow.
+        let Ok(expr) = CronExpr::parse_node_cron(expression) else {
             mixdog_rt::node_stderr!("mixdog scheduler: invalid cron \"{}\" ({expression}) — skipped", schedule.name);
             return;
         };
@@ -512,7 +513,7 @@ impl Inner {
         let next = armed
             .when_cron
             .as_deref()
-            .and_then(|c| CronExpr::parse(c).ok())
+            .and_then(|c| CronExpr::parse_node_cron(c).ok())
             .and_then(|c| c.next_after(scheduled_at, zone_of(&armed, self.local_tz).ok()?));
         self.update(name, |s| s.next_fire_at = next);
         if self.skip_until(name).is_some() {

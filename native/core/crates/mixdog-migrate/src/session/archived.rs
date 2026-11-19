@@ -148,9 +148,11 @@ fn header_line(line: &str) -> Option<(&str, &str)> {
     (!value.contains(['\r', '\u{2028}', '\u{2029}'])).then_some((key, value))
 }
 
+pub(super) const NOTIFICATION_MARKER: &str = "\n\nResult:\n";
+
 /// `archivedAgentNotification(content, sessionId)`: the result a parent's message carries for `child`.
-fn notification(content: &str, child: &str) -> Option<Map<String, Value>> {
-    const MARKER: &str = "\n\nResult:\n";
+pub(super) fn notification(content: &str, child: &str) -> Option<Map<String, Value>> {
+    const MARKER: &str = NOTIFICATION_MARKER;
     let at = content.find(MARKER)?;
     if !names_a_finished_task(&content[..at]) {
         return None;

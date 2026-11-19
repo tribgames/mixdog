@@ -140,6 +140,51 @@ impl SessionDriver {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// The sessions whose records a plan read, in order (a test counts them).
+    pub(crate) static PLAN_READS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn note_plan_read(id: &str) {
+    #[cfg(test)]
+    PLAN_READS.with(|reads| reads.borrow_mut().push(id.to_owned()));
+    #[cfg(not(test))]
+    let _ = id;
+}
+
+/// A migrating parent read once: its header, and its user messages that have the shape of a completion notification.
+struct Loaded {
+    header: Option<mixdog_store::schema::record::Header>,
+    notices: Vec<String>,
+}
+
+fn load_parent(roots: &MigrationRoots, parent: &str, files: &[SourceFile]) -> Result<Loaded> {
+    note_plan_read(parent);
+    let find = |suffix: &str| files.iter().find(|f| f.path == format!("{SESSIONS_DIR}/{parent}{suffix}"));
+    let json = match find(JSON_SUFFIX) {
+        Some(f) => Some(durable::read(&roots.resolve(f.root, &f.path)?)?),
+        None => None,
+    };
+    let log = match find(LOG_SUFFIX) {
+        Some(f) => Some(durable::open_buffered(&roots.resolve(f.root, &f.path)?)?),
+        None => None,
+    };
+    let (header, messages) = match source::header_and_messages(parent, json.as_deref(), log, &mut 0) {
+        Ok((header, messages)) => (Some(header), messages),
+        Err(Fail::Blocked(b)) => return Err(b),
+        Err(Fail::Quarantine(..)) => return Ok(Loaded { header: None, notices: Vec::new() }),
+    };
+    let notices = messages
+        .iter()
+        .filter(|m| m.get("role").and_then(|r| r.as_str()) == Some("user"))
+        .filter_map(|m| m.get("content").and_then(|c| c.as_str()))
+        .filter(|c| c.contains(archived::NOTIFICATION_MARKER))
+        .map(str::to_owned)
+        .collect();
+    Ok(Loaded { header, notices })
+}
+
 fn target_dir(cx: &ItemContext<'_>, id: &str) -> PathBuf {
     cx.roots.data.join(SESSIONS_DIR).join(id)
 }
@@ -273,8 +318,10 @@ impl ItemDriver for SessionDriver {
             let Some(bytes) = durable::read_optional(&roots.data.join(name))? else { continue };
             row_ids.extend(source::worker_row_session_ids(&bytes));
         }
-        // A child is reaped when a parent that migrates carries its result in its transcript (the notification names the child's
-        // id), or when none of its parents is anywhere (the orphan, dropped below).
+        // A child is reaped when a parent that migrates carries its completion notification (what the archive extractor reads),
+        // or when none of its parents is anywhere (the orphan, dropped below). Each parent is read once, whatever its children.
+        // A row naming only parents that are nowhere is dropped without reading anything (the exception below).
+        let loaded: std::cell::RefCell<BTreeMap<String, Loaded>> = std::cell::RefCell::new(BTreeMap::new());
         let reaped_child = |id: &String, sessions: &BTreeMap<String, Vec<SourceFile>>| -> Result<bool> {
             if sessions.contains_key(id) {
                 return Ok(false);
@@ -283,11 +330,13 @@ impl ItemDriver for SessionDriver {
                 if !parents.iter().any(|p| sessions.contains_key(p) || row_ids.contains(p)) {
                     return Ok(true);
                 }
-                for parent in parents.iter().filter_map(|p| sessions.get(p)) {
-                    for file in parent {
-                        if durable::read(&roots.resolve(file.root, &file.path)?)?.windows(child.len()).any(|w| w == child.as_bytes()) {
-                            return Ok(true);
-                        }
+                for (parent, files) in parents.iter().filter_map(|p| sessions.get(p).map(|files| (p, files))) {
+                    if !loaded.borrow().contains_key(parent) {
+                        let found = load_parent(roots, parent, files)?;
+                        loaded.borrow_mut().insert(parent.clone(), found);
+                    }
+                    if loaded.borrow()[parent].notices.iter().any(|content| archived::notification(content, child).is_some()) {
+                        return Ok(true);
                     }
                 }
             }
@@ -358,8 +407,12 @@ impl ItemDriver for SessionDriver {
                         if candidates.is_none() {
                             candidates = Some(source::session_candidates(
                                 sessions.iter().map(|(id, sources)| (id.as_str(), sources.as_slice())),
-                                |f| durable::read(&roots.resolve(f.root, &f.path)?),
-                                |f| durable::open_buffered(&roots.resolve(f.root, &f.path)?),
+                                |id| loaded.borrow().get(id).and_then(|l| l.header.clone()),
+                                |id, f| {
+                                    note_plan_read(id);
+                                    durable::read(&roots.resolve(f.root, &f.path)?)
+                                },
+                                |_, f| durable::open_buffered(&roots.resolve(f.root, &f.path)?),
                             )?);
                         }
                         let all = candidates.as_deref().unwrap_or_default();

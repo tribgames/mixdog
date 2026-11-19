@@ -115,8 +115,10 @@ impl UnigramTokenizer {
     /// Loads `tokenizer.json`; any other layout is an error.
     #[allow(clippy::disallowed_methods, reason = "a lane-job body: the model load runs it on the lane")]
     pub fn load(path: &Path, max_length: usize) -> Result<Self> {
-        let json: Value = serde_json::from_slice(&std::fs::read(path)?)
-            .map_err(|error| MemoryError::Runtime(format!("tokenizer.json: {error}")))?;
+        Self::from_json(&read_json(path)?, max_length)
+    }
+
+    fn from_json(json: &Value, max_length: usize) -> Result<Self> {
         let model = &json["model"];
         let pre = &json["pre_tokenizer"];
         let template = &json["post_processor"];
@@ -372,5 +374,346 @@ impl UnigramTokenizer {
         let mut ids: Vec<i64> = self.prefix.iter().copied().chain(body).chain(self.suffix.iter().copied()).map(i64::from).collect();
         ids.truncate(self.max_length);
         ids
+    }
+}
+
+#[allow(clippy::disallowed_methods, reason = "a lane-job body: the model load runs it on the lane")]
+fn read_json(path: &Path) -> Result<Value> {
+    serde_json::from_slice(&std::fs::read(path)?).map_err(|error| MemoryError::Runtime(format!("tokenizer.json: {error}")))
+}
+
+/// The tokenizer a model's `tokenizer.json` describes: the Unigram one the stored vectors were made with, or a
+/// byte-level BPE (the Granite profile, which Node read through the library's `AutoTokenizer`).
+pub enum Tokenizer {
+    Unigram(UnigramTokenizer),
+    ByteLevelBpe(ByteLevelBpe),
+}
+
+impl Tokenizer {
+    /// Loads `tokenizer.json`; a layout that is neither is an error.
+    pub fn load(path: &Path, max_length: usize) -> Result<Self> {
+        let json = read_json(path)?;
+        if json["model"]["type"] == "BPE" {
+            return Ok(Self::ByteLevelBpe(ByteLevelBpe::from_json(&json, max_length)?));
+        }
+        Ok(Self::Unigram(UnigramTokenizer::from_json(&json, max_length)?))
+    }
+
+    pub fn encode(&self, text: &str) -> Vec<i64> {
+        match self {
+            Self::Unigram(tokenizer) => tokenizer.encode(text),
+            Self::ByteLevelBpe(tokenizer) => tokenizer.encode(text),
+        }
+    }
+}
+
+/// GPT-2's byte → printable character table, which a byte-level vocabulary is spelled in.
+fn byte_chars() -> [char; 256] {
+    let mut table = ['\0'; 256];
+    let mut next = 256u32;
+    for (byte, slot) in table.iter_mut().enumerate() {
+        let b = byte as u32;
+        *slot = if (33..=126).contains(&b) || (161..=172).contains(&b) || (174..=255).contains(&b) {
+            char::from_u32(b).unwrap_or_default()
+        } else {
+            next += 1;
+            char::from_u32(next - 1).unwrap_or_default()
+        };
+    }
+    table
+}
+
+/// The `\s` of the pinned tokenizer is Unicode White_Space; the regex engine's JavaScript `\s` also holds U+FEFF. Written
+/// out as its members, in a class or as one.
+fn white_space_classes(pattern: &str) -> String {
+    const MEMBERS: &str = "\\t-\\r \\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000";
+    let mut out = String::new();
+    let (mut in_class, mut chars) = (false, pattern.chars());
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => match chars.next() {
+                Some('s') if in_class => out.push_str(MEMBERS),
+                Some('s') => out.push_str(&format!("[{MEMBERS}]")),
+                Some('S') if !in_class => out.push_str(&format!("[^{MEMBERS}]")),
+                Some(other) => {
+                    out.push('\\');
+                    out.push(other);
+                }
+                None => out.push('\\'),
+            },
+            '[' if !in_class => {
+                in_class = true;
+                out.push(c);
+            }
+            ']' if in_class => {
+                in_class = false;
+                out.push(c);
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// A `(?i:...)` group written out as character classes, which the regex engine's flag set has no group form for.
+fn expand_case_groups(pattern: &str) -> String {
+    let mut out = String::new();
+    let mut rest = pattern;
+    while let Some(at) = rest.find("(?i:") {
+        out.push_str(&rest[..at]);
+        let body = &rest[at + 4..];
+        let end = body.find(')').unwrap_or(body.len());
+        out.push_str("(?:");
+        for c in body[..end].chars() {
+            if c.is_ascii_alphabetic() {
+                out.push_str(&format!("[{}{}]", c.to_ascii_lowercase(), c.to_ascii_uppercase()));
+            } else {
+                out.push(c);
+            }
+        }
+        rest = &body[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Byte-level BPE (`model.type` BPE, a regex `Split` then `ByteLevel`): a pre-token found whole in the vocabulary is one
+/// token (`ignore_merges`), else the lowest-ranked adjacent pair merges until none is left.
+pub struct ByteLevelBpe {
+    vocab: HashMap<String, u32>,
+    /// (left id, right id) → (rank, merged id), the lowest rank winning a duplicate pair.
+    merges: HashMap<(u32, u32), (usize, u32)>,
+    ignore_merges: bool,
+    split: JsRegex,
+    add_prefix_space: bool,
+    byte_char: [char; 256],
+    added: HashMap<String, u32>,
+    added_words: Vec<String>,
+    prefix: Vec<u32>,
+    suffix: Vec<u32>,
+    max_length: usize,
+}
+
+impl ByteLevelBpe {
+    fn from_json(json: &Value, max_length: usize) -> Result<Self> {
+        let model = &json["model"];
+        let pre = &json["pre_tokenizer"];
+        let template = &json["post_processor"];
+        if template["type"] != "TemplateProcessing" {
+            return Err(unsupported_layout("post-processor", template.get("type")));
+        }
+        let steps: Vec<&Value> = if pre["type"] == "Sequence" {
+            pre["pretokenizers"].as_array().map_or_else(Vec::new, |a| a.iter().collect())
+        } else {
+            vec![pre]
+        };
+        let (mut split, mut add_prefix_space, mut byte_level) = (None, false, false);
+        for step in steps {
+            match step["type"].as_str() {
+                Some("Split") if step["behavior"] == "Isolated" && step["invert"] != true && step["pattern"]["Regex"].is_string() => {
+                    let pattern = white_space_classes(&expand_case_groups(step["pattern"]["Regex"].as_str().unwrap_or_default()));
+                    split = Some(JsRegex::new(&pattern, "gu").map_err(|error| unsupported(format!("split regex: {error}")))?);
+                }
+                Some("ByteLevel") if step["use_regex"] != true => {
+                    byte_level = true;
+                    add_prefix_space = step["add_prefix_space"].as_bool().unwrap_or(false);
+                }
+                _ => return Err(unsupported_layout("pre-tokenizer", step.get("type"))),
+            }
+        }
+        let (Some(split), true) = (split, byte_level) else {
+            return Err(unsupported_layout("pre-tokenizer", pre.get("type")));
+        };
+        if json["normalizer"] != Value::Null {
+            return Err(unsupported_layout("normalizer", json["normalizer"].get("type")));
+        }
+
+        let mut vocab = HashMap::new();
+        for (piece, id) in model["vocab"].as_object().ok_or_else(|| unsupported("vocab".into()))? {
+            vocab.insert(piece.clone(), id.as_u64().ok_or_else(|| unsupported("vocab id".into()))? as u32);
+        }
+        let mut merges = HashMap::new();
+        for (rank, merge) in model["merges"].as_array().ok_or_else(|| unsupported("merges".into()))?.iter().enumerate() {
+            let pair = match merge {
+                Value::String(joined) => joined.split_once(' ').map(|(a, b)| (a.to_owned(), b.to_owned())),
+                Value::Array(parts) => match (parts.first().and_then(Value::as_str), parts.get(1).and_then(Value::as_str)) {
+                    (Some(a), Some(b)) => Some((a.to_owned(), b.to_owned())),
+                    _ => None,
+                },
+                _ => None,
+            };
+            let (a, b) = pair.ok_or_else(|| unsupported("merge".into()))?;
+            if let (Some(&ia), Some(&ib), Some(&out)) = (vocab.get(&a), vocab.get(&b), vocab.get(&format!("{a}{b}"))) {
+                merges.entry((ia, ib)).or_insert((rank, out));
+            }
+        }
+        let mut added = HashMap::new();
+        let mut added_words = Vec::new();
+        for token in json["added_tokens"].as_array().into_iter().flatten() {
+            let content = token["content"].as_str().unwrap_or_default().to_owned();
+            added.insert(content.clone(), token["id"].as_u64().unwrap_or_default() as u32);
+            added_words.push(content);
+        }
+        let special_ids = |entry: &Value| -> Vec<u32> {
+            let name = entry["SpecialToken"]["id"].as_str().unwrap_or_default();
+            template["special_tokens"][name]["ids"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|id| id.as_u64().map(|id| id as u32))
+                .collect()
+        };
+        let single = template["single"].as_array().ok_or_else(|| unsupported("template".into()))?;
+        let at = single.iter().position(|entry| entry.get("Sequence").is_some()).ok_or_else(|| unsupported("template".into()))?;
+        Ok(Self {
+            vocab,
+            merges,
+            ignore_merges: model["ignore_merges"].as_bool().unwrap_or(false),
+            split,
+            add_prefix_space,
+            byte_char: byte_chars(),
+            added,
+            added_words,
+            prefix: single[..at].iter().flat_map(special_ids).collect(),
+            suffix: single[at + 1..].iter().flat_map(special_ids).collect(),
+            max_length,
+        })
+    }
+
+    /// The lowest-ranked adjacent pair merges first, the leftmost on a tie; each merge only offers the pairs it made.
+    fn word_ids(&self, word: &str, out: &mut Vec<u32>) {
+        if self.ignore_merges {
+            if let Some(&id) = self.vocab.get(word) {
+                out.push(id);
+                return;
+            }
+        }
+        let mut sym: Vec<u32> = Vec::new();
+        let mut buffer = [0u8; 4];
+        sym.extend(word.chars().filter_map(|c| self.vocab.get(&*c.encode_utf8(&mut buffer)).copied()));
+        let n = sym.len();
+        let mut next: Vec<i64> = (0..n as i64).map(|i| if i + 1 < n as i64 { i + 1 } else { -1 }).collect();
+        let mut prev: Vec<i64> = (0..n as i64).map(|i| i - 1).collect();
+        let mut alive = vec![true; n];
+        let mut heap: std::collections::BinaryHeap<std::cmp::Reverse<(usize, usize)>> = std::collections::BinaryHeap::new();
+        let offer = |heap: &mut std::collections::BinaryHeap<std::cmp::Reverse<(usize, usize)>>, sym: &[u32], next: &[i64], i: usize| {
+            let j = next[i];
+            if j >= 0 {
+                if let Some((rank, _)) = self.merges.get(&(sym[i], sym[j as usize])) {
+                    heap.push(std::cmp::Reverse((*rank, i)));
+                }
+            }
+        };
+        for i in 0..n.saturating_sub(1) {
+            offer(&mut heap, &sym, &next, i);
+        }
+        while let Some(std::cmp::Reverse((rank, i))) = heap.pop() {
+            let j = next[i];
+            if !alive[i] || j < 0 {
+                continue;
+            }
+            let j = j as usize;
+            // A stale entry: a neighbour already merged away or changed.
+            let Some(&(current, merged)) = self.merges.get(&(sym[i], sym[j])) else { continue };
+            if current != rank {
+                continue;
+            }
+            sym[i] = merged;
+            alive[j] = false;
+            next[i] = next[j];
+            if next[j] >= 0 {
+                prev[next[j] as usize] = i as i64;
+            }
+            if prev[i] >= 0 {
+                offer(&mut heap, &sym, &next, prev[i] as usize);
+            }
+            offer(&mut heap, &sym, &next, i);
+        }
+        let mut at = 0i64;
+        while at != -1 {
+            out.push(sym[at as usize]);
+            at = next[at as usize];
+        }
+    }
+
+    fn section_ids(&self, section: &str, out: &mut Vec<u32>) {
+        let spaced;
+        let text = if self.add_prefix_space && !section.starts_with(' ') {
+            spaced = format!(" {section}");
+            spaced.as_str()
+        } else {
+            section
+        };
+        let mut piece = |raw: &str| {
+            let spelled: String = raw.bytes().map(|b| self.byte_char[usize::from(b)]).collect();
+            self.word_ids(&spelled, out);
+        };
+        let mut last = 0;
+        for found in self.split.find_iter(text) {
+            if found.start > last {
+                piece(&text[last..found.start]);
+            }
+            piece(&text[found.clone()]);
+            last = found.end;
+        }
+        if last < text.len() {
+            piece(&text[last..]);
+        }
+    }
+
+    /// Token ids with the template's special tokens, cut to the model window after the template is applied (as the
+    /// pinned Transformers.js does, so a cut window can lose the closing token).
+    pub fn encode(&self, text: &str) -> Vec<i64> {
+        let mut body = Vec::new();
+        for section in split_on(&self.added_words, text) {
+            match self.added.get(section) {
+                Some(&id) => body.push(id),
+                None => self.section_ids(section, &mut body),
+            }
+        }
+        let mut ids: Vec<i64> = self.prefix.iter().copied().chain(body).chain(self.suffix.iter().copied()).map(i64::from).collect();
+        ids.truncate(self.max_length);
+        ids
+    }
+}
+
+#[cfg(test)]
+mod bpe_tests {
+    use super::*;
+
+    /// A copy of the Granite tokenizer.json pruned to what these texts need (every byte, the merges that build the
+    /// expected tokens, all added tokens), and the ids the pinned `@huggingface/tokenizers` 0.2.0 / Transformers.js 4.3.1
+    /// (`new PreTrainedTokenizer(json, config)(text)`, truncation `true`) produced from the full file.
+    fn golden() -> (Tokenizer, Value, std::path::PathBuf) {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/memory/embed/granite_fixture");
+        let path = dir.join("tokenizer.json");
+        let golden = serde_json::from_slice(&std::fs::read(dir.join("golden.json")).unwrap()).unwrap();
+        (Tokenizer::load(&path, 32768).unwrap(), golden, path)
+    }
+
+    fn ids(value: &Value) -> Vec<i64> {
+        value.as_array().unwrap().iter().map(|v| v.as_i64().unwrap()).collect()
+    }
+
+    #[test]
+    fn granite_ids_equal_the_pinned_library_ids() {
+        let (tokenizer, golden, path) = golden();
+        let text = |case: &str| match case {
+            "bom" | "bomfull" => "A\u{feff}\u{feff}B",
+            "window4" | "full3" => "one two three",
+            // The pinned library splits an added token wherever it occurs and ignores `single_word`.
+            "special" => "a<|reserved_200020|>b",
+            "hello" => "Hello, world! \u{d55c}\u{ad6d}\u{c5b4} \u{30c6}\u{30b9}\u{30c8} 123456 it's\n\nok  x",
+            "qa" => "passage: \u{c548}\u{b155}\u{d558}\u{c138}\u{c694} \u{a0} x\u{2003}y",
+            other => panic!("{other}"),
+        };
+        for case in ["bomfull", "full3", "special", "hello", "qa"] {
+            assert_eq!(tokenizer.encode(text(case)), ids(&golden[case]), "{case}");
+        }
+        // U+FEFF is not White_Space: the body is `A`, two FEFF, `B` as the library has it.
+        let body = tokenizer.encode(text("bom"));
+        assert_eq!(&body[1..body.len() - 1], ids(&golden["bom"]).as_slice());
+        // A four-id window is cut after the template, so it ends on the last body token.
+        assert_eq!(Tokenizer::load(&path, 4).unwrap().encode(text("window4")), ids(&golden["window4"]));
     }
 }

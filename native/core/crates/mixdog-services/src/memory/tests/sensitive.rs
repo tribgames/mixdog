@@ -55,6 +55,26 @@ fn a_value_split_across_three_streamed_deltas_is_held_back_until_whole() {
     assert_eq!(store.redact_text("sess_sensitive_deltas", &text), "say [redacted] ok");
 }
 
+/// A streamed checkpoint holds back text a later delta can join into a value that holds marker text, however many bytes
+/// that value takes: the longest spelling by UTF-16 length (the order the values are tried in) is not the longest in bytes.
+#[test]
+fn a_streamed_checkpoint_holds_back_text_a_later_marker_would_join_into_a_wider_value() {
+    let session = "sess_sensitive_wide";
+    let store = SensitiveStore::default();
+    let wide = format!("{}[redacted]Z", "\u{5bc6}".repeat(6));
+    for value in ["abcdefg[redacted]Z", wide.as_str(), "Q[redacted]", "Yy"] {
+        assert!(store.remember(session, &[json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": value } } })]));
+    }
+    let mut text = "\u{5bc6}".repeat(6);
+    let first = store.redact_settled_text(session, &text);
+    text.push_str("QY");
+    let second = store.redact_settled_text(session, &text);
+    text.push_str("yZ");
+    let last = store.redact_settled_text(session, &text);
+    assert!(!first.contains('\u{5bc6}') && !second.contains('\u{5bc6}'), "{first:?} {second:?}");
+    assert_eq!(last, "[redacted]");
+}
+
 /// The same Node test file ("a value in a file path is redacted as spelled"): either separator, and 1.4.5's exact substring
 /// rule, so a value in another case is not the value.
 #[test]

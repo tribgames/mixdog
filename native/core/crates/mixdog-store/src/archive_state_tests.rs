@@ -162,6 +162,64 @@ async fn a_failed_projection_is_owed_and_settled_before_the_search_reads() {
     assert!(!index.archive_owed());
 }
 
+/// A deferred bind returns before the projection ran: the entries are owed, and the search settles them before it reads.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deferred_bind_owes_the_entries_and_the_search_settles_them() {
+    use mixdog_rt::LaneToken;
+
+    use crate::sqlite::DirtyMark;
+    use crate::sqlite::SqliteStore;
+    use crate::summary::CatalogHead;
+
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().to_path_buf();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let at = data.clone();
+    let _job = tokens()
+        .maintenance_io
+        .submit(&mixdog_rt::CancellationToken::new(), move |lane| {
+            let _ = tx.send(SqliteStore::open(lane, tokens().sqlite_writer_thread, tokens().interactive_io, &at));
+        })
+        .expect("lane");
+    let index = rx.recv().expect("job ran").expect("index");
+    let header = json!({ "id": "s1", "title": "Kept", "updatedAt": 1, "desktopSession": { "classification": "task", "projectPath": "/p" } });
+    let head = CatalogHead { session: "s1".into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone() };
+    index.upsert(head, DirtyMark::Set).await.unwrap();
+    let states = ArchiveStates::open(open_state(&data.join("core.sqlite"))).await.unwrap();
+    states.commit(|_, _| Ok(((), vec![("s1".to_owned(), ArchiveEntry::Archived(9.0))]))).await.unwrap();
+    states.bind_index_deferred(&index).unwrap();
+    assert!(index.archive_owed(), "owed until projected");
+    let rows = index.search("", 10, None).await.unwrap();
+    assert!(!rows.iter().any(|row| row.contains("\"s1\"")), "the search settled the archived session first");
+    assert!(!index.archive_owed());
+}
+
+/// The background projection settles what a deferred bind owed; once the store's stop ended it, a later start does nothing and the
+/// entries stay owed (the next start owes them again).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_background_projection_settles_the_debt_and_ends_with_the_stop() {
+    for stopped_first in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let (index, states) = indexed(dir.path()).await;
+        states.commit(|_, _| Ok(((), vec![("s1".to_owned(), ArchiveEntry::Archived(9.0))]))).await.unwrap();
+        index.owe_archive(vec!["s1".to_owned()]);
+        if stopped_first {
+            states.close_projection().await;
+        }
+        states.start_projection();
+        if !stopped_first {
+            for _ in 0..200 {
+                if !index.archive_owed() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        }
+        states.close_projection().await;
+        assert_eq!(index.archive_owed(), stopped_first, "owed exactly when the stop came before the projection started");
+    }
+}
+
 /// An index over `data` holding the task session `s1`, and the authority bound to it.
 async fn indexed(data: &Path) -> (crate::sqlite::SqliteStore, Arc<ArchiveStates>) {
     use mixdog_rt::LaneToken;

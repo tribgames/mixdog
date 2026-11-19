@@ -134,6 +134,7 @@ pub fn spawn_media_section(jobs: &Arc<MediaJobs>, publisher: Arc<dyn StatePublis
 mod tests {
     use std::collections::VecDeque;
     use std::sync::Mutex;
+    use std::sync::atomic::AtomicBool;
     use std::sync::atomic::AtomicI64;
     use std::sync::atomic::Ordering;
 
@@ -270,8 +271,8 @@ mod tests {
     }
 
     #[cfg(node_twin)]
-    /// Replays what Node's adapter did in a scenario.
-    struct Replay(Value);
+    /// Replays what Node's adapter did in a scenario; `generating` is set once the adapter waits for the cancel.
+    struct Replay(Value, Arc<AtomicBool>);
 
     #[cfg(node_twin)]
     #[async_trait]
@@ -288,6 +289,7 @@ mod tests {
             }
             let ends = &self.0["ends"];
             if ends["waitsForCancel"] == true {
+                self.1.store(true, Ordering::SeqCst);
                 request.cancel.cancelled().await;
                 return Err(MediaFailure { message: "aborted".into(), code: None, usage: None, refusal: None });
             }
@@ -305,6 +307,7 @@ mod tests {
         jobs: Arc<MediaJobs>,
         clock: Arc<AtomicI64>,
         scenario: Value,
+        generating: Arc<AtomicBool>,
     }
 
     #[cfg(node_twin)]
@@ -321,8 +324,9 @@ mod tests {
             };
             let dir = tempfile::tempdir().unwrap();
             let store = Arc::new(MediaStore::with_marks(dir.path(), mixdog_rt::testing::tokens().durability_io, marks));
-            let jobs = MediaJobs::new(store, Arc::new(Replay(scenario.clone())), Some(4));
-            Self { _dir: dir, jobs, clock, scenario: scenario.clone() }
+            let generating = Arc::new(AtomicBool::new(false));
+            let jobs = MediaJobs::new(store, Arc::new(Replay(scenario.clone(), generating.clone())), Some(4));
+            Self { _dir: dir, jobs, clock, scenario: scenario.clone(), generating }
         }
 
         /// Starts the job at Node's start instant and lets it end at Node's end instant.
@@ -331,6 +335,9 @@ mod tests {
             let id = started["id"].as_str().unwrap().to_owned();
             self.clock.store(self.scenario["clock"]["endAt"].as_i64().unwrap(), Ordering::SeqCst);
             if self.scenario["ends"]["waitsForCancel"] == true {
+                // Node canceled a job its adapter was running; the worker here starts on a later turn, and a job canceled
+                // before its generation starts never reaches the adapter.
+                yield_until(|| self.generating.load(Ordering::SeqCst)).await;
                 assert_eq!(self.jobs.cancel(&id)["canceled"], true);
             }
             yield_until(|| self.jobs.get(&id).is_some_and(|job| job["status"] != "running")).await;
