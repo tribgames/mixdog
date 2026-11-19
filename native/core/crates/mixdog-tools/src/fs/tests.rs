@@ -869,6 +869,52 @@ fn the_departure_checker_preserves_entry_status_and_unwindowed_content() {
     }
 }
 
+/// A DECIDED DEPARTURE for every recorded batch that holds an image, so stays structured: its text entries come in the
+/// model-facing `[lines a-b]` form a text batch already had (`render_rich` passes each through `rows_for_model`), where
+/// Node left the rows of a structured batch numbered `N→row`. The recorded text parts are converted the same way.
+#[cfg(node_twin)]
+fn rich_rows_departed(recorded: Vec<(String, String)>) -> Vec<(String, String)> {
+    if !recorded.iter().any(|(kind, _)| kind == "image") {
+        return recorded;
+    }
+    recorded.into_iter().map(|(kind, text)| if kind == "text" { (kind, super::read_batch::rows_for_model(&text)) } else { (kind, text) }).collect()
+}
+
+/// Recorded batches naming `a.txt:2` with the default window, a DECIDED DEPARTURE on Windows only: there the `:2` suffix
+/// reads that line (`windows_colon_coordinate`), since the name could otherwise only be an NTFS stream; Node read the
+/// whole file. Elsewhere the core reads the whole file as Node did.
+#[cfg(node_twin)]
+const WINDOWS_COORDINATE_DEPARTURES: &[&str] = &["batch-path-line-suffix", "batch-path-line-suffix+image"];
+
+#[cfg(node_twin)]
+fn windows_coordinate_departed(case: &str, recorded: Vec<(String, String)>) -> Vec<(String, String)> {
+    if !cfg!(windows) || !WINDOWS_COORDINATE_DEPARTURES.contains(&case) {
+        return recorded;
+    }
+    let (whole, line) = ("[lines 1-3]\nalpha\nbeta\ngamma", "[lines 2-2]\nbeta\n[lines 2-2; offset:3 for more]");
+    assert!(recorded.iter().any(|(_, text)| text.contains(whole)), "{case}: the recording does not hold the whole file");
+    recorded.into_iter().map(|(kind, text)| (kind, text.replace(whole, line))).collect()
+}
+
+/// Recorded tail reads the output budget cut, a DECIDED DEPARTURE: the answer ends with a `[tail incomplete: …]` line that
+/// says why (the request cap, the omitted text), so the caller can tell it is partial. Node's ended with the last row.
+#[cfg(node_twin)]
+const TAIL_INCOMPLETE_DEPARTURES: &[(&str, &str, &str)] = &[
+    ("read-legacy", "huge-tail-big-n", "[tail incomplete: output budget omitted text]"),
+    ("read-tail", "huge file tail 5000", "[tail incomplete: request capped at 2000 lines; output budget omitted text]"),
+];
+
+#[cfg(node_twin)]
+fn tail_departed(scenario: &str, case: &str, mut recorded: Vec<(String, String)>) -> Vec<(String, String)> {
+    if let Some((_, _, note)) = TAIL_INCOMPLETE_DEPARTURES.iter().find(|(s, c, _)| *s == scenario && *c == case) {
+        let [(_, text)] = recorded.as_mut_slice() else { panic!("{scenario} {case}: one recorded text") };
+        assert!(text.starts_with("... [tail of ") && !text.contains("[tail incomplete"), "{scenario} {case}: no tail answer to mark");
+        text.push('\n');
+        text.push_str(note);
+    }
+    recorded
+}
+
 #[cfg(node_twin)]
 /// The recorded text rows of a `read` case with its listed departure applied (`fixtures/tools-fs-search/departures.json`).
 fn departed(scenario: &str, case: &str, recorded: Vec<(String, String)>) -> Vec<(String, String)> {
@@ -1097,10 +1143,12 @@ fn compare(failures: &mut Vec<String>, index: usize, name: &str, (got, cancelled
     const ABORTS: [&str; 2] = ["This operation was aborted", "operation aborted"];
     let want = &step["answer"];
     // The local-search telemetry of the answer (the trace row's `local_search`): the same counters, each duration a number
-    // (`<ms>`: the recording machine's own time).
+    // (`<ms>`: the recording machine's own time). The core's own admission-wait and run keys have no Node twin.
     if let Some(want) = want.get("telemetry") {
         let same = telemetry.as_ref().is_some_and(|got| {
-            let (want, got) = (want.as_object().unwrap(), got.as_object().unwrap());
+            let mut got = got.as_object().unwrap().clone();
+            got.retain(|key, _| !matches!(key.as_str(), "broad_searches" | "broad_wait_ms" | "broad_run_ms"));
+            let (want, got) = (want.as_object().unwrap(), &got);
             want.len() == got.len() && want.iter().all(|(key, value)| got.get(key).is_some_and(|g| if value == "<ms>" { g.is_number() } else { g == value }))
         });
         if !same {
@@ -1119,6 +1167,11 @@ fn compare(failures: &mut Vec<String>, index: usize, name: &str, (got, cancelled
     };
     let want_text = timeout_wording(want_text);
     let text = said(&got.1);
+    // The noise count a listing adds (issue #339) is no part of Node's recorded answer.
+    let text = match text.rsplit_once('\n') {
+        Some((rows, note)) if note.ends_with(" noise entries excluded (include_noise:true to show)") => rows.to_owned(),
+        _ => text,
+    };
     if text != want_text || got.0 != want_error || cancelled {
         failures.push(format!("step #{index} {name}:\n  want ({want_error}) {want_text:?}\n  got  ({}) {text:?} cancelled={cancelled}", got.0));
     }
@@ -2665,6 +2718,8 @@ impl mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain
 /// recorded ticks: every call's answer, and at each step the searches that had reached the server, must be Node's.
 async fn replay_admission(scenario: &str, fixture: &str) {
     use std::sync::atomic::Ordering::SeqCst;
+    // Node's gate holds one turn: the recordings are of searches one at a time.
+    super::search::broad_search_gate().set_limit(1);
     let fixture: JsonValue = serde_json::from_str(fixture).unwrap();
     let root = AbsPath::new(std::env::temp_dir().join("mixdog-search-admission").join(scenario)).unwrap();
     let seeds: Vec<(String, Vec<u8>)> = fixture["files"].as_object().unwrap().iter().map(|(rel, text)| (rel.clone(), text.as_str().unwrap().as_bytes().to_vec())).collect();
@@ -2868,9 +2923,14 @@ async fn list_answers_tree_find_sort_type_and_include_noise() {
 
     let tree = run(serde_json::json!({ "mode": "tree" })).await;
     let lines: Vec<&str> = tree.lines().collect();
-    assert_eq!(lines[1..], ["├── docs/", "│   └── readme.md", "├── src/", "│   ├── a.ts", "│   └── b.ts", "└── top.txt"], "{tree}");
+    // The noise folder the tree left out is counted, as a flat list counts it (issue #339).
+    assert_eq!(
+        lines[1..],
+        ["├── docs/", "│   └── readme.md", "├── src/", "│   ├── a.ts", "│   └── b.ts", "└── top.txt", "1 noise entries excluded (include_noise:true to show)"],
+        "{tree}"
+    );
     let paged = run(serde_json::json!({ "mode": "tree", "head_limit": 2, "offset": 1 })).await;
-    assert!(paged.ends_with("[entries 2-3 of 4+; offset:3 for more]"), "{paged}");
+    assert!(paged.ends_with("[entries 2-3 of 4+; offset:3 for more]\n1 noise entries excluded (include_noise:true to show)"), "{paged}");
     let tree_noise = run(serde_json::json!({ "mode": "tree", "include_noise": true, "depth": 1 })).await;
     assert!(tree_noise.contains("├── node_modules/"), "{tree_noise}");
 
@@ -2884,7 +2944,8 @@ async fn list_answers_tree_find_sort_type_and_include_noise() {
     let dirs = run(serde_json::json!({ "path": ".", "depth": 2, "type": "dir" })).await;
     assert_eq!(dirs.lines().collect::<Vec<_>>(), ["docs\tdir", "node_modules\tdir", "src\tdir"], "{dirs}");
     let first_level = run(serde_json::json!({ "path": ".", "type": "dir" })).await;
-    assert_eq!(first_level.lines().collect::<Vec<_>>(), ["docs\tdir", "src\tdir"], "{first_level}");
+    // The one noise folder the walk left out is counted (issue #339).
+    assert_eq!(first_level.lines().collect::<Vec<_>>(), ["docs\tdir", "src\tdir", "1 noise entries excluded (include_noise:true to show)"], "{first_level}");
     let none = run(serde_json::json!({ "path": "src", "type": "dir" })).await;
     assert_eq!(none, "(no entries match filter) type=dir, hidden=false path=src", "{none}");
     let noisy = run(serde_json::json!({ "path": ".", "depth": 2, "include_noise": true, "type": "dir" })).await;
@@ -3167,6 +3228,11 @@ async fn replay_fs_search_slice(scenario: &str, slice: Option<(usize, usize)>) {
         let redacted = super::read_paths::redact(&fwd, None);
         let escaped = raw.replace('\\', "\\\\");
         let text = text.replace(&escaped, "<ROOT>").replace(&raw, "<ROOT>").replace(&fwd, "<ROOT>").replace(&redacted, "<ROOT>");
+        // The noise count a listing adds (issue #339) is no part of Node's recorded answer.
+        let text = match text.rsplit_once('\n') {
+            Some((rows, note)) if tool == "list" && note.ends_with(" noise entries excluded (include_noise:true to show)") => rows.to_owned(),
+            _ => text,
+        };
         // A call Node's tool threw is a failed call whose message is the thrown one.
         let (want, want_error) = match call.get("thrown") {
             Some(thrown) => (thrown.as_str().unwrap(), true),
@@ -3682,11 +3748,15 @@ async fn reading_an_image_matches_the_recorded_node_cases() {
             }
         };
         assert_eq!(out.parts.len(), want.len(), "{name}");
+        // A structured batch's text entries are in the model-facing form (`rich_rows_departed`).
+        let structured = want.iter().any(|b| b["type"] == "image");
         for (part, want) in out.parts.iter().zip(want) {
             match part {
                 ToolPart::Text(text) => {
                     assert_eq!(want["type"], "text", "{name}");
-                    assert_eq!(text, want["text"].as_str().unwrap(), "{name}");
+                    let recorded = want["text"].as_str().unwrap();
+                    let recorded = if structured { super::read_batch::rows_for_model(recorded) } else { recorded.to_owned() };
+                    assert_eq!(*text, recorded, "{name}");
                     assert_eq!(text.starts_with("Error:"), case["isError"].as_bool().unwrap(), "{name}");
                 }
                 ToolPart::Image { mime, data: ImageData::Bytes(bytes), .. } => {
@@ -3736,7 +3806,7 @@ async fn the_legacy_path_spelling_reads_as_node_reads() {
         }
         let input: JsonValue = serde_json::from_str(&text).unwrap();
         let got = summary(&tool.call(&ctx, input).await, &cwd);
-        let expected = departed("read-legacy", name, vec![("text".to_owned(), case["result"]["text"].as_str().unwrap().to_owned())]);
+        let expected = tail_departed("read-legacy", name, departed("read-legacy", name, vec![("text".to_owned(), case["result"]["text"].as_str().unwrap().to_owned())]));
         if got != expected && BUDGET_DEPARTURES.iter().any(|(n, _)| *n == name) && agrees_with_recording(&got, &expected) {
             continue;
         }
@@ -3813,7 +3883,7 @@ async fn reading_text_and_batches_matches_the_recorded_node_cases() {
     for case in doc["cases"].as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
         let got = summary(&tool.call(&ctx, case["input"].clone()).await, &cwd);
-        let expected = departed("read-batch", name, recorded_result(&case["result"]));
+        let expected = windows_coordinate_departed(name, departed("read-batch", name, rich_rows_departed(recorded_result(&case["result"]))));
         if got != expected && BUDGET_DEPARTURES.iter().any(|(n, _)| *n == name) && agrees_with_recording(&got, &expected) {
             continue;
         }
@@ -4176,7 +4246,10 @@ async fn read_with_tail_matches_the_recorded_node_cases() {
         let name = case["name"].as_str().unwrap();
         let outcome = tool.call(&ctx, case["input"].clone()).await;
         let got = (outcome.is_err(), summary(&outcome, &cwd));
-        let want = (case["result"]["isError"].as_bool().unwrap(), departed("read-tail", name, vec![("text".to_owned(), case["result"]["text"].as_str().unwrap().to_owned())]));
+        let want = (
+            case["result"]["isError"].as_bool().unwrap(),
+            tail_departed("read-tail", name, departed("read-tail", name, vec![("text".to_owned(), case["result"]["text"].as_str().unwrap().to_owned())])),
+        );
         if got != want {
             failures.push(format!("{name}\n  want {want:?}\n  got  {got:?}"));
         }
@@ -4280,4 +4353,69 @@ sequence_tests! {
     patch_twice => "patch-twice",
     image_twice => "image-twice",
     no_session => "no-session",
+}
+
+/// Broad searches of different sessions run at once up to the gate's limit; at a limit of 1 the second session's search
+/// waits behind the first, as Node's one search at a time does, and is refused once its budget has passed.
+#[tokio::test(start_paused = true)]
+async fn broad_searches_of_different_sessions_run_at_once_up_to_the_limit() {
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-broad-search-limit")).unwrap();
+    let ctx = context(&root).await;
+    let gate = super::search::broad_search_gate();
+    gate.set_limit(2);
+    let held = gate.enter("other-session", &CancellationToken::new()).await.unwrap();
+    let out = GlobTool::new().call(&ctx, serde_json::json!({ "pattern": "**/*.md" })).await.unwrap();
+    let telemetry = &out.meta.as_ref().unwrap()[super::common::LOCAL_SEARCH_META];
+    assert_eq!(telemetry["broad_admissions"], 1, "admitted beside the other session's search: {telemetry}");
+    assert_eq!(telemetry["broad_wait_ms"], 0, "{telemetry}");
+    gate.set_limit(1);
+    let (is_error, text) = text_of(GlobTool::new().call(&ctx, serde_json::json!({ "pattern": "**/*.md" })).await);
+    assert!(is_error && text.contains("broad search not started: waited "), "{text}");
+    drop(held);
+    assert!(!gate.is_busy());
+}
+
+/// A search that waited for its turn tells the call's trace how long it waited apart from how long it ran.
+#[tokio::test(start_paused = true)]
+async fn a_broad_search_records_its_admission_wait_apart_from_its_run() {
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-broad-search-wait")).unwrap();
+    let ctx = context(&root).await;
+    let gate = super::search::broad_search_gate();
+    gate.set_limit(1);
+    let held = gate.enter("other-session", &CancellationToken::new()).await.unwrap();
+    let release = async move {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        drop(held);
+    };
+    let glob = GlobTool::new();
+    let (out, ()) = tokio::join!(glob.call(&ctx, serde_json::json!({ "pattern": "**/*.md" })), release);
+    let out = out.unwrap();
+    let telemetry = &out.meta.as_ref().unwrap()[super::common::LOCAL_SEARCH_META];
+    assert_eq!(telemetry["broad_searches"], 1, "{telemetry}");
+    let (wait, run) = (telemetry["broad_wait_ms"].as_u64().unwrap(), telemetry["broad_run_ms"].as_u64().unwrap());
+    assert!(wait >= 300 && run < 300, "waited {wait}ms, ran {run}ms");
+    // Node's own keys stay Node's: a search that waited reports no admission of its own.
+    assert!(telemetry.get("broad_admissions").is_none(), "{telemetry}");
+    assert!(!gate.is_busy());
+}
+
+/// A tree listing's walk is a broad search: it waits for its turn behind a held gate and tells its wait.
+#[tokio::test(start_paused = true)]
+async fn a_tree_listing_takes_its_turn_as_a_broad_search() {
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-broad-search-tree")).unwrap();
+    let ctx = context(&root).await;
+    let gate = super::search::broad_search_gate();
+    gate.set_limit(1);
+    let held = gate.enter("other-session", &CancellationToken::new()).await.unwrap();
+    let release = async move {
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        drop(held);
+    };
+    let list = ListTool::new();
+    let (out, ()) = tokio::join!(list.call(&ctx, serde_json::json!({ "mode": "tree" })), release);
+    let out = out.unwrap();
+    let telemetry = &out.meta.as_ref().unwrap()[super::common::LOCAL_SEARCH_META];
+    assert_eq!(telemetry["broad_searches"], 1, "{telemetry}");
+    assert!(telemetry["broad_wait_ms"].as_u64().unwrap() >= 200, "{telemetry}");
+    assert!(!gate.is_busy());
 }

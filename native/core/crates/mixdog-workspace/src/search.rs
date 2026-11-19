@@ -364,7 +364,10 @@ mod tests {
         assert!(files.contains("d/deep/needle-file.rs"), "{files}");
         // A longer query containing the first one is answered from the finished walk.
         sessions.search(&session, 0, "needle-file.r".into(), false).await.unwrap();
-        assert!(index.beyond.lock().unwrap().is_some());
+        // A watch that is still settling gives no coverage, so the first index may not have been cached and the searches
+        // then ran on a later one: the finished walk is kept on the index the session holds now.
+        let current = sessions.index_for(&session, 0, 0, &root).await.unwrap().unwrap();
+        assert!(current.beyond.lock().unwrap().is_some());
         assert!(publisher.state()["files"].to_string().contains("needle-file.rs"));
     }
 

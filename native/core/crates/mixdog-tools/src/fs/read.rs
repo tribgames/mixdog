@@ -323,6 +323,11 @@ impl Tool for ReadTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        super::search::with_broad_times(self.respond(ctx, args)).await
+    }
+}
+impl ReadTool {
+    async fn respond(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         self.settle_wsl(ctx).await;
         let mut args = args;
         if let JsonValue::Object(map) = &mut args {
@@ -2717,8 +2722,16 @@ fn buffered_window(text: &str, e: &Entry, shown: &str, file_size: u64, max: usiz
             return (elided, WindowFacts { elided: true, visible, ..facts(total, 0, false) });
         }
         if rendered.len() > max {
-            let slice = byte_prefix(&rendered, max);
+            let mut slice = byte_prefix(&rendered, max);
             let shown_lines = slice.matches('\n').count() as u64;
+            // A cut inside the last row's line number leaves digits that would read as a row of content; drop them. Node
+            // appends its marker to the exact byte slice: this is a deliberate difference in the returned text only, the
+            // continuation offset is the same.
+            if let Some(at) = slice.rfind('\n')
+                && !slice[at + 1..].contains('→')
+            {
+                slice = &slice[..at];
+            }
             let of_file = if file_size > 0 { format!("{} KB file", ((file_size as f64 / 1024.0).round() as u64).max(1)) } else { String::new() };
             let note = if of_file.is_empty() { String::new() } else { format!("{shown_lines} of {total} lines shown ({of_file})") };
             let marker = cap_marker(&format_cap_size(max), &note, Some(offset + shown_lines + base), "");

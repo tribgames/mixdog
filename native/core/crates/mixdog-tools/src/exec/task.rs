@@ -27,6 +27,7 @@ use super::jobs::Job;
 use super::jobs::JobStatus;
 use super::jobs::ReadOptions;
 use super::jobs::label_of;
+use super::wake::WaitRefusal;
 use super::wake::WakeReason;
 use crate::orch::util::spec_from_def;
 
@@ -139,7 +140,8 @@ async fn list(runtime: &ExecRuntime, agents: Option<&dyn AgentTasks>, ctx: &Tool
     for job in jobs {
         let label = label_of(&job.command);
         let label = if label.is_empty() { String::new() } else { format!(" label={label}") };
-        out.push(format!("- {} shell/shell {}{label}", job.id, job.status().as_str()));
+        let error = job.failure_error().map_or(String::new(), |e| format!(" error={e}"));
+        out.push(format!("- {} shell/shell {}{label}{error}", job.id, job.status().as_str()));
     }
     for row in agent_rows {
         let label = row.label.filter(|l| !l.is_empty()).map_or(String::new(), |l| format!(" label={l}"));
@@ -224,7 +226,10 @@ async fn read_or_wait(
         if let Some(wake) = wait.wake() {
             match wake.reason {
                 WakeReason::UserMessage => interrupted = true,
-                WakeReason::Notification => notified = Some(wake.detail),
+                WakeReason::Notification => {
+                    runtime.config.wake.cut_by_notification(&ctx.thread_id);
+                    notified = Some(wake.detail);
+                }
             }
         }
     }
@@ -318,7 +323,10 @@ async fn agent_task(
         if let Some(wake) = wait.wake() {
             match wake.reason {
                 WakeReason::UserMessage => interrupted = true,
-                WakeReason::Notification => notified = Some(wake.detail),
+                WakeReason::Notification => {
+                    runtime.config.wake.cut_by_notification(&ctx.thread_id);
+                    notified = Some(wake.detail);
+                }
             }
         }
     }
@@ -566,7 +574,8 @@ impl TaskTool {
     /// `executeTaskTool`: the handler behind the argument guard.
     #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     pub async fn execute(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let action = task_action(args.get("action"));
+        // `executeTaskTool` lowercases the action but, unlike the guard, does not trim it.
+        let action = args.get("action").and_then(JsonValue::as_str).map(str::to_lowercase).unwrap_or_default();
         if action.is_empty() {
             return invalid("action", "Error: task action is required".into());
         }
@@ -583,12 +592,21 @@ impl TaskTool {
                 format!("Error: \"{id}\" is an agent/session id, not a background task_id. Agent tasks deliver completion notifications; use agent list/read only for manual recovery."),
             );
         }
+        // The guard trims for its check only: a padded action is refused here for every id, before the task is looked up.
         if !matches!(action.as_str(), "read" | "wait" | "cancel") {
             let got = serde_json::to_string(&args["action"]).unwrap_or_default();
             return invalid(
                 "action",
                 format!("Error: task action must be one of list|read|wait|cancel (got {got})"),
             );
+        }
+        if action == "wait"
+            && let Some(refusal) = self.runtime.config.wake.refuse_wait(&ctx.thread_id)
+        {
+            return ok(match refusal {
+                WaitRefusal::UserMessage => "Not waiting: a user message is waiting and must be answered first. It is delivered to you right after this result; reply to it, then wait only if nothing else is left.".to_owned(),
+                WaitRefusal::Notification => "Not waiting: the last wait ended because a notification arrived and it is still unhandled. Handle it first (it was delivered to you after that wait); call wait again only after another tool call or a reply. If nothing else is left, end your turn: results and messages start your next one.".to_owned(),
+            });
         }
         let tail = args.get("output").and_then(JsonValue::as_str) == Some("tail");
         let Some(job) = self.runtime.get(&ctx.thread_id, id) else {

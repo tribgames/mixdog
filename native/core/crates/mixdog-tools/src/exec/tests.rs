@@ -1024,6 +1024,17 @@ async fn surviving_descendants_become_a_tracked_task_that_cancels_and_completes(
     let read = body(task.call(&c, serde_json::json!({"action": "read", "task_id": "task-s1"})).await);
     assert!(read.contains("status: cancelled") && read.ends_with("error: cancelled by task control"), "{read}");
 }
+/// `renderBackgroundTaskList`: a failed shell job's list row carries its cause as ` error=…`.
+#[tokio::test]
+async fn task_list_names_the_error_of_a_failed_shell_job() {
+    let rig = rig();
+    rig.shell.call(&ctx(&rig, "f1"), serde_json::json!({"command": "run-limited", "timeout_ms": 4000, "wait_ms": 1000})).await.unwrap();
+    let c = ctx(&rig, "f2");
+    // The kill reaches a process with a run limit, which ends it as a time-limit failure.
+    rig.task.call(&c, serde_json::json!({"action": "cancel", "task_id": "task-f1"})).await.unwrap();
+    let listed = body(rig.task.call(&c, serde_json::json!({"action": "list"})).await);
+    assert!(listed.contains("shell/shell failed label=run-limited error=timed out"), "{listed}");
+}
 #[tokio::test]
 async fn survivors_that_resist_the_kill_keep_the_task_pending() {
     let rig = rig();
@@ -1260,6 +1271,44 @@ async fn a_wait_ends_the_moment_the_session_reports_user_input() {
     assert!(body(waited).ends_with(
         "\n\nWait ended by new user input; task still running in the background. Handle the new message first."
     ));
+}
+/// A wait does not start while a user message waits unanswered, nor again right after a notification cut one
+/// short; a boundary the model passed through other work lets it start.
+#[tokio::test]
+async fn a_wait_refuses_an_unanswered_message_and_an_unhandled_notification() {
+    let rig = rig();
+    rig.shell
+        .call(&ctx(&rig, "c1"), serde_json::json!({"command": "sleep 100", "background": true}))
+        .await
+        .unwrap();
+    let hub = rig.runtime.config.wake.clone();
+    let t = ThreadId::from("t");
+    let wait = |id: &'static str| async {
+        let c = ctx(&rig, id);
+        rig.task.call(&c, serde_json::json!({"action": "wait", "task_id": "task-c1", "timeout_ms": 3_600_000})).await
+    };
+    hub.interrupt(&t, WakeReason::UserMessage, None);
+    assert!(body(wait("w1").await).starts_with("Not waiting: a user message is waiting"));
+    hub.boundary(&t, false, None);
+    // A notification queued before the wait starts ends it at once, though no wait was active when it arrived.
+    hub.interrupt(&t, WakeReason::Notification, Some("task-y".into()));
+    assert!(body(wait("w1b").await).contains("a notification arrived"));
+    hub.boundary(&t, false, None);
+    hub.boundary(&t, false, None);
+    let waiter = wait("w2");
+    let wake = async {
+        while hub.active_waits(&t) == 0 {
+            tokio::task::yield_now().await;
+        }
+        hub.interrupt(&t, WakeReason::Notification, Some("task-x".into()));
+    };
+    let (cut, ()) = tokio::join!(waiter, wake);
+    assert!(body(cut).contains("a notification arrived"));
+    hub.boundary(&t, false, None);
+    assert!(body(wait("w3").await).starts_with("Not waiting: the last wait ended because a notification"));
+    hub.boundary(&t, false, None);
+    hub.reset(&t);
+    assert_eq!(hub.refuse_wait(&t), None);
 }
 #[tokio::test]
 async fn cwd_must_be_an_existing_directory() {
@@ -2228,7 +2277,10 @@ async fn task_lists_reads_waits_for_and_cancels_agent_tasks() {
     assert!(listed.starts_with("background tasks: 2\n- task-l1 shell/shell running"), "{listed}");
     assert!(listed.contains("\n- task_agent_1 agent/spawn running label=w1"), "{listed}");
 
-    let read = body(task.call(&c, serde_json::json!({"action": " READ ", "task_id": "\u{feff}task_agent_1 "})).await);
+    // Node's handler lowercases the action without trimming: a padded one is refused for an agent task too.
+    let padded = body(task.call(&c, serde_json::json!({"action": " READ ", "task_id": "task_agent_1"})).await);
+    assert_eq!(padded, "Error: task action must be one of list|read|wait|cancel (got \" READ \")");
+    let read = body(task.call(&c, serde_json::json!({"action": "READ", "task_id": "\u{feff}task_agent_1 "})).await);
     assert_eq!(read, "background task\ntask_id: task_agent_1\nstatus: running");
     assert!(agents.acknowledged.lock().unwrap().is_empty(), "a running task is not acknowledged");
 
@@ -2845,10 +2897,22 @@ fn the_shell_and_task_tools_are_nodes_definitions() {
                 let properties = recorded["inputSchema"]["properties"].as_object_mut().unwrap();
                 properties.shift_remove("wait_ms");
                 properties.shift_remove("background");
+                // With no hold to be separate from, the foreground-only text drops that clause.
+                let timeout = properties.get_mut("timeout_ms").unwrap();
+                let text = timeout["description"].as_str().unwrap().replace(", separate from the 60s hold", "");
+                timeout["description"] = text.into();
             }
             same(shell.spec(), &recorded, &format!("shell {kind} background {background}"));
         }
     }
-    same(rig.task.spec(), &node("task"), "task");
-    same(rig.task.agent_spec().expect("task has an agent text"), &node("task@agent"), "agent task");
+    // The task description is the current wording (the wait rules), recorded after v1.4.5; every other field is Node's.
+    let current = |got: &ToolSpec, mut recorded: serde_json::Value| {
+        let live = got.definition();
+        recorded["description"] = live["description"].clone();
+        recorded["inputSchema"]["properties"]["task_id"]["description"] = live["inputSchema"]["properties"]["task_id"]["description"].clone();
+        recorded
+    };
+    same(rig.task.spec(), &current(rig.task.spec(), node("task")), "task");
+    let agent = rig.task.agent_spec().expect("task has an agent text");
+    same(agent, &current(agent, node("task@agent")), "agent task");
 }

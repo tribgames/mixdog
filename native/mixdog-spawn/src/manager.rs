@@ -324,8 +324,8 @@ impl InputQueue {
         }
     }
 
-    /// Writes what is queued until the input is closed or the process is gone. When a write fails and `end_tree` is given
-    /// (a piped input), the process's tree is ended first and the input is let go (`sink` dropped, which the reader sees as
+    /// Writes what is queued until the input is closed or the process is gone. When a write fails other than on a broken
+    /// pipe and `end_tree` is given (a piped input), the process's tree is ended first and the input is let go (`sink` dropped, which the reader sees as
     /// the end of its input) only once the process is gone: a reader that took the end of a part of its input for the end
     /// of all of it would run that part.
     fn run(&self, mut sink: Box<dyn Write + Send>, end_tree: Option<Box<dyn FnOnce() + Send>>) {
@@ -348,6 +348,9 @@ impl InputQueue {
                 }
             };
             if let Err(error) = sink.write_all(&chunk).and_then(|()| sink.flush()) {
+                // A broken pipe means the process let go of its input: nothing it could read is cut short, so letting go
+                // here does not end it, and it exits as it means to.
+                let end_tree = end_tree.filter(|_| error.kind() != std::io::ErrorKind::BrokenPipe);
                 let Some(end_tree) = end_tree else {
                     self.lock().failed = Some(error.raw_os_error());
                     self.shutdown();
@@ -1928,12 +1931,25 @@ mod tests {
     /// go only once the process is gone: the reader never sees an end of input after a part of what was written.
     #[test]
     fn a_write_that_fails_part_way_ends_the_tree_before_the_input_is_let_go() {
-        /// Takes the first 4 bytes, then fails as a broken pipe does; records when it is dropped (the input closed).
-        struct Breaks(Arc<Mutex<Vec<&'static str>>>, usize);
+        let log = write_failing_with(std::io::ErrorKind::Other);
+        assert_eq!(log, ["tree ended", "input let go"]);
+    }
+
+    /// A broken pipe is the process letting go of its input: the input is let go and the tree is not ended.
+    #[test]
+    fn a_broken_pipe_lets_go_of_the_input_without_ending_the_tree() {
+        let log = write_failing_with(std::io::ErrorKind::BrokenPipe);
+        assert_eq!(log, ["input let go"]);
+    }
+
+    /// What happens when a piped input's write fails with `kind` after 4 bytes: the tree ended, the input let go, in order.
+    fn write_failing_with(kind: std::io::ErrorKind) -> Vec<&'static str> {
+        /// Takes the first 4 bytes, then fails with its kind; records when it is dropped (the input closed).
+        struct Breaks(Arc<Mutex<Vec<&'static str>>>, usize, std::io::ErrorKind);
         impl Write for Breaks {
             fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
                 if self.1 >= 4 {
-                    return Err(std::io::Error::from_raw_os_error(232));
+                    return Err(std::io::Error::from(self.2));
                 }
                 let n = buf.len().min(4 - self.1);
                 self.1 += n;
@@ -1956,22 +1972,25 @@ mod tests {
         let end_log = Arc::clone(&log);
         let writer = {
             let input = Arc::clone(&input);
-            let sink = Box::new(Breaks(Arc::clone(&log), 0));
+            let sink = Box::new(Breaks(Arc::clone(&log), 0, kind));
             std::thread::spawn(move || {
                 input.run(
                     sink,
                     Some(Box::new(move || {
                         end_log.lock().unwrap().push("tree ended");
-                        ended_tx.send(()).unwrap();
+                        let _ = ended_tx.send(());
                     })),
                 );
             })
         };
-        ended.recv_timeout(std::time::Duration::from_secs(60)).expect("the failed write ended the tree");
-        // The process's exit, after which the input is let go.
-        input.shutdown();
+        if kind != std::io::ErrorKind::BrokenPipe {
+            ended.recv_timeout(std::time::Duration::from_secs(60)).expect("the failed write ended the tree");
+            // The process's exit, after which the input is let go.
+            input.shutdown();
+        }
         writer.join().unwrap();
-        assert_eq!(*log.lock().unwrap(), ["tree ended", "input let go"]);
+        // The writer thread is gone, and with it the sink and the end-of-tree callback that shared the log.
+        Arc::try_unwrap(log).expect("the log has no other owner").into_inner().unwrap()
     }
 
     /// Pieces end between characters: a two-byte and a four-byte character on a piece's edge go whole into the next piece; a character

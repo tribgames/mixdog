@@ -220,7 +220,7 @@ fn item_text(value: &Value, what: &str) -> Result<String, String> {
     if text.is_empty() {
         return Err(format!("todo: {what} wording is required"));
     }
-    if mixdog_js::utf16_len(&text) > MAX_TODO_TEXT_LENGTH {
+    if text.chars().count() > MAX_TODO_TEXT_LENGTH {
         return Err(format!("todo: {what} exceeds {MAX_TODO_TEXT_LENGTH} characters"));
     }
     Ok(text)
@@ -698,6 +698,14 @@ mod tests {
             TodoRun::Commit { list, reply } => (list, reply),
             TodoRun::View(_) => panic!("view"),
         }
+    }
+
+    #[test]
+    fn the_step_length_limit_counts_code_points_not_utf16_units() {
+        let astral = "😀".repeat(MAX_TODO_TEXT_LENGTH);
+        commit(&TodoList::default(), json!({"op":"set","items":[astral]}));
+        let over = "😀".repeat(MAX_TODO_TEXT_LENGTH + 1);
+        assert!(run(&TodoList::default(), &json!({"op":"set","items":[over]}), 7).is_err());
     }
 
     #[test]

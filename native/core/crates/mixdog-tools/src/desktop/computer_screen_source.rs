@@ -177,6 +177,10 @@ pub struct ScreenFrame {
 
 /// The live view's side of every viewer: the sender's track and the viewer's channel. `key` is `screen:<screenId>`.
 pub trait ScreenSink: Send + Sync {
+    /// A sink that queues events can bind them to this incarnation of the display.
+    fn for_session(&self, _id: u64) -> Option<Arc<dyn ScreenSink>> {
+        None
+    }
     /// The locked geometry changed, or `None` when the session ended or was refused.
     fn geometry_changed(&self, key: &str, geometry: Option<Value>);
     /// The sender renews its capture track.
@@ -914,11 +918,16 @@ impl VideoScreen<HelperPicture> for ScreenSession {
 
 /// One viewer's whole-PC screen: what the live view's host drives as the video source of `screen:<screenId>`.
 pub struct ScreenViewer {
+    id: u64,
     video: ScreenVideoSource<HelperPicture>,
     screen: Arc<ScreenSession>,
 }
 
 impl ScreenViewer {
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
     /// A viewer needs pictures: admits the viewer and locks the geometry once (idempotent).
     pub fn start(&self) {
         self.video.start();
@@ -1014,7 +1023,7 @@ struct Parts {
     indicator: Arc<dyn Fn() -> Arc<dyn ScreenIndicatorPort> + Send + Sync>,
     pc_access: Option<Arc<dyn ScreenPcAccess>>,
     pixels: Option<Arc<dyn DisplayPixels>>,
-    sink: Arc<dyn VideoSink<HelperPicture>>,
+    sink: Arc<dyn ScreenSink>,
     log: Arc<dyn Fn(Value) + Send + Sync>,
     timers: Arc<dyn Timers>,
     registry: Mutex<Registry>,
@@ -1059,7 +1068,7 @@ impl ScreenSources {
             indicator,
             pc_access: pc_access.map(|port| Arc::new(PcAccessAdapter(port)) as Arc<dyn ScreenPcAccess>),
             pixels,
-            sink: Arc::new(SinkAdapter(sink)),
+            sink,
             log,
             timers,
             registry: Mutex::new(Registry::default()),
@@ -1204,8 +1213,9 @@ impl ScreenSources {
                 (parts.log)(json!({"type": "start-failed", "clientId": client, "screenId": screen_id, "error": error}));
             }
         };
-        let video = ScreenVideoSource::<HelperPicture>::new(screen.clone(), screen_id, parts.sink.clone(), parts.timers.clone(), on_error);
-        let viewer = Arc::new(ScreenViewer { video, screen: screen.clone() });
+        let sink = parts.sink.for_session(id).unwrap_or_else(|| parts.sink.clone());
+        let video = ScreenVideoSource::<HelperPicture>::new(screen.clone(), screen_id, Arc::new(SinkAdapter(sink)), parts.timers.clone(), on_error);
+        let viewer = Arc::new(ScreenViewer { id, video, screen: screen.clone() });
         {
             // Weak: the session's own listener must not keep it alive.
             let (weak, stopped, lease, key) = (Arc::downgrade(parts), Arc::downgrade(&screen), lease.clone(), key.to_string());

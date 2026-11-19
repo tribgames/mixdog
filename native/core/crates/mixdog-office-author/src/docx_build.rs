@@ -17,6 +17,8 @@ use base64::engine::DecodePaddingMode;
 use base64::engine::GeneralPurpose;
 use base64::engine::GeneralPurposeConfig;
 use mixdog_fonts::registry::Registry;
+
+use crate::link_target::safe_link;
 use mixdog_fsio::ReadProof;
 use mixdog_js::JsRegex;
 use mixdog_js::js_to_lowercase;
@@ -37,6 +39,7 @@ use mixdog_ooxml::docx_parts::word_drawing_xml;
 use mixdog_ooxml::docx_styles::document_style_id;
 use mixdog_ooxml::docx_xml::word_run_properties;
 use mixdog_ooxml::docx_xml::word_text_content;
+use mixdog_ooxml::opc::add_package_relationship;
 use mixdog_ooxml::package::package_buffer;
 use mixdog_ooxml::snapshot_docx::append_docx_block;
 use mixdog_ooxml::text_metrics::TextMeasurer;
@@ -135,7 +138,8 @@ fn shading(fill: &str) -> String {
     format!("<w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"{fill}\"/>")
 }
 
-fn runs_xml(runs: &[Value]) -> String {
+/// `link` is given a run's `href` and returns the relationship id of its external hyperlink.
+fn runs_xml(runs: &[Value], link: &mut dyn FnMut(&str) -> String) -> String {
     runs.iter()
         .map(|run| {
             if is_true(run, "br") {
@@ -168,7 +172,11 @@ fn runs_xml(runs: &[Value]) -> String {
             ]
             .concat();
             let rpr = if properties.is_empty() { String::new() } else { format!("<w:rPr>{properties}</w:rPr>") };
-            format!("<w:r>{rpr}{}</w:r>", word_text_content(text(run, "text"), true))
+            let piece = format!("<w:r>{rpr}{}</w:r>", word_text_content(text(run, "text"), true));
+            match safe_link(text(run, "href")) {
+                None => piece,
+                Some(href) => format!("<w:hyperlink r:id=\"{}\" w:history=\"1\">{piece}</w:hyperlink>", link(&href)),
+            }
         })
         .collect()
 }
@@ -350,6 +358,8 @@ pub fn inline_pictures(flow: &Value) -> Vec<InlinePicture> {
     found
 }
 
+const HYPERLINK_RELATIONSHIP: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink";
+
 /// Writes a flow into the body of the document.
 struct BodyWriter<'a, P: ReadProof> {
     proof: &'a P,
@@ -429,7 +439,9 @@ impl<P: ReadProof> BodyWriter<'_, P> {
                 let numbering = block.get("list").filter(|list| truthy(list)).map(|list| self.numbering(list));
                 let heading = field(block, "heading");
                 let style_id = if is_true(block, "heading") && heading <= 3.0 { self.heading_style(heading as u64) } else { String::new() };
-                Ok(format!("<w:p>{}{}</w:p>", paragraph_properties(block, &style_id, numbering.as_ref(), true), runs_xml(array(block, "runs"))))
+                let zip = &mut *self.zip;
+                let runs = runs_xml(array(block, "runs"), &mut |href| add_package_relationship(zip, "word/_rels/document.xml.rels", HYPERLINK_RELATIONSHIP, href, "External"));
+                Ok(format!("<w:p>{}{}</w:p>", paragraph_properties(block, &style_id, numbering.as_ref(), true), runs))
             }
         }
     }
@@ -765,10 +777,47 @@ mod tests {
         let xml = runs_xml(&[
             json!({ "text": "a", "font": "Georgia", "size": 11, "bold": true, "strike": true, "shading": "FFF2A8", "vertAlign": "superscript" }),
             json!({ "br": true }),
-        ]);
+        ], &mut |_| unreachable!());
         assert!(xml.contains("<w:rFonts w:ascii=\"Georgia\" w:hAnsi=\"Georgia\" w:eastAsia=\"Georgia\"/>"), "{xml}");
         assert!(xml.contains("<w:strike/><w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"FFF2A8\"/><w:vertAlign w:val=\"superscript\"/>"), "{xml}");
         assert!(xml.ends_with("<w:r><w:br/></w:r>"));
+    }
+
+    #[test]
+    fn a_linked_run_is_a_hyperlink_whose_relationship_targets_the_url() {
+        let run = |label: &str, href: &str| json!({ "text": label, "size": 11, "href": href });
+        let runs = json!([run("Alpha", "https://a.test/?x=1&y=2"), run("Beta", "mailto:b@b.test"), run("Evil", "javascript:alert(1)"), run("Plain", ""), run("Ctl", "https://ctl.test/a\u{1}")]);
+        let cell_runs = json!([run("CellOne", "https://c.test/one"), run("CellTwo", "https://c.test/two"), run("CellEvil", "file:///c:/secret")]);
+        let flow = json!({ "blocks": [
+            { "kind": "p", "runs": runs, "before": 0, "after": 8, "line": 17.6, "align": "left" },
+            { "kind": "table", "rows": [{ "cells": [{ "blocks": [{ "kind": "p", "runs": cell_runs, "before": 0, "after": 0, "line": 17.6, "align": "left" }] }] }] },
+        ] });
+        let (zip, _) = built(&flow);
+        let rels = zip.text("word/_rels/document.xml.rels");
+        let document = zip.text(DOCUMENT_PART);
+        // The relationship a labelled run sits in a hyperlink of, resolved through the document's relationships.
+        let target_of = |label: &str| -> Option<String> {
+            let at = document.find(&format!(">{label}</w:t>")).unwrap_or_else(|| panic!("{label} in {document}"));
+            let before = &document[..at];
+            let open = before.rfind("<w:r>").expect("a run");
+            if !before[..open].ends_with("w:history=\"1\">") {
+                return None;
+            }
+            let id = before[..open].rsplit("<w:hyperlink r:id=\"").next()?.split('"').next()?;
+            let rel = rels.split("<Relationship ").find(|rel| rel.contains(&format!("Id=\"{id}\""))).unwrap_or_else(|| panic!("{id} in {rels}"));
+            assert!(rel.contains("relationships/hyperlink") && rel.contains("TargetMode=\"External\""), "{rel}");
+            Some(rel.split("Target=\"").nth(1)?.split('"').next()?.to_owned())
+        };
+        assert_eq!(target_of("Alpha").as_deref(), Some("https://a.test/?x=1&amp;y=2"));
+        assert_eq!(target_of("Beta").as_deref(), Some("mailto:b@b.test"));
+        assert_eq!(target_of("CellOne").as_deref(), Some("https://c.test/one"));
+        assert_eq!(target_of("CellTwo").as_deref(), Some("https://c.test/two"));
+        for plain in ["Evil", "Plain", "CellEvil"] {
+            assert_eq!(target_of(plain), None, "{plain}");
+        }
+        assert_eq!(target_of("Ctl").as_deref(), Some("https://ctl.test/a"));
+        assert!(!rels.contains('\u{1}'), "the relationships stay valid XML");
+        assert!(!rels.contains("javascript") && !rels.contains("secret"), "{rels}");
     }
 
     #[test]

@@ -27,7 +27,7 @@ fn socket_json(s: &ListeningSocket) -> Value {
 
 #[test]
 fn ports_corpus_matches_the_node_twin() {
-    let corpus = fixture("../core/fixtures/desktop/ports/corpus.json");
+    let corpus = fixture("tests/fixtures/ports-corpus.json");
     assert_eq!(corpus["domain"], "ports");
     let mut parsed: Vec<ListeningSocket> = Vec::new();
     let mut checked = 0;

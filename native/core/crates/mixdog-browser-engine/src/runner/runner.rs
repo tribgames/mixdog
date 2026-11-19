@@ -1659,7 +1659,12 @@ impl FormContext for FormCtx<'_> {
     }
 
     async fn observation_after_failure(&mut self) -> Result<String, RefError> {
-        match self.page.snapshot_reply(&json!({"action": "snapshot"}), &ReplyOptions::default()).await {
+        // `{ action: 'snapshot', maxChars: command.maxChars }`: the caller's budget bounds the recovery snapshot too.
+        let mut observe = json!({"action": "snapshot"});
+        if let Some(max_chars) = self.command().get("maxChars") {
+            observe["maxChars"] = max_chars.clone();
+        }
+        match self.page.snapshot_reply(&observe, &ReplyOptions::default()).await {
             Ok(reply) | Err(RunError::Reply(reply)) => Ok(reply.text),
             Err(RunError::Cancelled(_)) => Err(RefError::Host(HostCallError::Cancelled)),
             Err(error) => Ok(format!("Fresh observation failed: {}", error.message())),
@@ -2031,6 +2036,15 @@ mod tests {
         assert_eq!(released.len(), 1);
         assert_eq!(released[0].method, "host/browser/lease/release");
         assert_eq!(released[0].params["leaseId"], "lease-1");
+    }
+
+    #[tokio::test]
+    async fn the_snapshot_after_a_failed_multi_field_fill_keeps_the_callers_max_chars() {
+        let host = Arc::new(FakeHost::scripted(vec![resolved("p1"), snapshot_answer(), no_downloads()]));
+        let error = run(&engine(&host, None), "fill", json!({"fields": [{"ref": "p1-s1-e9", "text": "x"}], "maxChars": 123})).await.expect_err("the ref is unknown");
+        assert!(error.message_for_model.contains("Fill stopped at field 1 of 1"), "{}", error.message_for_model);
+        let snapshots: Vec<Value> = host.calls().into_iter().filter(|call| call.method == "host/browser/snapshot").map(|call| call.params).collect();
+        assert!(snapshots.iter().any(|params| params["textChars"] == 123), "{snapshots:?}");
     }
 
     #[tokio::test]

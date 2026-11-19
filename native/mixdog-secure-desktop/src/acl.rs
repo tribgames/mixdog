@@ -198,7 +198,10 @@ mod tests {
     use std::path::PathBuf;
     use windows::core::BOOL;
     use windows::Win32::Foundation::WIN32_ERROR;
-    use windows::Win32::Security::Authorization::SetNamedSecurityInfoW;
+    use windows::Win32::Security::Authorization::{
+        BuildTrusteeWithSidW, ConvertStringSidToSidW, GetEffectiveRightsFromAclW,
+        SetNamedSecurityInfoW, TRUSTEE_W,
+    };
     use windows::Win32::Security::{
         GetSecurityDescriptorDacl, InitializeAcl, ACL_REVISION,
         INHERIT_ONLY_ACE as WINNT_INHERIT_ONLY_ACE, PROTECTED_DACL_SECURITY_INFORMATION,
@@ -437,6 +440,41 @@ mod tests {
         }
     }
 
+    /// `FILE_ADD_FILE | FILE_ADD_SUBDIRECTORY` directory rights.
+    const ADD_FILE_OR_SUBDIRECTORY: u32 = 0x2 | 0x4;
+
+    /// The rights the on-disk DACL of `path` itself grants the SID `sid`,
+    /// computed from the ACEs only (no token privileges, no owner rights).
+    fn effective_rights(path: &Path, sid: &str) -> u32 {
+        let wide_path = wide(&path.to_string_lossy());
+        let wide_sid = wide(sid);
+        unsafe {
+            let mut dacl: *mut ACL = std::ptr::null_mut();
+            let mut descriptor = PSECURITY_DESCRIPTOR::default();
+            let status = GetNamedSecurityInfoW(
+                PCWSTR(wide_path.as_ptr()),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                None,
+                None,
+                Some(&mut dacl),
+                None,
+                &mut descriptor,
+            );
+            assert_eq!(status, ERROR_SUCCESS);
+            let mut psid = PSID::default();
+            ConvertStringSidToSidW(PCWSTR(wide_sid.as_ptr()), &mut psid).unwrap();
+            let mut trustee = TRUSTEE_W::default();
+            BuildTrusteeWithSidW(&mut trustee, Some(psid));
+            let mut rights = 0u32;
+            let status = GetEffectiveRightsFromAclW(dacl, &trustee, &mut rights);
+            let _ = LocalFree(Some(HLOCAL(psid.0)));
+            let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+            assert_eq!(status, ERROR_SUCCESS);
+            rights
+        }
+    }
+
     /// A fresh directory under `%TEMP%` plus the subdirectories made in it. The
     /// ACLs under test lock the running user out of everything but ownership,
     /// so on drop the user (the owner) is given full control back, then the
@@ -515,16 +553,23 @@ mod tests {
                 set_dacl(&tree.root, &format!("D:P(A;{flags};FA;;;{user})"), true),
                 ERROR_SUCCESS
             );
-            let denied = std::fs::create_dir(&made).unwrap_err();
+            // Judged from the on-disk DACL alone: whether a create here would
+            // succeed also depends on the caller's token privileges (an
+            // elevated CI runner can hold backup/restore rights), which say
+            // nothing about what the ACE grants.
             assert_eq!(
-                denied.kind(),
-                std::io::ErrorKind::PermissionDenied,
-                "{flags}: {denied}"
+                effective_rights(&tree.root, &user) & ADD_FILE_OR_SUBDIRECTORY,
+                0,
+                "{flags}: an inherit-only grant must give its holder no add rights"
             );
             // The same grant without IO does open the directory.
             assert_eq!(
                 set_dacl(&tree.root, &format!("D:P(A;OICI;FA;;;{user})"), true),
                 ERROR_SUCCESS
+            );
+            assert_eq!(
+                effective_rights(&tree.root, &user) & ADD_FILE_OR_SUBDIRECTORY,
+                ADD_FILE_OR_SUBDIRECTORY
             );
             std::fs::create_dir(&made).unwrap();
         }

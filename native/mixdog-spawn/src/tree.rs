@@ -643,9 +643,10 @@ mod tests {
     use super::*;
 
     /// What Node's own tracker did with the same scripted tables, signals and timers
-    /// (`record-shell-tracker-trace.mjs`, recorded from Node b6f10295a; see its MANIFEST.json).
+    /// (a capture of Node commit b6f10295a, kept here as `tests/fixtures/shell-tracker-trace.json`;
+    /// the recorder and its manifest are not part of this repository).
     fn scenarios(kind: &str) -> Vec<Value> {
-        let golden: Value = serde_json::from_str(include_str!("../../core/fixtures/shell-tracker-trace/golden.json")).unwrap();
+        let golden: Value = serde_json::from_str(include_str!("../tests/fixtures/shell-tracker-trace.json")).unwrap();
         let all = golden["scenarios"].as_array().unwrap().iter();
         all.filter(|scenario| scenario["kind"] == kind).cloned().collect()
     }

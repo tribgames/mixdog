@@ -259,9 +259,10 @@ async fn a_byte_capped_text_window_marks_only_the_partial_answers_incomplete() {
     let cap = super::super::common::output_max_bytes();
     let (_dir, ctx) = workspace(vec![("long.txt", format!("first row\n{}\n", "x".repeat(cap)).into_bytes())]).await;
     let read = ReadTool::new(None, None);
+    // `full` (rows not clipped) is an argument of the executor's own `path` form only; the public form has none.
     for input in [
-        serde_json::json!({ "file_path": "long.txt", "offset": 1, "limit": 2, "full": true }),
-        serde_json::json!({ "file_path": [{"file_path": "long.txt", "offset": 1, "limit": 2}], "full": true }),
+        serde_json::json!({ "path": "long.txt", "offset": 0, "limit": 2, "full": true }),
+        serde_json::json!({ "path": [{"path": "long.txt", "offset": 0, "limit": 2, "full": true}] }),
     ] {
         let out = read.call(&ctx, input).await.unwrap();
         assert_eq!(out.meta.as_ref().map(|m| &m["complete"]), Some(&JsonValue::Bool(false)));

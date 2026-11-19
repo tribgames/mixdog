@@ -7,6 +7,8 @@ mod grep_context;
 mod hints;
 mod list;
 #[cfg(test)]
+mod legacy_regression_tests;
+#[cfg(test)]
 mod locator_page_tests;
 mod not_found;
 mod patch;

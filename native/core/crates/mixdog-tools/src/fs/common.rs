@@ -191,6 +191,61 @@ pub(crate) async fn guarded<F: Future>(
     }
 }
 
+/// A step that changes the disk: the call's cancellation is checked before it starts and never raced against it, so a
+/// step that ran is answered as it ended. The wait is bounded by the deadline only, and a step still running then may
+/// yet publish, so the deadline answers an unknown outcome. A step that should give up part way takes the token itself.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+pub(crate) async fn publish_guarded<F: Future>(ctx: &ToolContext, name: &str, fut: F) -> Result<F::Output, ToolError> {
+    if ctx.cancel.is_cancelled() {
+        return Err(cancelled());
+    }
+    let deadline = async {
+        match ctx.deadline {
+            Some(at) => mixdog_rt::time::sleep_until(tokio::time::Instant::from_std(at)).await,
+            None => std::future::pending().await,
+        }
+    };
+    tokio::select! {
+        out = fut => Ok(out),
+        () = deadline => {
+            let mut e = fail(
+                ToolErrorCode::OutcomeUnknown,
+                format!("Error: \"{name}\" exceeded its deadline while writing; the write may still complete; re-read before retrying"),
+            );
+            e.outcome_unknown = true;
+            Err(e)
+        }
+    }
+}
+
+/// The answer of a write the call's cancellation stopped before it was published: a plain cancel, or one that names
+/// what its cleanup could not remove and is still on disk.
+pub(crate) fn cancelled_write(left: &[AbsPath]) -> ToolError {
+    if left.is_empty() {
+        return cancelled();
+    }
+    let names: Vec<String> = left.iter().map(|p| super::patch_guard::normalize_output_path(&p.as_path().to_string_lossy())).collect();
+    fail(
+        ToolErrorCode::Cancelled,
+        format!("Error: tool call cancelled before the write was published, but its cleanup failed; still on disk: {}", names.join(", ")),
+    )
+}
+
+/// One file write that honours the call's cancellation where it matters: the job checks it immediately before it
+/// publishes, so a cancelled call never replaces the file, while one that arrives after the rename finds the write done
+/// and answers it so.
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+pub(crate) async fn write_guarded(
+    ctx: &ToolContext,
+    name: &str,
+    request: mixdog_core_api::domain::fs::WriteRequest,
+) -> Result<Result<mixdog_core_api::domain::fs::FileStat, FsError>, ToolError> {
+    match publish_guarded(ctx, name, ctx.files.write_cancellable(ctx.io.durability, request, ctx.cancel.clone())).await? {
+        Err(FsError { kind: FsErrorKind::Cancelled { left }, .. }) => Err(cancelled_write(&left)),
+        other => Ok(other),
+    }
+}
+
 /// What a write tool holds for its whole read-modify-write: the shared per-path locks (the ones a
 /// mutating git call holds on its work tree) and Node's cross-process advisory lock. The advisory
 /// lock is released first.
@@ -233,8 +288,10 @@ fn existing_probe(full: &Path) -> Option<&Path> {
 /// its real path. `None` when nothing on the path exists or cannot be resolved.
 fn nearest_existing(full: &Path) -> Option<(&Path, PathBuf)> {
     let probe = existing_probe(full)?;
-    // Node's `realpathSync` has no `\\?\` prefix, and the lock key must read like the other tools'.
-    Some((probe, mixdog_workspace::pathguard::canonical(probe).ok()?))
+    // Node's `realpathSync` has no `\\?\` prefix, and the lock key must read like the other tools'. A folder that cannot
+    // be opened (a protected system folder) still resolves through Node's component walk, which only lstats.
+    let real = mixdog_workspace::pathguard::canonical(probe).ok().or_else(|| mixdog_workspace::pathguard::node_realpath(probe).ok())?;
+    Some((probe, real))
 }
 
 /// [`nearest_existing`] joined back to the missing tail: the target with its nearest existing
@@ -783,6 +840,13 @@ pub(crate) fn arg_str<'a>(args: &'a JsonValue, key: &str) -> Option<&'a str> {
 
 pub(crate) fn arg_u64(args: &JsonValue, key: &str) -> Option<u64> {
     args.get(key).and_then(JsonValue::as_u64)
+}
+
+/// Node's `_*DefaultHeadLimit`: the positive integer `parseInt` reads from the A/B override `name`, else `fallback`.
+pub(crate) fn env_default_limit(name: &str, fallback: usize) -> usize {
+    let value = std::env::var(name).unwrap_or_default();
+    let digits: String = value.trim_start().strip_prefix('+').unwrap_or(value.trim_start()).chars().take_while(char::is_ascii_digit).collect();
+    digits.parse::<usize>().ok().filter(|n| *n > 0).unwrap_or(fallback)
 }
 
 pub(crate) fn arg_bool(args: &JsonValue, key: &str) -> bool {

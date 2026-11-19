@@ -286,14 +286,15 @@ mod unix {
         containment: &Containment,
     ) -> io::Result<PtyParts> {
         let (mut master, mut slave) = (-1, -1);
-        let ws = winsize(size);
+        // Apple's openpty takes `*mut` for termios and winsize, Linux's `*const`; `*mut` coerces to both.
+        let mut ws = winsize(size);
         if unsafe {
             libc::openpty(
                 &mut master,
                 &mut slave,
                 std::ptr::null_mut(),
-                std::ptr::null(),
-                &ws,
+                std::ptr::null_mut(),
+                &mut ws,
             )
         } != 0
         {

@@ -13,8 +13,7 @@ use std::time::UNIX_EPOCH;
 use async_trait::async_trait;
 use globset::Glob;
 use globset::GlobBuilder;
-use globset::GlobSet;
-use globset::GlobSetBuilder;
+use globset::GlobMatcher;
 use nucleo_matcher::Config as FuzzyConfig;
 use nucleo_matcher::Matcher as FuzzyMatcher;
 use nucleo_matcher::Utf32String;
@@ -134,17 +133,97 @@ fn refused_with(error: &ToolError) -> Option<&str> {
     }
 }
 
-/// Include/exclude sets for gitignore-style globs (`!` excludes).
+/// path-utils.mjs `normalizeCompactSurfaceArgs` and `promoteSharedSearchAliases`: the legacy spellings the compact
+/// surface still receives. `head_limit` is the `limit` (and wins over it); with `path_aliases` a missing `path` is the
+/// first present `root`/`directory`/`dir`.
+fn promote_legacy_args(mut args: JsonValue, path_aliases: bool) -> JsonValue {
+    let Some(map) = args.as_object_mut() else { return args };
+    if let Some(head) = map.shift_remove("head_limit").filter(|v| !v.is_null()) {
+        map.insert("limit".to_owned(), head);
+    }
+    // arg-guard.mjs `coerceIntegerString`: a numeric string (`-?\d+(\.\d+)?`, integral) is its number.
+    for key in ["limit", "offset"] {
+        let coerced = map.get(key).and_then(JsonValue::as_str).and_then(|s| {
+            let t = mixdog_js::js_trim(s);
+            let unsigned = t.strip_prefix('-').unwrap_or(t);
+            let (whole, fraction) = unsigned.split_once('.').map_or((unsigned, None), |(w, f)| (w, Some(f)));
+            let digits = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
+            let number = (digits(whole) && fraction.is_none_or(digits)).then(|| t.parse::<f64>().ok()).flatten()?;
+            (number.is_finite() && number.fract() == 0.0).then_some(number as i64)
+        });
+        if let Some(number) = coerced {
+            map.insert(key.to_owned(), number.into());
+        }
+    }
+    let blank = |v: Option<&JsonValue>| v.is_none_or(|v| v.is_null() || v.as_str() == Some(""));
+    if path_aliases && blank(map.get("path")) {
+        let alias = ["root", "directory", "dir"].iter().find_map(|key| map.get(*key).filter(|v| v.is_string() && !blank(Some(v))).cloned());
+        if let Some(alias) = alias {
+            map.insert("path".to_owned(), alias);
+        }
+    }
+    args
+}
+
+/// Marks a request that named `output_mode:"content"` with no context flag (set by [`promote_output_mode`]).
+const BARE_CONTENT: &str = "_bareContent";
+
+/// grep-request.mjs `resolveGrepWindow`: an explicit `output_mode` is the grep's mode (`content` is the bare listing,
+/// `content_with_context` and no mode the one with the automatic window, which is this surface's `content`).
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-fn compile_globs(patterns: &[String]) -> Result<(GlobSet, GlobSet, bool), ToolError> {
-    let (mut inc, mut exc) = (GlobSetBuilder::new(), GlobSetBuilder::new());
+fn promote_output_mode(mut args: JsonValue) -> Result<JsonValue, ToolError> {
+    let Some(map) = args.as_object_mut() else { return Ok(args) };
+    let Some(raw) = map.get("output_mode").and_then(JsonValue::as_str).map(|s| mixdog_js::js_trim(s).to_owned()).filter(|s| !s.is_empty()) else {
+        return Ok(args);
+    };
+    let (mode, bare) = match raw.as_str() {
+        "files_with_matches" => ("files", false),
+        "count" => ("count", false),
+        "content" => ("content", true),
+        "content_with_context" => ("content", false),
+        _ => {
+            let shown = serde_json::to_string(&map["output_mode"]).unwrap_or_default();
+            return Err(invalid(
+                "output_mode",
+                "enum",
+                format!("Error: invalid output_mode {shown}; expected one of files_with_matches, content, content_with_context, count"),
+            ));
+        }
+    };
+    map.shift_remove("output_mode");
+    map.insert("mode".to_owned(), mode.into());
+    if bare && map.get("context").is_none_or(JsonValue::is_null) {
+        map.insert("context".to_owned(), 0.into());
+        // `clampGrepContextHeadLimit` leaves a bare `content` request without context flags unclamped.
+        map.insert(BARE_CONTENT.to_owned(), true.into());
+    }
+    Ok(args)
+}
+
+/// Gitignore-style globs (`!` excludes) in the order given: the last glob that matches a path decides it, as rg's later
+/// glob wins; a path no glob matches is kept only when there is no positive glob.
+struct OrderedGlobs {
+    rules: Vec<(GlobMatcher, bool)>,
+    any_include: bool,
+}
+
+impl OrderedGlobs {
+    fn keeps(&self, relative: &str) -> bool {
+        self.rules.iter().rev().find(|(glob, _)| glob.is_match(relative)).map_or(!self.any_include, |(_, negated)| !negated)
+    }
+}
+
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+fn compile_globs(patterns: &[String]) -> Result<OrderedGlobs, ToolError> {
+    let mut rules = Vec::with_capacity(patterns.len());
     let mut any_include = false;
     for raw in patterns {
         let (neg, body) = match raw.strip_prefix('!') {
             Some(rest) => (true, rest),
             None => (false, raw.as_str()),
         };
-        let mut p = body.trim().replace('\\', "/");
+        // On POSIX a backslash is a glob escape; `canonical_glob_slashes` already made it a separator on Windows.
+        let mut p = body.trim().to_owned();
         // A leading `/` anchors the glob at the walk root, as rg reads it.
         let anchored = p.starts_with('/');
         p = p.trim_start_matches("./").trim_start_matches('/').to_owned();
@@ -158,18 +237,10 @@ fn compile_globs(patterns: &[String]) -> Result<(GlobSet, GlobSet, bool), ToolEr
             .literal_separator(true)
             .build()
             .map_err(|e| invalid("pattern", "glob", format!("Error: invalid glob {raw:?}: {e}")))?;
-        if neg {
-            exc.add(glob);
-        } else {
-            inc.add(glob);
-            any_include = true;
-        }
+        any_include |= !neg;
+        rules.push((glob.compile_matcher(), neg));
     }
-    let build = |b: GlobSetBuilder| {
-        b.build()
-            .map_err(|e| invalid("pattern", "glob", format!("Error: invalid glob set: {e}")))
-    };
-    Ok((build(inc)?, build(exc)?, any_include))
+    Ok(OrderedGlobs { rules, any_include })
 }
 
 /// The mtime in ms (0 when the file service has none); `None` when the stat failed.
@@ -223,10 +294,112 @@ impl<T: Ord> Top<T> {
     }
 }
 
-/// Node's `searchIoAdmission` (`tool-workload-gates.mjs`, `search-admission.mjs`): one broad search (a `--files` walk, a fuzzy
-/// find, a bulk grep) runs at a time in the process; the others wait their turn behind it, session by session
-/// (`createOwnerFairGate`: the turn goes round the sessions that wait, not to the oldest waiter).
-static BROAD_SEARCH: std::sync::LazyLock<mixdog_rt::OwnerGate> = std::sync::LazyLock::new(mixdog_rt::OwnerGate::new);
+/// Node's `searchIoAdmission` (`tool-workload-gates.mjs`, `search-admission.mjs`): broad searches (a `--files` walk, a fuzzy
+/// find, a bulk grep) take turns in the process, and the others wait behind them, session by session
+/// (`createOwnerFairGate`: a free turn goes round the sessions that wait, not to the oldest waiter). Node holds one turn,
+/// its one search server on a single-threaded host; the core's many sessions run [`broad_search_limit`] at once, and no
+/// session is handed the last free turn while another session waits.
+static BROAD_SEARCH: std::sync::LazyLock<mixdog_rt::OwnerGate> =
+    std::sync::LazyLock::new(|| mixdog_rt::OwnerGate::with_limit(broad_search_limit()));
+
+/// The broad searches that run at once: `MIXDOG_BROAD_SEARCH_MAX_INFLIGHT` above 0, else the available parallelism
+/// within 2..=8 (as the content search's `SchedulerConfig::from_env` derives its `total`); then within 1..=16. 1 is
+/// Node's one at a time.
+fn broad_search_limit() -> usize {
+    let available = std::thread::available_parallelism().map_or(2, |n| n.get());
+    std::env::var("MIXDOG_BROAD_SEARCH_MAX_INFLIGHT")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or_else(|| available.clamp(2, 8))
+        .clamp(1, 16)
+}
+
+/// The process's broad-search gate, for tests that hold its turns or set its limit.
+#[cfg(test)]
+pub(super) fn broad_search_gate() -> &'static mixdog_rt::OwnerGate {
+    &BROAD_SEARCH
+}
+
+/// What a tool call's broad searches waited for admission and ran, summed over the call ([`with_broad_times`]).
+#[derive(Default)]
+struct BroadTimes {
+    /// The call's id, tool and session, from its first broad search.
+    call: Option<(String, String, String)>,
+    searches: u64,
+    wait_ms: u64,
+    run_ms: u64,
+}
+
+tokio::task_local! {
+    static BROAD_TIMES: std::cell::RefCell<BroadTimes>;
+}
+
+/// A tool call that may run broad searches: its answer's local-search telemetry (`meta.localSearchTelemetry`, the trace
+/// row's `local_search`) gets `broad_searches`, `broad_wait_ms` (the time they waited for their turns, a refused one's
+/// whole wait included) and `broad_run_ms` (the time they ran once admitted), so a slow call tells waiting from running.
+/// Node has no such keys; they are the core's own, beside Node's `broad_admissions`/`broad_admission_wait_ms`.
+///
+/// Every outcome, a refusal or a cancel included, is also told to the process trace (target `broad_search`, with the
+/// call's id, tool and session), since a failed call's trace row carries no telemetry of its tool.
+pub(super) async fn with_broad_times(call: impl Future<Output = ToolOutcome>) -> ToolOutcome {
+    let (times, outcome) = BROAD_TIMES
+        .scope(std::cell::RefCell::new(BroadTimes::default()), async {
+            let outcome = call.await;
+            (BROAD_TIMES.with(|times| times.take()), outcome)
+        })
+        .await;
+    if times.searches == 0 {
+        return outcome;
+    }
+    let (call, tool, session) = times.call.as_ref().map_or(("", "", ""), |(call, tool, session)| (call.as_str(), tool.as_str(), session.as_str()));
+    let result = match &outcome {
+        Ok(_) => "ok",
+        Err(e) if matches!(e.code, ToolErrorCode::Cancelled) => "cancelled",
+        Err(_) => "failed",
+    };
+    tracing::info!(
+        target: "broad_search",
+        call_id = call,
+        tool,
+        session,
+        result,
+        searches = times.searches,
+        wait_ms = times.wait_ms,
+        run_ms = times.run_ms,
+        "broad search admission wait and run"
+    );
+    let mut output = outcome?;
+    let meta = output.meta.get_or_insert_with(|| JsonValue::Object(serde_json::Map::new()));
+    if let Some(meta) = meta.as_object_mut() {
+        let telemetry = meta.entry(LOCAL_SEARCH_META).or_insert_with(|| JsonValue::Object(serde_json::Map::new()));
+        if let Some(telemetry) = telemetry.as_object_mut() {
+            telemetry.insert("broad_searches".to_owned(), times.searches.into());
+            telemetry.insert("broad_wait_ms".to_owned(), times.wait_ms.into());
+            telemetry.insert("broad_run_ms".to_owned(), times.run_ms.into());
+        }
+    }
+    Ok(output)
+}
+
+/// Adds one broad search of `ctx`'s call, its wait and run, to the call's [`BroadTimes`]; outside [`with_broad_times`]
+/// there is none to add to.
+fn record_broad_times(ctx: &ToolContext, wait_ms: u64, run_ms: u64) {
+    let _ = BROAD_TIMES.try_with(|times| {
+        let mut sum = times.borrow_mut();
+        sum.call.get_or_insert_with(|| (ctx.call_id.as_str().to_owned(), ctx.tool.clone(), ctx.thread_id.as_str().to_owned()));
+        sum.searches += 1;
+        sum.wait_ms = sum.wait_ms.saturating_add(wait_ms);
+        sum.run_ms = sum.run_ms.saturating_add(run_ms);
+    });
+}
+
+/// A tree listing's walk (`list` with `mode: "tree"`), as `work` given its budget: a broad search, admitted and bounded
+/// as a deep list's inventory is ([`broad_listing`]).
+#[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
+pub(super) async fn broad_tree<T, W: Future<Output = Result<T, ToolError>>>(ctx: &ToolContext, work: impl FnOnce(u64) -> W) -> Result<T, ToolError> {
+    broad_search(ctx, BROAD_REFUSALS[1], work).await
+}
 
 /// The gate's owner key of a call. Node's is the session id of the loop that ran the tool (`executeTool`'s
 /// `callerSessionId`, `runWithToolExecutionOwner`, tool-execution-owner.mjs), which is the thread id here: a sub-agent's
@@ -263,6 +436,7 @@ pub(super) struct Turn {
     /// It waited behind another search. Node tells such a search's admission to whichever call was running when the
     /// turn was handed over (`onAdmit` runs in the dispatching call's context), so it is not the search's own to report.
     pub queued: bool,
+    /// From the turn to the work's end (the wait before it goes to the call's [`BroadTimes`]).
     pub ran_ms: u64,
 }
 
@@ -296,6 +470,53 @@ fn is_absolute_pattern(pattern: &str) -> bool {
     pattern.starts_with('/') || Path::new(pattern).is_absolute()
 }
 
+/// `requestedGlobPatterns`: each pattern as `normalizeInputPath` (`~` expanded) and `canonicalizeGlobSlashes` leave it,
+/// without repeats.
+pub(super) fn glob_patterns(args: &JsonValue) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for pattern in arg_strings(args, "pattern").iter().filter(|p| !p.is_empty()) {
+        let pattern = canonical_glob_slashes(&super::read::normalize_input_path(pattern));
+        if !out.contains(&pattern) {
+            out.push(pattern);
+        }
+    }
+    out
+}
+
+/// The `path` and patterns as the glob reads them, shared by the call and its cache roots: `path` as `normalizeInputPath`
+/// leaves it (`~` expanded; search-glob-tool.mjs:553), and a glob written as the path (with no pattern) is the pattern,
+/// searched from the cwd (`requestedGlobPatterns`), unless the path is a UNC or device spelling, which stays a path to be refused.
+pub(super) fn glob_scope(path: Option<&str>, mut patterns: Vec<String>) -> (String, Vec<String>) {
+    let mut path = super::read::normalize_input_path(path.unwrap_or("."));
+    if path.is_empty() {
+        path = ".".to_owned();
+    }
+    let unc = is_unc_or_smb(&path) || win32_unc_resolution(&path).is_some();
+    if !unc && patterns.is_empty() && has_glob_magic(&path) {
+        patterns = vec![canonical_glob_slashes(&path)];
+        path = ".".to_owned();
+    }
+    (path, patterns)
+}
+
+/// `globBaseEntry`: the walk root and pattern prefix of a `path` carrying glob magic, unless it literally names a directory.
+async fn wildcard_scope(ctx: &ToolContext, raw: &str) -> (String, String) {
+    let literal = async {
+        let abs = resolve_path(&ctx.cwd, raw).ok()?;
+        ctx.files.stat(ctx.io.interactive, abs).await.ok().filter(|stat| stat.kind == EntryKind::Dir)
+    };
+    if !has_glob_magic(raw) || literal.await.is_some() {
+        return (raw.to_owned(), String::new());
+    }
+    let (base, rest) = extract_glob_base_directory(&canonical_glob_slashes(raw));
+    let mut segments: Vec<&str> = rest.split('/').filter(|s| !s.is_empty()).collect();
+    // A trailing `*` ("cache/*") is the children themselves: the pattern supplies the leaf match.
+    if segments.last() == Some(&"*") {
+        segments.pop();
+    }
+    (base.unwrap_or_else(|| ".".to_owned()), segments.join("/"))
+}
+
 /// path-utils.mjs `canonicalizeGlobSlashes`: rg reads `/` only, so on Windows a glob's `\` is a separator.
 fn canonical_glob_slashes(glob: &str) -> String {
     if cfg!(windows) { glob.replace('\\', "/") } else { glob.to_owned() }
@@ -303,14 +524,20 @@ fn canonical_glob_slashes(glob: &str) -> String {
 
 /// The base used by each glob group, including groups outside the caller's project.
 pub fn glob_result_roots(args: &JsonValue) -> Option<Vec<String>> {
-    let path = super::common::optional_path_arg(args, "path", |_| String::new()).ok()?.unwrap_or(".");
-    let patterns: Vec<_> = arg_strings(args, "pattern").iter().map(|p| canonical_glob_slashes(p)).collect();
+    let args = promote_legacy_args(args.clone(), true);
+    let given = super::common::optional_path_arg(&args, "path", |_| String::new()).ok()?;
+    let (mut path, patterns) = glob_scope(given, glob_patterns(&args));
+    // A `path` naming a set of directories is walked from its static base, as the call does; a directory literally so
+    // named lies below that base, so the base covers it.
+    if has_glob_magic(&path) && !is_unc_or_smb(&path) && win32_unc_resolution(&path).is_none() {
+        path = extract_glob_base_directory(&canonical_glob_slashes(&path)).0.unwrap_or_else(|| ".".to_owned());
+    }
     let mut roots = Vec::new();
-    if patterns.is_empty() || patterns.iter().any(|p| !is_absolute_pattern(p)) {
-        roots.push(path.to_owned());
+    if patterns.is_empty() || patterns.iter().any(|p| !is_absolute_pattern(p.trim_start_matches('!'))) {
+        roots.push(path.clone());
     }
     roots.extend(patterns.iter().filter(|p| is_absolute_pattern(p))
-        .map(|p| extract_glob_base_directory(p).0.unwrap_or_else(|| path.to_owned())));
+        .map(|p| extract_glob_base_directory(p).0.unwrap_or_else(|| path.clone())));
     Some(roots)
 }
 
@@ -1065,9 +1292,9 @@ impl Window {
         let limit = match arg_u64(args, "limit") {
             Some(0) => usize::MAX,
             // arg-guard.mjs `clampGrepContextHeadLimit`: in content mode the limit counts match blocks, at most 40.
-            Some(n) if mode == Mode::Content => (n as usize).min(GREP_CONTEXT_LIMIT_MAX),
+            Some(n) if mode == Mode::Content && args.get(BARE_CONTENT).is_none() => (n as usize).min(GREP_CONTEXT_LIMIT_MAX),
             Some(n) => n as usize,
-            None => GREP_DEFAULT_LIMIT,
+            None => env_default_limit("MIXDOG_GREP_DEFAULT_HEAD_LIMIT", GREP_DEFAULT_LIMIT),
         };
         let offset = arg_u64(args, "offset").unwrap_or(0) as usize;
         // `GREP_CONTEXT_MAX`.
@@ -1481,10 +1708,15 @@ pub(super) async fn broad_search_turn<T, W: Future<Output = Result<T, ToolError>
         .within(Duration::from_millis(budget))
         .run(BROAD_SEARCH.enter(&gate_owner(ctx.thread_id.as_str()), &ctx.cancel))
         .await;
+    let elapsed_ms = |since: mixdog_rt::time::Instant| u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX);
     let turn = match waited {
         mixdog_rt::Scoped::Done(Ok(turn)) => turn,
-        mixdog_rt::Scoped::Done(Err(mixdog_rt::GateCancelled)) | mixdog_rt::Scoped::Cancelled => return Err(cancelled()),
+        mixdog_rt::Scoped::Done(Err(mixdog_rt::GateCancelled)) | mixdog_rt::Scoped::Cancelled => {
+            record_broad_times(ctx, elapsed_ms(queued), 0);
+            return Err(cancelled());
+        }
         mixdog_rt::Scoped::DeadlineExceeded => {
+            record_broad_times(ctx, elapsed_ms(queued), 0);
             // Facts the model can act on: how long it waited and behind how many (it never started, so nothing ran).
             let (running, queued_behind) = ahead;
             return Err(refusal(format!(
@@ -1496,12 +1728,16 @@ pub(super) async fn broad_search_turn<T, W: Future<Output = Result<T, ToolError>
     drop(waiting);
     let running = Counted::new(&BROAD_RUNNING);
     let queued_behind_others = turn.queued();
-    let admitted = std::time::Instant::now();
-    let left = budget.saturating_sub(u64::try_from(queued.elapsed().as_millis()).unwrap_or(u64::MAX)).max(1);
+    let waited_ms = elapsed_ms(queued);
+    let admitted = mixdog_rt::time::Instant::now();
+    let left = budget.saturating_sub(waited_ms).max(1);
     let ran = mixdog_rt::Scope::new().cancel(&ctx.cancel).within(Duration::from_millis(left)).run(work(left)).await;
+    // The run ends with the work, before the turn is handed on.
+    let ran_ms = elapsed_ms(admitted);
     drop(turn);
     drop(running);
-    let turn = Turn { queued: queued_behind_others, ran_ms: u64::try_from(admitted.elapsed().as_millis()).unwrap_or(u64::MAX) };
+    let turn = Turn { queued: queued_behind_others, ran_ms };
+    record_broad_times(ctx, waited_ms, ran_ms);
     match ran {
         mixdog_rt::Scoped::Done(out) => out.map(|out| (out, turn)),
         mixdog_rt::Scoped::Cancelled => Err(cancelled()),
@@ -1516,7 +1752,7 @@ pub(super) async fn broad_search_turn<T, W: Future<Output = Result<T, ToolError>
 async fn visit_glob(
     ctx: &ToolContext,
     root: &AbsPath,
-    (inc, exc, any_include): (GlobSet, GlobSet, bool),
+    globs: OrderedGlobs,
     include_noise: bool,
     cap: Option<usize>,
     budget: u64,
@@ -1536,7 +1772,7 @@ async fn visit_glob(
             return false;
         }
         let relative = fwd(path.strip_prefix(root_path).unwrap_or(path));
-        (!any_include || inc.is_match(&relative)) && !exc.is_match(&relative)
+        globs.keeps(&relative)
             && (!unique || seen.insert(entry.path.clone()))
     }, cap, budget, visit).await
 }
@@ -1720,12 +1956,31 @@ impl Tool for GlobTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        with_broad_times(self.respond(ctx, args)).await
+    }
+}
+impl GlobTool {
+    async fn respond(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        let args = promote_legacy_args(args, true);
         // arg-guard.mjs (glob): a `path` or `root` that is not a string, an array included, is refused; a null or
         // blank one is absent and the search runs from the cwd.
         let path = super::common::optional_path_arg(&args, "path", |got| format!("Error: glob arg \"path\" must be string (got {got})"))?;
         super::common::optional_path_arg(&args, "root", |got| format!("Error: glob arg \"root\" must be string (got {got})"))?;
-        let patterns: Vec<String> = arg_strings(&args, "pattern").iter().map(|p| canonical_glob_slashes(p)).collect();
-        let raw = path.unwrap_or(".");
+        let (mut raw, mut patterns) = glob_scope(path, glob_patterns(&args));
+        // `globBaseEntry`: a `path` that names a set of directories walks from its static base, its wildcard part
+        // folded into each relative pattern.
+        // A UNC or device spelling (`\\?\…`) is refused whole below, never read as a glob.
+        let (scoped, prefix) = if glob_unc_refusal(ctx, &raw, &patterns).is_some() { (raw.clone(), String::new()) } else { wildcard_scope(ctx, &raw).await };
+        raw = scoped;
+        if !prefix.is_empty() {
+            for pattern in patterns.iter_mut().filter(|p| !is_absolute_pattern(p.trim_start_matches('!'))) {
+                *pattern = match pattern.strip_prefix('!') {
+                    Some(rest) => format!("!{prefix}/{}", rest.trim_start_matches('/')),
+                    None => format!("{prefix}/{}", pattern.trim_start_matches('/')),
+                };
+            }
+        }
+        let raw = raw.as_str();
         // arg-guard.mjs (glob): `sort` is natural or mtime (after a trim) and nothing else.
         let natural = match args.get("sort") {
             None => false,
@@ -1742,7 +1997,7 @@ impl Tool for GlobTool {
         let limit = match arg_u64(&args, "limit") {
             Some(0) => usize::MAX,
             Some(n) => n as usize,
-            None => GLOB_DEFAULT_LIMIT,
+            None => env_default_limit("MIXDOG_GLOB_DEFAULT_HEAD_LIMIT", GLOB_DEFAULT_LIMIT),
         };
         let offset = arg_u64(&args, "offset").unwrap_or(0) as usize;
         if let Some(text) = glob_unc_refusal(ctx, raw, &patterns) {
@@ -1938,7 +2193,13 @@ impl Tool for FindTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let query = arg_str(&args, "query").unwrap_or("").trim().to_owned();
+        with_broad_times(self.respond(ctx, args)).await
+    }
+}
+impl FindTool {
+    async fn respond(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        let args = promote_legacy_args(args, false);
+        let query =arg_str(&args, "query").unwrap_or("").trim().to_owned();
         if query.is_empty() {
             return Err(invalid("query", "required", "Error: find requires query."));
         }
@@ -1948,9 +2209,16 @@ impl Tool for FindTool {
         let limit = match arg_u64(&args, "limit") {
             Some(0) => FIND_UNLIMITED_CAP,
             Some(n) => n as usize,
-            None => FIND_DEFAULT_LIMIT,
+            None => env_default_limit("MIXDOG_FIND_DEFAULT_HEAD_LIMIT", FIND_DEFAULT_LIMIT),
         };
         let include_noise = arg_bool(&args, "include_noise");
+        // find-files-tool.mjs `fuzzyFindRequest`: dot-directories are searched unless `hidden:false`; `depth` bounds the walk.
+        let hidden = args.get("hidden") != Some(&JsonValue::Bool(false));
+        let depth = match args.get("depth") {
+            Some(JsonValue::Null) | None => None,
+            // `Math.max(parseInt(args.depth, 10) || 1, 1)`: "2levels" is 2, "1e2" is 1.
+            Some(value) => Some(super::list::js_parse_int(value).filter(|n| *n != 0).unwrap_or(1).max(1) as usize),
+        };
         let root = resolve_path(&ctx.cwd, raw)?;
         if let Some(missing) = require_dir(ctx, raw, &root).await? {
             return Ok(text_output(missing));
@@ -1963,18 +2231,20 @@ impl Tool for FindTool {
         let request = WalkRequest {
             root: root.clone(),
             recursive: true,
-            include_hidden: true,
+            include_hidden: hidden,
             respect_ignore: !include_noise,
             require_git: false,
             include_dirs: true,
             prune: root_scan_prunes(&root, cfg!(not(windows))),
-            descent: Descent { max_depth: None, bare, bare_dotted: false, guard: None },
+            descent: Descent { max_depth: depth, bare, bare_dotted: !hidden, guard: None },
             server: Some(SearchClass::Fuzzy),
         };
         // Ranking must not slow the timed enumeration or cut better matches from its tail.
         let Walked { entries, complete, .. } = broad_search(ctx, BROAD_REFUSALS[2], |budget| {
             walk_kept(ctx, request, |entry| {
-                include_noise || !in_noise_dir(entry.path.as_path().parent().unwrap_or(&root_path), &root_path)
+                let dotted = !hidden
+                    && entry.path.as_path().strip_prefix(&root_path).is_ok_and(|rel| rel.components().any(|part| part.as_os_str().to_string_lossy().starts_with('.')));
+                !dotted && (include_noise || !in_noise_dir(entry.path.as_path().parent().unwrap_or(&root_path), &root_path))
             }, None, budget)
         }).await?;
         // serve_search/fuzzy.rs: every whitespace-separated fragment is a nucleo fuzzy atom (case ignored, Unicode
@@ -2083,16 +2353,24 @@ impl GrepTool {
         let (root, mut include_globs) = if single_file {
             let parent = AbsPath::new(abs.as_path().parent().unwrap_or(abs.as_path()).to_path_buf())
                 .unwrap_or_else(|| abs.clone());
-            let name = abs.as_path().file_name().map(|n| escape_glob(&n.to_string_lossy()));
+            // Anchored to the parent: a bare name would match that name in every folder below it.
+            let name = abs.as_path().file_name().map(|n| format!("/{}", escape_glob(&n.to_string_lossy())));
             (parent, name.into_iter().collect::<Vec<_>>())
         } else {
             (abs.clone(), Vec::new())
         };
         let mut exclude_globs = Vec::new();
+        if single_file {
+            // The file is its parent's own entry: no folder beside it is entered to find it.
+            exclude_globs.push("/*/".to_owned());
+        }
         // grep-request.mjs `resolveGrepScope`: a caller's glob with each Windows `\` a `/` (`canonicalizeGlobSlashes`).
         for g in globs.iter().map(|g| canonical_glob_slashes(g)) {
             match g.strip_prefix('!') {
                 Some(neg) => exclude_globs.push(neg.to_owned()),
+                // A file operand is its one candidate: an include glob, which only ever added files beside the name it
+                // matched, neither widens nor narrows it (the file is searched whether the glob matches it or not).
+                None if single_file => {}
                 None => include_globs.push(g),
             }
         }
@@ -2245,10 +2523,16 @@ impl Tool for GrepTool {
         &self.spec
     }
 
+    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        with_broad_times(self.respond(ctx, args)).await
+    }
+}
+impl GrepTool {
     /// The answer within Node's context budget (`GREP_OUTPUT_MAX_BYTES` characters), then capped as
     /// executeBuiltinTool caps it (builtin.mjs `_budgetBuiltinOutput`: `capLineOrientedToolOutput` at
     /// `GREP_OUTPUT_MAX_BYTES` bytes with `_grepBudgetFooter`).
-    async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+    async fn respond(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
+        let args = promote_output_mode(promote_legacy_args(args, true))?;
         let cap = grep_max_bytes();
         let mut complete = true;
         let mut sources = SourceCache::default();
