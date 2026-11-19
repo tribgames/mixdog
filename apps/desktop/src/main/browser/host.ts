@@ -367,8 +367,11 @@ export function createBrowserHost(
   // Pages nobody displays or drives for long are unloaded (URLs kept) and
   // restore when the panel or an agent command returns — unless something only
   // the live document holds is in use (see reclaimIdleUserSessions).
+  // The agents' background pages ride the same timer: it lives and dies with this
+  // browser, not with the bridge connection that used to start and stop it.
   const userReclaimTimer = setInterval(
-    () =>
+    () => {
+      lifecycle.reclaimIdleBackgroundPages();
       reclaimIdleUserSessions({
         sessions,
         power: display.power,
@@ -385,7 +388,8 @@ export function createBrowserHost(
         },
         downloading: (sessionId) => base.partition.downloadLedger.hasActiveDownload(sessionId),
         unload: (sessionId) => browserHost.releaseSession(sessionId, { restore: true }),
-      }),
+      });
+    },
     BACKGROUND_RECLAIM_INTERVAL_MS
   );
   userReclaimTimer.unref?.();

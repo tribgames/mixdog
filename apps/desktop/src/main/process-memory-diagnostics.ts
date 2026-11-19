@@ -66,6 +66,27 @@ function processMetrics(getAppMetrics: App['getAppMetrics']) {
   }
 }
 
+/** Working set of the app's own shell renderers only (browser pages and
+ *  auxiliary surfaces excluded), with how many processes it summed. */
+export function shellRendererWorkingSet(sample: ReturnType<typeof sampleProcessMemory>): {
+  workingSetKb: number;
+  processes: number;
+} {
+  const shellPids = new Set(
+    sample.rendererAttribution
+      .filter((row) => row.role === 'local-shell' || row.role === 'server-shell')
+      .map((row) => row.rendererOsPid)
+  );
+  let workingSetKb = 0;
+  let processes = 0;
+  for (const metric of sample.processes) {
+    if (!shellPids.has(metric.pid)) continue;
+    workingSetKb += metric.workingSetKb || 0;
+    processes += 1;
+  }
+  return { workingSetKb, processes };
+}
+
 export function sampleProcessMemory<T extends RendererContents>(sources: ProcessMemorySources<T>) {
   const processes = processMetrics(sources.getAppMetrics);
   const rendererAttribution: RendererAttribution[] = [];

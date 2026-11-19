@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
 import { WindowRouteRegistry } from './connections/window-routes.ts';
-import { sampleProcessMemory, tagRendererSurface } from './process-memory-diagnostics.ts';
+import { sampleProcessMemory, shellRendererWorkingSet, tagRendererSurface } from './process-memory-diagnostics.ts';
 
 function contents(id, pid, { destroyed = false, crashed = false } = {}) {
   const readContent = () => assert.fail('diagnostics attempted to read renderer content');
@@ -20,6 +20,29 @@ function contents(id, pid, { destroyed = false, crashed = false } = {}) {
     { session: { get: readContent }, mainFrame: { get: readContent } }
   );
 }
+
+test('the idle-reclaim figure sums only shell renderer processes and counts them', () => {
+  const routes = new WindowRouteRegistry();
+  const local = contents(1, 710);
+  const server = contents(2, 720);
+  const page = contents(3, 730);
+  routes.register(local, 'local');
+  routes.register(server, 'remote');
+  const sample = sampleProcessMemory({
+    getAppMetrics: () =>
+      [[710, 100], [720, 50], [730, 900], [999, 7]].map(([pid, kb]) => ({
+        pid,
+        type: 'Tab',
+        memory: { workingSetSize: kb, peakWorkingSetSize: kb, privateBytes: kb },
+      })),
+    getAllWebContents: () => [local, server, page],
+    browserPageWindow: (entry) => (entry === page ? { id: 3 } : null),
+    ownerWindow: () => ({ id: 1 }),
+    connectionIdFor: (id) => routes.connectionIdFor(id),
+    localConnectionId: 'local',
+  });
+  assert.deepEqual(shellRendererWorkingSet(sample), { workingSetKb: 150, processes: 2 });
+});
 
 test('memory diagnostics identify live surfaces without inferring roles from content or collapsing shared PIDs', () => {
   const local = contents(1, 710);

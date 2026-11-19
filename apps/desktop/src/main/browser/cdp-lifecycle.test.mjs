@@ -607,3 +607,15 @@ test('an unexpected debugger detach settles the prompts it held instead of leavi
   assert.equal(record.pendingFileChooser, null);
   assert.match(record.fault, /CDP detached: replaced_with_devtools/);
 });
+
+test('Chromium keeps a bounded amount of response bodies per page and per frame session', async () => {
+  const f = fixture();
+  await f.cdp.guestDebugger(f.guest);
+  f.attachChild('frame-1');
+  await waitUntil(() => f.calls.filter((call) => call.method === 'Network.enable').length >= 2);
+  for (const call of f.calls.filter((entry) => entry.method === 'Network.enable')) {
+    assert.ok(call.params.maxTotalBufferSize > 0 && call.params.maxTotalBufferSize <= 20_000_000);
+    assert.ok(call.params.maxResourceBufferSize > 0 && call.params.maxResourceBufferSize <= call.params.maxTotalBufferSize);
+  }
+  await f.cdp.detach(f.guest);
+});
