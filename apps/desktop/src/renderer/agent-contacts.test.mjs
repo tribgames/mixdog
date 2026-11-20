@@ -553,14 +553,12 @@ function mount(t, { agents = AGENTS, pool = [], sessions = [work], unreadSession
   dom.window.mixdogDesktop = {
     listAgentPool: async () => pool,
     subscribeAgentPool: () => () => {},
-    invokeCapability: async ({ capability }) => ({
-      value:
-        capability === 'listAgents'
-          ? agents
-          : capability === 'getBotOrder'
-            ? { order: ['shown:agents'] } // the Agents section is hidden by default
-            : null,
-    }),
+    invokeCapability: async ({ capability }) => {
+      if (capability === 'listAgents') return { value: agents };
+      // the Agents section is hidden by default
+      if (capability === 'getBotOrder') return { value: { order: ['shown:agents'] } };
+      return { value: null };
+    },
     openAgentHome: async (agentId) => {
       homeOpens.push(agentId);
       return { sessionId: `sess_home_${agentId}` };

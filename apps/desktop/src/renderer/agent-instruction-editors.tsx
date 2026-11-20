@@ -6,11 +6,11 @@ import { useId, useRef, useState } from 'react';
 import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
 
-export const INSTRUCTION_FILE_MAX_BYTES = 256 * 1024;
+const INSTRUCTION_FILE_MAX_BYTES = 256 * 1024;
 const INSTRUCTION_FILE_ACCEPT = '.md,.txt,text/markdown,text/plain';
 
 /** The picked file's text, or a reason it cannot be loaded. */
-export async function readInstructionFile(file: File): Promise<{ text: string } | { error: string }> {
+async function readInstructionFile(file: File): Promise<{ text: string } | { error: string }> {
   if (!/\.(md|txt)$/i.test(file.name) || file.size > INSTRUCTION_FILE_MAX_BYTES) {
     return { error: t('Only .md or .txt files up to 256 KB can be loaded.') };
   }

@@ -88,7 +88,10 @@ async function mountChat({ surface }) {
         .filter((target) => target.isConnected)
         .map((target) => {
           const isRow = target.dataset?.timelineKey !== undefined;
-          const height = target === viewport ? VIEWPORT : isRow ? heightOf(target) : spacerHeight();
+          let height;
+          if (target === viewport) height = VIEWPORT;
+          else if (isRow) height = heightOf(target);
+          else height = spacerHeight();
           return {
             target,
             borderBoxSize: [{ blockSize: height, inlineSize: 600 }],

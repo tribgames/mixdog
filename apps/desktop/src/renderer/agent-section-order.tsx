@@ -9,8 +9,11 @@ import './agent-section-order.css';
 
 /** What each section is called. The Working block and the Leads belong to
  *  "Agents" (both list agents at work); "Rooms" are the group rooms. */
-export const sectionLabel = (id: PaneSectionId): string =>
-  id === 'bots' ? t('Bots') : id === 'rooms' ? t('Rooms') : t('Agents');
+export function sectionLabel(id: PaneSectionId): string {
+  if (id === 'bots') return t('Bots');
+  if (id === 'rooms') return t('Rooms');
+  return t('Agents');
+}
 
 /** The Bots page's sections in their stored order, one hairline between
  *  present sections. Empty or hidden sections keep their slot. */

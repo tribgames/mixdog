@@ -199,17 +199,16 @@ async function show(): Promise<void> {
       }
       const text = splitConfirmMessage(current.message);
       const { options } = current;
+      let description = text.description;
+      if (options.input) description = options.description ?? '';
+      else if (options.title) description = current.message;
       host?.root.render(
         <SettingsConfirmDialog
           key={current.id}
           returnFocus={opener}
           options={{
             title: options.title ?? text.title,
-            description: options.input
-              ? (options.description ?? '')
-              : options.title
-                ? current.message
-                : text.description,
+            description,
             confirmLabel: options.confirmLabel,
             danger: options.danger,
             input: options.input,

@@ -63,7 +63,10 @@ test("the boot cover stays until the window's core link is open, however the boo
   const listeners = new Set();
   const connection = {
     status: 'reconnecting',
-    onState: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+    onState: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
   };
   const move = (status) =>
     act(async () => {

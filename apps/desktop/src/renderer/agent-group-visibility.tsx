@@ -72,8 +72,11 @@ export function useHiddenAgentGroups() {
   return { hiddenOwnerIds, hideGroup: store.hide, restoreGroups: store.restore };
 }
 
-const groupLabel = (id: PaneToggleId): string =>
-  id === 'representative' ? t('Representative bot') : id === 'connectors' ? t('Connectors') : sectionLabel(id);
+function groupLabel(id: PaneToggleId): string {
+  if (id === 'representative') return t('Representative bot');
+  if (id === 'connectors') return t('Connectors');
+  return sectionLabel(id);
+}
 
 const RETAIN_LABELS: Record<RetainChoice, () => string> = {
   '1h': () => t('1 hour'),

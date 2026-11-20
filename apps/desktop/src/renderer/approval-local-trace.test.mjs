@@ -172,7 +172,10 @@ test("after a refusal the core did not confirm, the card shows the client's curr
   const ui = await mountCard('s1');
   try {
     const asked = [];
-    dom.window.mixdogDesktop.resyncSessionState = async (id, options) => (asked.push([id, options]), true);
+    dom.window.mixdogDesktop.resyncSessionState = async (id, options) => {
+      asked.push([id, options]);
+      return true;
+    };
     assert.ok(ui.buttons().length > 0);
     await click(ui.buttons()[0]);
     assert.deepEqual(asked, [['s1', { fresh: true }]]);
@@ -189,7 +192,10 @@ test("after a refusal the core did not confirm, the card shows the client's curr
 test('after a refusal the core did not confirm, a request still held leaves the card clickable and the next answer succeeds', async () => {
   const answers = [];
   let accept = false;
-  answer = async (...args) => (answers.push(args), accept);
+  answer = async (...args) => {
+    answers.push(args);
+    return accept;
+  };
   const ui = await mountCard('s1');
   try {
     dom.window.mixdogDesktop.resyncSessionState = async () => true;
@@ -211,7 +217,10 @@ test('after a refusal the core did not confirm, a request still held leaves the 
 
 test('the card is answerable again even when the refresh never completes', async () => {
   const answers = [];
-  answer = async (...args) => (answers.push(args), answers.length > 1);
+  answer = async (...args) => {
+    answers.push(args);
+    return answers.length > 1;
+  };
   const ui = await mountCard('s1');
   try {
     dom.window.mixdogDesktop.resyncSessionState = () => new Promise(() => {});

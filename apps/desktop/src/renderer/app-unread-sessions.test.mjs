@@ -409,7 +409,10 @@ test('reading along follows a readWith chain of any length and stops at a cycle'
   ]);
   const seen = [];
   assert.equal(
-    readAlong('a', loop, (id) => (seen.push(id), false)),
+    readAlong('a', loop, (id) => {
+      seen.push(id);
+      return false;
+    }),
     false
   );
   assert.deepEqual(seen, ['a', 'b', 'c']);

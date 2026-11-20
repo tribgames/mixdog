@@ -484,7 +484,7 @@ test('header snapshot equality ignores unrelated stats but tracks visible contex
 const todoFrom = (tasks) => {
   const rows = tasks.map((task) => ({
     content: task.text,
-    status: task.status === 'dropped' ? 'abandoned' : task.status === 'awaiting_approval' ? 'pending' : task.status,
+    status: { dropped: 'abandoned', awaiting_approval: 'pending' }[task.status] ?? task.status,
   }));
   const abandoned = rows.filter((row) => row.status === 'abandoned').length;
   return {
@@ -1078,7 +1078,10 @@ test('an already-open Agents pane follows the child request route on pool pushes
   window.mixdogDesktop = {
     sections: {
       snapshot: async () => ({ status: 'ready', entries: [entry([row])] }),
-      subscribe: (next) => ((listener = next), () => {}),
+      subscribe: (next) => {
+        listener = next;
+        return () => {};
+      },
     },
   };
   // The section store is loaded and idle before any consumer of the pool exists.

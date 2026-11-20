@@ -20,12 +20,14 @@ function isAnsweredAskUser(item: TranscriptItem): boolean {
 
 const isWaitingAskUser = (item: TranscriptItem): boolean => askUserArgs(item) !== null && !isAnsweredAskUser(item);
 
+/** The calls a transcript item stands for: a roll-up's members, else the item itself. */
+export const toolCallsOf = (item: TranscriptItem): TranscriptItem[] =>
+  item.aggregate === true && Array.isArray(item.toolMembers) ? (item.toolMembers as TranscriptItem[]) : [item];
+
 /** Whether a transcript item (or a roll-up member) is a question still waiting
  *  for its answer: its row stays mounted so the live card keeps its state. */
 export function holdsWaitingAskUser(item: TranscriptItem): boolean {
-  const members =
-    item.aggregate === true && Array.isArray(item.toolMembers) ? (item.toolMembers as TranscriptItem[]) : [item];
-  return members.some(isWaitingAskUser);
+  return toolCallsOf(item).some(isWaitingAskUser);
 }
 
 /** The tool call an ask_user item stands for: a standalone row's `callId`, a
@@ -41,9 +43,7 @@ const askUserKey = (item: TranscriptItem): string => String(item.callId ?? item.
 export function askUserCardKey(items: readonly TranscriptItem[], callId: string): string | undefined {
   if (callId) return callId;
   for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    const members =
-      item.aggregate === true && Array.isArray(item.toolMembers) ? (item.toolMembers as TranscriptItem[]) : [item];
+    const members = toolCallsOf(items[index]);
     for (let at = members.length - 1; at >= 0; at -= 1) {
       if (isWaitingAskUser(members[at])) return askUserKey(members[at]);
     }
@@ -67,8 +67,7 @@ export function splitAskUser(
     isAnsweredAskUser(item) ||
     (hasCard && isWaitingAskUser(item) && (cardKey === undefined || askUserKey(item) === cardKey));
   for (const item of items) {
-    const members =
-      item.aggregate === true && Array.isArray(item.toolMembers) ? (item.toolMembers as TranscriptItem[]) : [item];
+    const members = toolCallsOf(item);
     const out = members.filter(taken);
     if (!out.length) {
       rest.push(item);
@@ -156,11 +155,8 @@ export function AskUserRecord({ item }: { item: TranscriptItem }) {
     return { text, answers };
   });
   const single = rows.length === 1;
-  const title = single
-    ? rows[0].text
-    : note
-      ? t('Agent question')
-      : t('{{count}} questions answered', { count: rows.length });
+  let title = note ? t('Agent question') : t('{{count}} questions answered', { count: rows.length });
+  if (single) title = rows[0].text;
   // A chat reply stands for the unpicked questions: only picks are listed.
   const shown = reply ? rows.filter((row) => row.answers.length > 0) : rows;
   return (
