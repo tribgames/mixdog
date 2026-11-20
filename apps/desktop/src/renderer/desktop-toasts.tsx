@@ -17,7 +17,7 @@ function toastTitle(tone: string): string {
 }
 
 /** Shown (translated) when an always-allow choice was applied once but not saved. */
-export const ALLOW_NOT_SAVED_TEXT = 'Allowed this once. The setting could not be saved.';
+const ALLOW_NOT_SAVED_TEXT = 'Allowed this once. The setting could not be saved.';
 export const DESKTOP_TOAST_EVENT = 'mixdog:desktop-toast';
 export const DESKTOP_TOAST_DISMISS_EVENT = 'mixdog:desktop-toast-dismiss';
 type DesktopToastTone = 'info' | 'success' | 'warn' | 'error';
@@ -41,7 +41,7 @@ export function showDesktopToast(
 }
 
 /** A main-process or service notice (shared/desktop-notice.ts) as its toast. */
-export function desktopNoticeToast(notice: DesktopNotice): { text: string; tone: DesktopToastTone } {
+function desktopNoticeToast(notice: DesktopNotice): { text: string; tone: DesktopToastTone } {
   const name = notice.params.name || '';
   switch (notice.code) {
     case 'provider-sign-in-expired':

@@ -368,6 +368,114 @@ function explorerTreeKeyDown(
   }
 }
 
+/** The right-click menu's state and its dismissal rules. */
+function useExplorerMenu() {
+  const [menu, setMenu] = useState<ExplorerMenu | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  // The menu escapes the clipping Dock through a body portal. Retained tabs
+  // stay mounted, so their active signal must hide and clear that portal when
+  // the user switches views.
+  const surfaceActive = useSurfaceActive();
+  const visibleMenu = surfaceActive ? menu : null;
+  useEffect(() => {
+    if (!surfaceActive && menu) setMenu(null);
+  }, [menu, surfaceActive]);
+  useEffect(() => {
+    if (!visibleMenu) return undefined;
+    // Keyboard users land ON the menu; closing hands focus back to the row
+    // (same grammar as ScmContextMenu).
+    const previous = document.activeElement as HTMLElement | null;
+    queueMicrotask(() =>
+      menuRef.current?.querySelector<HTMLButtonElement>("[role='menuitem']:not(:disabled)")?.focus()
+    );
+    const close = () => setMenu(null);
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      // The tree's own Escape handler (clear selection) must not fire on the
+      // keystroke that only closed this menu.
+      event.stopPropagation();
+      close();
+    };
+    window.addEventListener('pointerdown', close);
+    window.addEventListener('blur', close);
+    document.addEventListener('keydown', keydown, true);
+    return () => {
+      window.removeEventListener('pointerdown', close);
+      window.removeEventListener('blur', close);
+      document.removeEventListener('keydown', keydown, true);
+      if (previous?.isConnected) previous.focus?.();
+    };
+  }, [visibleMenu]);
+  // ABB: hardware back closes the menu instead of leaving the PWA.
+  useMobileBack(Boolean(visibleMenu), () => setMenu(null));
+  return { setMenu, visibleMenu, menuRef };
+}
+
+/** Fills a row drag: the dragged paths as plain text and as the composer's
+ *  project-path payload, with an "N items" badge for a multi-row drag. */
+function fillRowDrag(event: React.DragEvent, projectPath: string, rels: string[]): void {
+  event.dataTransfer.effectAllowed = 'copyMove';
+  event.dataTransfer.setData('text/plain', rels.join('\n'));
+  event.dataTransfer.setData(COMPOSER_PROJECT_PATHS_MIME, JSON.stringify({ projectPath, paths: rels }));
+  if (rels.length <= 1) return;
+  const ghost = document.createElement('div');
+  ghost.className = 'explorer-drag-badge';
+  ghost.textContent = `${rels.length} items`;
+  document.body.appendChild(ghost);
+  try {
+    event.dataTransfer.setDragImage(ghost, 0, 0);
+  } catch {
+    /* jsdom */
+  }
+  window.setTimeout(() => ghost.remove(), 0);
+}
+
+/** The host header's four tree actions, portaled into its slot. */
+function ExplorerHeaderActions({
+  refreshing,
+  canCollapseAll,
+  onNewFile,
+  onNewFolder,
+  onRefresh,
+  onCollapseAll,
+}: {
+  refreshing: boolean;
+  canCollapseAll: boolean;
+  onNewFile(): void;
+  onNewFolder(): void;
+  onRefresh(): void;
+  onCollapseAll(): void;
+}) {
+  return (
+    <>
+      <button type="button" aria-label={t('New file')} data-tooltip={t('New File…')} onClick={onNewFile}>
+        <FilePlus size={16} aria-hidden="true" />
+      </button>
+      <button type="button" aria-label={t('New folder')} data-tooltip={t('New Folder…')} onClick={onNewFolder}>
+        <FolderPlus size={16} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        aria-label={t('Refresh files')}
+        data-tooltip={t('Refresh Explorer')}
+        disabled={refreshing}
+        onClick={onRefresh}
+      >
+        <RefreshCw size={16} className={refreshing ? 'spin' : undefined} aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        aria-label={t('Collapse all folders')}
+        data-tooltip={t('Collapse All')}
+        disabled={!canCollapseAll}
+        onClick={onCollapseAll}
+      >
+        <ListCollapse size={16} aria-hidden="true" />
+      </button>
+    </>
+  );
+}
+
 export interface ExplorerControls {
   refresh(): void;
   collapseAll(): void;
@@ -477,49 +585,10 @@ export const FilesRootPane = memo(function FilesRootPane({
     if (selected.size > 0) return [...selected];
     return focusedRel ? [focusedRel] : [];
   };
-  // Explorer-style right-click menu state. Declared BEFORE the empty-project
-  // early return below: with hooks after that return, a projectPath flip
-  // (pane focus swaps between draft/EMPTY and session snapshots) changed the
-  // hook count mid-lifecycle and crashed the renderer into the recovery
-  // screen (user report: "could not draw this view" kept appearing).
-  const [menu, setMenu] = useState<ExplorerMenu | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  // The menu escapes the clipping Dock through a body portal. Retained tabs
-  // stay mounted, so their active signal must hide and clear that portal when
-  // the user switches views.
-  const surfaceActive = useSurfaceActive();
-  const visibleMenu = surfaceActive ? menu : null;
-  useEffect(() => {
-    if (!surfaceActive && menu) setMenu(null);
-  }, [menu, surfaceActive]);
-  useEffect(() => {
-    if (!visibleMenu) return undefined;
-    // Keyboard users land ON the menu; closing hands focus back to the row
-    // (same grammar as ScmContextMenu).
-    const previous = document.activeElement as HTMLElement | null;
-    queueMicrotask(() =>
-      menuRef.current?.querySelector<HTMLButtonElement>("[role='menuitem']:not(:disabled)")?.focus()
-    );
-    const close = () => setMenu(null);
-    const keydown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      // The tree's own Escape handler (clear selection) must not fire on the
-      // keystroke that only closed this menu.
-      event.stopPropagation();
-      close();
-    };
-    window.addEventListener('pointerdown', close);
-    window.addEventListener('blur', close);
-    document.addEventListener('keydown', keydown, true);
-    return () => {
-      window.removeEventListener('pointerdown', close);
-      window.removeEventListener('blur', close);
-      document.removeEventListener('keydown', keydown, true);
-      if (previous?.isConnected) previous.focus?.();
-    };
-  }, [visibleMenu]);
-  // ABB: hardware back closes the menu instead of leaving the PWA.
-  useMobileBack(Boolean(visibleMenu), () => setMenu(null));
+  // Declared BEFORE the empty-project early return below: a hook after it
+  // changes the hook count when projectPath flips (pane focus swaps between
+  // draft/EMPTY and session snapshots) and crashes the renderer.
+  const { setMenu, visibleMenu, menuRef } = useExplorerMenu();
   // Auto-reveal: expand ancestors of the
   // active editor file step by step; each load/expand re-runs this effect
   // until the row exists, then select + scroll without stealing focus.
@@ -805,42 +874,14 @@ export const FilesRootPane = memo(function FilesRootPane({
   const headerPortal =
     headerSlot &&
     createPortal(
-      <>
-        <button
-          type="button"
-          aria-label={t('New file')}
-          data-tooltip={t('New File…')}
-          onClick={() => beginCreate(false)}
-        >
-          <FilePlus size={16} aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          aria-label={t('New folder')}
-          data-tooltip={t('New Folder…')}
-          onClick={() => beginCreate(true)}
-        >
-          <FolderPlus size={16} aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          aria-label={t('Refresh files')}
-          data-tooltip={t('Refresh Explorer')}
-          disabled={refreshing}
-          onClick={() => void refreshTree()}
-        >
-          <RefreshCw size={16} className={refreshing ? 'spin' : undefined} aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          aria-label={t('Collapse all folders')}
-          data-tooltip={t('Collapse All')}
-          disabled={!canCollapseAll}
-          onClick={collapseAll}
-        >
-          <ListCollapse size={16} aria-hidden="true" />
-        </button>
-      </>,
+      <ExplorerHeaderActions
+        refreshing={refreshing}
+        canCollapseAll={canCollapseAll}
+        onNewFile={() => beginCreate(false)}
+        onNewFolder={() => beginCreate(true)}
+        onRefresh={() => void refreshTree()}
+        onCollapseAll={collapseAll}
+      />,
       headerSlot
     );
   const editRowNode = (level: number): ReactNode =>
@@ -896,29 +937,7 @@ export const FilesRootPane = memo(function FilesRootPane({
           const rels = withinSelection ? [...selected] : [row.rel];
           if (!withinSelection) selectOnly(row.rel);
           dragRels.current = rels;
-          event.dataTransfer.effectAllowed = 'copyMove';
-          event.dataTransfer.setData('text/plain', rels.join('\n'));
-          event.dataTransfer.setData(
-            COMPOSER_PROJECT_PATHS_MIME,
-            JSON.stringify({
-              projectPath,
-              paths: rels,
-            })
-          );
-          if (rels.length > 1) {
-            // Multi-drag feedback: an "N items" badge replaces the
-            // default row snapshot as the drag image.
-            const ghost = document.createElement('div');
-            ghost.className = 'explorer-drag-badge';
-            ghost.textContent = `${rels.length} items`;
-            document.body.appendChild(ghost);
-            try {
-              event.dataTransfer.setDragImage(ghost, 0, 0);
-            } catch {
-              /* jsdom */
-            }
-            window.setTimeout(() => ghost.remove(), 0);
-          }
+          fillRowDrag(event, projectPath, rels);
         }}
         onDragOver={(event) => {
           if (dragRels.current.length === 0) return;

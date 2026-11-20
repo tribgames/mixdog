@@ -272,8 +272,7 @@ export function agentActivitySessionIds(sessions: readonly DesktopSessionSummary
 /** Legacy shared Unified/Split key; the three surfaces below persist
  *  separately now and only read this one as the first-run fallback. */
 export const REVIEW_DIFF_STYLE_KEY = 'mixdog.review-diff-style.v1';
-/** Unified/Split is remembered PER SURFACE (user: 통합/분할은 소스컨트롤 /
- *  세션 컴포저 위 / 세션 변경사항 독 3개 분리 저장): the Source Control diff
+/** Unified/Split is remembered PER SURFACE: the Source Control diff
  *  tab, the TurnReview bar above the composer, the Session Diff dock's tab. */
 export const SCM_DIFF_STYLE_KEY = 'mixdog.scm-diff-style.v1';
 export const TURN_REVIEW_DIFF_STYLE_KEY = 'mixdog.turn-review-diff-style.v1';

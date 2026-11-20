@@ -2,7 +2,7 @@
 // whatever held focus when the window comes BACK — the composer "+" returning
 // from a native file dialog, a trigger the app re-focuses when its menu
 // closes — so a control pressed with the MOUSE kept wearing the ring long
-// after its action finished (user: 동작 끝났는데 선택 프레임이 남는다).
+// after its action finished.
 // The root records the modality of the last interaction; 02-base.css drops
 // button focus frames while that modality is the pointer. Text fields are
 // deliberately untouched: a caret still needs its field outlined.

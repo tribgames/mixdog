@@ -11,11 +11,11 @@ import { asRecord } from './text-format';
 
 // v2: entries store ONLY explicitly staged fields (null = inherit live from
 // the last cached settings). v1 entries materialized inherited values, which
-// froze stale models onto restored/parked drafts (user report).
+// froze stale models onto restored/parked drafts.
 // v3: projectPath follows the same rule — null inherits live, "" is an
 // explicit No project. v2 wrote "" for BOTH, so a phone whose first paint
 // preceded the relay project catalog froze an empty project into its draft and
-// never recovered it (user: 마지막으로 쓴 프로젝트가 안 잡힘).
+// never recovered it.
 const DRAFT_PANE_PREFS_KEY = 'mixdog.desktop-draft-pane-prefs.v3';
 const LEGACY_DRAFT_PANE_PREFS_KEY = 'mixdog.desktop-draft-pane-prefs.v2';
 const ABANDONED_DRAFT_PANE_PREFS_KEY = 'mixdog.desktop-draft-pane-prefs.v1';
@@ -129,7 +129,7 @@ function storedDraftPanePrefs(value: Record<string, unknown>, legacy: boolean): 
 /** Re-resolving a STORED project against the catalog can fail to place it: an
  *  empty or not-yet-delivered phone catalog answers "". Persisting that empty
  *  turns a lost lookup into an explicit No project that then survives every
- *  reconnect and reboot (user: 재접속하면 프로젝트가 사라진다), so a failed
+ *  reconnect and reboot, so a failed
  *  resolution RELEASES the entry back to inheritance. Only the user's own
  *  choice — an already-empty stored value — keeps No project. */
 export function resolvedStoredProjectPath(stored: string, resolve: (candidate: string) => string): string | null {
@@ -227,7 +227,7 @@ export function readStoredDraftPaneEntries(): { rows: Array<[string, DraftPanePr
 
 /** Prefs survive reloads: without persistence a restored pane layout showed
  *  fallback chrome until focused, then snapped to "Select model" because the
- *  freshly-seeded entry was empty (user report). */
+ *  freshly-seeded entry was empty. */
 export function writeStoredDraftPanePrefs(entries: Map<string, DraftPanePrefs>, last: DraftPanePrefs | null): void {
   window.localStorage.setItem(
     DRAFT_PANE_PREFS_KEY,
@@ -238,8 +238,7 @@ export function writeStoredDraftPanePrefs(entries: Map<string, DraftPanePrefs>, 
 
 /** Explicit staging updates the inheritance source for FUTURE new tasks — but
  *  only the STAGED fields. Merging the whole entry rewound the cache to this
- *  pane's older values (user report: the last session-creation model was not
- *  cached for the next New Task). Seeding the cache with an INFERRED project
+ *  pane's older values. Seeding the cache with an INFERRED project
  *  would freeze it as an explicit choice; only staged fields may enter it. */
 export function stagedLastNewTaskPrefs(last: DraftPanePrefs | null, patch: Partial<DraftPanePrefs>): DraftPanePrefs {
   return {
@@ -273,7 +272,7 @@ export function rememberSnapshotModelSeed(
  *  unfocused): the entry's explicit values, with unset fields inheriting the
  *  last-used prefs. Without the shared rule a null-model entry showed
  *  "Select model" focused while the unfocused pane showed the inherited
- *  model (user report: the two states disagreed). */
+ *  model. */
 export function resolveDraftPrefs({
   entry,
   last,

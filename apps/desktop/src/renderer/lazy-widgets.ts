@@ -45,8 +45,7 @@ export async function disposeTerminalPane(id: string): Promise<void> {
 
 // First-scroll hitch fix: the DiffView chunk is ~1.7MB — when the first
 // edit/diff tool card mounted mid-scroll, the on-demand chunk load+compile
-// stalled the main thread for the whole hitch (user: scrolling to the top of
-// a session always lags the FIRST time). A real session resume warms ONLY that
+// stalled the main thread for the whole hitch. A real session resume warms ONLY that
 // transcript dependency; editor and terminal stay behind their own navigation
 // intent so a chat never retains Monaco/xterm without using them.
 /** One shared in-flight import per chunk; a failed import clears itself so the
@@ -85,8 +84,8 @@ const prefetchStudioView = (): Promise<unknown> => loadStudioViewModule();
  *
  * Pointer surfaces call this from hover/focus. A phone has neither, so its
  * first open of a file/terminal/diff tab paid the ENTIRE fetch and
- * evaluate at open time — over the relay that is ~1MB brotli for Monaco alone
- * (user: 창 들어갈 때 지연). Touch-down is the phone's equivalent intent
+ * evaluate at open time — over the relay that is ~1MB brotli for Monaco alone.
+ * Touch-down is the phone's equivalent intent
  * signal, and because every prefetch here returns the same shared promise the
  * real open awaits, an unfinished one simply merges into that load.
  */

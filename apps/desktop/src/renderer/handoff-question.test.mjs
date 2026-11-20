@@ -149,7 +149,10 @@ function harness(t, chat = HOME) {
    *  the composer keeps the draft and shows its message) comes back as `error`. */
   const sent = [];
   const compose = async (content, composeOptions) => {
-    const submit = async (...args) => (sent.push(args), true);
+    const submit = async (...args) => {
+      sent.push(args);
+      return true;
+    };
     let outcome;
     await act(async () => {
       try {

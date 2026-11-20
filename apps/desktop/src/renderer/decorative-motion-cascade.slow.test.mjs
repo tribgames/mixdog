@@ -293,7 +293,10 @@ test('the arcs cross the loop seam with an ordinary step, as drawn', async (t) =
       const icon = document.querySelector('[data-context="visible"] .live-activity-icon');
       const strip = icon.querySelector('.live-activity-arc-strip');
       const spin = icon.querySelector('.live-activity-arcs');
-      for (const element of [strip, spin]) element.getAnimations().forEach((animation) => animation.cancel());
+      for (const element of [strip, spin])
+        element.getAnimations().forEach((animation) => {
+          animation.cancel();
+        });
       strip.style.animation = 'none';
       spin.style.animation = 'none';
       strip.style.transform = `translateX(${-14 - 28 * (frame % 48)}px)`;
@@ -329,7 +332,9 @@ test('the arcs cross the loop seam with an ordinary step, as drawn', async (t) =
   // The comparison below means nothing on blank frames (no ink, a zero angle
   // everywhere, every step 0): every frame must draw, and the arcs must turn
   // between each pair of frames.
-  measured.forEach(({ ink }, index) => assert.ok(ink > 0, `frame ${44 + index} has no ink`));
+  measured.forEach(({ ink }, index) => {
+    assert.ok(ink > 0, `frame ${44 + index} has no ink`);
+  });
   for (let index = 0; index < measured.length - 1; index += 1) {
     assert.ok(
       Math.abs(step(index)) > 0.01,
@@ -897,7 +902,8 @@ async function drivenPage(t, { phone, virtualClock = false }) {
         )
       );
       watch.observe(glint, { attributes: true, attributeFilter: ['style'] });
-      (window.__unmounts ??= new Map()).set(glint, window.motionSync.lockDecorativeLoops(glint));
+      window.__unmounts ??= new Map();
+      window.__unmounts.set(glint, window.motionSync.lockDecorativeLoops(glint));
     }
     for (const icon of document.querySelectorAll('.live-activity-icon')) window.motionSync.lockDecorativeLoops(icon);
     return meta;
@@ -911,7 +917,10 @@ async function drivenPage(t, { phone, virtualClock = false }) {
 const FRAME = 1000 / 24;
 const byContext = (writes) => {
   const grouped = {};
-  for (const write of writes) (grouped[write.context] ??= []).push(write);
+  for (const write of writes) {
+    grouped[write.context] ??= [];
+    grouped[write.context].push(write);
+  }
   return grouped;
 };
 

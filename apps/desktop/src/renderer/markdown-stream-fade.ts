@@ -56,7 +56,7 @@ export const STREAM_FADE_DURATION_MS = 400;
 const STREAM_FADE_PHRASE_OPEN_MS = 100;
 /** Arrivals faster than this (characters per ms, over windows of at least
  *  STREAM_FADE_SPEED_WINDOW_MS) show unfaded. */
-export const STREAM_FADE_FAST_CHARS_PER_MS = 1.6;
+const STREAM_FADE_FAST_CHARS_PER_MS = 1.6;
 const STREAM_FADE_SPEED_WINDOW_MS = 100;
 /** Arrivals stay unfaded this long after the last fast window. */
 const FAST_HOLD_MS = 400;

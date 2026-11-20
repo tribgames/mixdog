@@ -41,6 +41,16 @@ type RequestLsp = (
   params?: Record<string, unknown>
 ) => Promise<unknown>;
 
+/** Feeds pointer moves to `move` until the next pointer release. */
+function trackPointerDrag(move: (pointer: PointerEvent) => void): void {
+  const stop = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', stop);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', stop, { once: true });
+}
+
 export function useEditorCallHierarchy({
   editorRef,
   graphContextRef,
@@ -275,12 +285,7 @@ export function useEditorCallHierarchy({
         ratio: Math.max(0.35, Math.min(0.85, ratio)),
       }));
     };
-    const stop = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', stop);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', stop, { once: true });
+    trackPointerDrag(move);
   }, []);
 
   const beginHeightResize = useCallback(
@@ -295,12 +300,7 @@ export function useEditorCallHierarchy({
           height: Math.max(8, Math.min(40, startHeight + lineDelta)),
         }));
       };
-      const stop = () => {
-        window.removeEventListener('pointermove', move);
-        window.removeEventListener('pointerup', stop);
-      };
-      window.addEventListener('pointermove', move);
-      window.addEventListener('pointerup', stop, { once: true });
+      trackPointerDrag(move);
     },
     [layout.height]
   );

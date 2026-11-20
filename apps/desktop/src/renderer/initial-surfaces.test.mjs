@@ -73,7 +73,10 @@ function pushedSections() {
     source: {
       core: async () => false,
       snapshot: async () => ({ status: 'ready', entries: await loaded.promise }),
-      subscribe: (next) => ((listener = next), () => {}),
+      subscribe: (next) => {
+        listener = next;
+        return () => {};
+      },
     },
     entry,
     load: (entries) => loaded.resolve(entries),

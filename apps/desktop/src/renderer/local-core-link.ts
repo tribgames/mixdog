@@ -15,7 +15,7 @@ export interface LocalCoreLinkStore {
 
 /** A window with a port bridge (the desktop app's) has a local core link to wait for: until a connection is watched it is opening.
  *  One without (a paired phone, a plain browser) has none. */
-export function createLocalCoreLinkStore(bridge: unknown): LocalCoreLinkStore {
+function createLocalCoreLinkStore(bridge: unknown): LocalCoreLinkStore {
   let link: LocalCoreLink = bridge ? 'opening' : 'none';
   const listeners = new Set<() => void>();
   const set = (next: LocalCoreLink): void => {

@@ -121,12 +121,13 @@ export function EditorTextPlaceholder({
   side: boolean;
 }) {
   const settings = content?.settings ?? DEFAULT_DESKTOP_EDITOR_SETTINGS;
+  const minGutterChars = side ? 3 : 5;
   const style = {
     '--editor-placeholder-font': settings.fontFamily,
     '--editor-placeholder-size': `${settings.fontSize}px`,
     '--editor-placeholder-line': `${settings.lineHeight || Math.round(settings.fontSize * 1.5)}px`,
     '--editor-placeholder-tab': settings.tabSize,
-    '--editor-placeholder-gutter-chars': content ? gutterChars(content.lineCount, side ? 3 : 5) : side ? 3 : 5,
+    '--editor-placeholder-gutter-chars': content ? gutterChars(content.lineCount, minGutterChars) : minGutterChars,
   } as CSSProperties;
   return (
     <div

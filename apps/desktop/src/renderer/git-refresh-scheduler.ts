@@ -105,10 +105,10 @@ export function createGitRefreshScheduler(
 }
 
 /** The least time between the end of one Git refresh run and the start of the next ([`createGitRefreshScheduler`]). */
-export const GIT_REFRESH_MIN_GAP_MS = 5_000;
+const GIT_REFRESH_MIN_GAP_MS = 5_000;
 /** How many runs ended within how long make a burst, after which the gap holds the next run. */
-export const GIT_REFRESH_BURST_RUNS = 3;
-export const GIT_REFRESH_BURST_WINDOW_MS = 10_000;
+const GIT_REFRESH_BURST_RUNS = 3;
+const GIT_REFRESH_BURST_WINDOW_MS = 10_000;
 
 /** Whether a `gitStatus` key (the repository root a `git/watch` follows) is the root of `projectPath` or the path itself. */
 function namesProject(key: string | null, project: string): boolean {

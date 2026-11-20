@@ -60,8 +60,7 @@ export function GitDiffPane({
   selection: GitDiffSelection;
   active: boolean;
   onOpenFile?(project: string, rel: string): void;
-  /** Pane-dock host: the diff owns its close affordance (user: DIFF 탭 없이
-   *  창 자체에 X). */
+  /** Pane-dock host: the diff owns its close affordance. */
   onClose?(): void;
   onReady?(): void;
 }) {
@@ -91,8 +90,7 @@ export function GitDiffPane({
   useEffect(() => {
     setExpanded(true);
   }, [metricKey]);
-  // One renderer only: @git-diff-view rows with Stage/Unstage Hunk (the
-  // Monaco "Editor" mode was dropped — user: 에디터 빼주라).
+  // One renderer only: @git-diff-view rows with Stage/Unstage Hunk (Monaco "Editor" mode was dropped).
   const [busyHunk, setBusyHunk] = useState(-1);
   // The shell owns its own visible Loading diff… / error states. Reveal it as
   // soon as it mounts instead of keeping those states hidden behind a
@@ -136,7 +134,7 @@ export function GitDiffPane({
         // The rows for a large patch render as a transition: React then
         // yields between them, so a composer keystroke arriving while the
         // diff opens or refreshes paints in its own frame instead of behind
-        // the whole diff (user: 디프창이 생성될 때 덜컹).
+        // the whole diff.
         startTransition(() => setPatch(nextPatch));
         if (nextPatch) void prefetchDiffView().catch(() => undefined);
         reportBootSurfaceStage('diff', metricKey, 'data');
