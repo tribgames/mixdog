@@ -167,6 +167,11 @@ test('a remembered thread deleted on the PC is dropped and the first sync still 
   client.resumeThread = async (id: string) => {
     calls.push(`resume:${id}`);
     if (id === 'gone') throw { kind: 'rpc', code: -32000, message: 'no thread', reason: 'threadNotFound' };
+    const resumed: Awaited<ReturnType<ViewClient['resumeThread']>> = {
+      thread: { id, preview: '', title: '', updatedAt: 0, messageCount: 0, cwd: '', classification: null },
+      subscription: { id: `sub-${id}`, mode: 'replay', epoch: 'e1', startSeq: 0, liveSeq: 0 },
+    };
+    return resumed;
   };
   await manager.synced();
   assert.equal(events.errors, 0, 'a deleted thread is not a failed sync');
