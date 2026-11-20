@@ -274,6 +274,15 @@ function drain<V>(m: Map<unknown, V>): V[] {
   return all;
 }
 
+/** A fold waiting for the next loop turn. */
+interface Waiter {
+  resume: () => void;
+  fail: (error: unknown) => void;
+}
+
+/** A fold's pace (`Engine.pace`): nothing when its next unit may run now, else the wait for the next loop turn. */
+type Pace = () => Promise<void> | undefined;
+
 class Engine implements ProtocolClient<Json> {
   readonly store = new Store();
   server!: InitializeResponse;
@@ -380,13 +389,55 @@ class Engine implements ProtocolClient<Json> {
     }));
   }
 
-  /** The turn's budget is spent. */
+  /** Whether the turn's budget is spent. The first to ask in a turn is told it is not, so every turn runs a unit
+   *  whatever the budget. */
   private overBudget(): boolean {
+    if (this.turnFresh) {
+      this.turnFresh = false;
+      return false;
+    }
     return this.now() - this.turnStart > this.budgetMs;
   }
-  private async nextTurn(): Promise<void> {
-    await this.yieldTurn();
-    this.turnStart = this.now();
+  private turnFresh = false;
+  /** Folds waiting for the next loop turn: the ones that ran no unit since they last waited, and the ones that did. */
+  private readonly unserved: Waiter[] = [];
+  private readonly served: Waiter[] = [];
+  /**
+   * One fold's pace through the loop's turns. The fold calls it right before each unit of its work, in a loop
+   * (`for (let wait = pace(); wait; wait = pace()) await wait;`): nothing means the unit may run now, in the same synchronous
+   * run as the answer; a promise means the budget is spent, and resolves in the next loop turn, where the fold asks again.
+   *
+   * Every fold waiting resumes in that one turn, on its one budget (a budget each stacked into one long turn, one per
+   * concurrent fold). The folds that ran no unit since they last waited resume first, so the folds take the budget in turns
+   * and none holds it while another waits.
+   */
+  private pace(): Pace {
+    let ran = false;
+    return () => {
+      if (!this.overBudget()) {
+        ran = true;
+        return undefined;
+      }
+      const waiting = new Promise<void>((resume, fail) => {
+        const owed = this.unserved.length + this.served.length > 0;
+        (ran ? this.served : this.unserved).push({ resume, fail });
+        // The yield is owed once per turn, by the first to wait.
+        if (owed) return;
+        const all = () => [...this.unserved.splice(0), ...this.served.splice(0)];
+        new Promise<void>((yielded) => yielded(this.yieldTurn())).then(
+          () => {
+            this.turnStart = this.now();
+            this.turnFresh = true;
+            for (const fold of all()) fold.resume();
+          },
+          (error: unknown) => {
+            for (const fold of all()) fold.fail(error);
+          }
+        );
+      });
+      ran = false;
+      return waiting;
+    };
   }
 
   // ── lifecycle ──
@@ -959,7 +1010,7 @@ class Engine implements ProtocolClient<Json> {
         const failed: ClientErrorDetail[] = [];
         let resolved: Json;
         try {
-          resolved = await this.resolveBlobs(n.params ?? null, failed);
+          resolved = await this.resolveBlobs(n.params ?? null, failed, this.pace());
         } catch {
           return; // the connection ended; the next generation re-attaches
         }
@@ -998,7 +1049,7 @@ class Engine implements ProtocolClient<Json> {
     const failed: ClientErrorDetail[] = [];
     let resolved: JsonRpcNotification;
     try {
-      resolved = { ...n, params: await this.resolveBlobs(n.params ?? null, failed) };
+      resolved = { ...n, params: await this.resolveBlobs(n.params ?? null, failed, this.pace()) };
     } catch {
       return; // the connection ended; the next generation re-attaches
     }
@@ -1043,13 +1094,14 @@ class Engine implements ProtocolClient<Json> {
     if (!reducer) return { state: params };
     if (!reducer.initialSteps) return { state: reducer.initial(params) };
     const steps = reducer.initialSteps(params);
+    const pace = this.pace();
     for (;;) {
-      const r = steps.next();
-      if (r.done) return this.current(feedId, gen, tok) ? { state: r.value } : null;
-      if (this.overBudget()) {
-        await this.nextTurn();
+      for (let wait = pace(); wait; wait = pace()) {
+        await wait;
         if (!this.current(feedId, gen, tok)) return null;
       }
+      const r = steps.next();
+      if (r.done) return this.current(feedId, gen, tok) ? { state: r.value } : null;
     }
   }
 
@@ -1068,10 +1120,11 @@ class Engine implements ProtocolClient<Json> {
   private async foldAppSnapshot(n: JsonRpcNotification, f: FeedStamp, gen: number, tok: number | undefined): Promise<void> {
     const failed: ClientErrorDetail[] = [];
     const staged = new Map<string, Map<string, SectionEntry>>();
+    const pace = this.pace();
     try {
       for (const u of (n.params as unknown as AppSnapshotParams).sections) {
-        if (this.overBudget()) await this.nextTurn();
-        const value = u.value === undefined ? undefined : await this.resolveBlobs(u.value, failed);
+        for (let wait = pace(); wait; wait = pace()) await wait;
+        const value = u.value === undefined ? undefined : await this.resolveBlobs(u.value, failed, pace);
         if (!this.current(f.id, gen, tok)) return;
         putSection(staged, value === undefined ? u : { ...u, value });
       }
@@ -1086,21 +1139,22 @@ class Engine implements ProtocolClient<Json> {
     this.store.sectionMap = staged;
     this.store.app = f;
     (this.store.owed ??= []).push(changesOf(old, staged));
-    await this.announce(gen, tok);
+    await this.announce(gen, tok, pace);
   }
 
   /**
    * Emits what the committed store owes its listeners, in budgeted steps: a `section` change for each section the snapshot removed
    * and each it holds, then `appSnapshot`. A fold abandoned midway (the connection ended) leaves the rest owed; it is completed,
    * ahead of anything newer on the feed, when the subscription is restored (completeAnnouncements), or folded into the owed set of
-   * the next snapshot. So listeners always receive a complete set for the state they hold.
+   * the next snapshot. So listeners always receive a complete set for the state they hold. `pace` is the pace of the fold this
+   * continues (the snapshot's staging); a completion started on its own has its own.
    */
-  private async announce(gen: number, tok: number | undefined): Promise<void> {
+  private async announce(gen: number, tok: number | undefined, pace: Pace = this.pace()): Promise<void> {
     const owed = this.store.owed;
     if (!owed) return;
     while (owed.length) {
-      if (this.overBudget()) {
-        await this.nextTurn();
+      for (let wait = pace(); wait; wait = pace()) {
+        await wait;
         if (!this.current(WIRE.appFeedId, gen, tok)) return;
       }
       const r = owed[0]!.next();
@@ -1122,7 +1176,7 @@ class Engine implements ProtocolClient<Json> {
   /** Replaces every text stub by its content, in place: the parsed frame is the client's own, so there is no second copy beside it.
    * A stub that cannot be read stays a stub and its error is appended to `failed`; only the end of the connection aborts the whole
    * resolution. Every child visited is a unit of the turn's budget. */
-  private async resolveBlobs(v: Json, failed: ClientErrorDetail[]): Promise<Json> {
+  private async resolveBlobs(v: Json, failed: ClientErrorDetail[], pace: Pace): Promise<Json> {
     if (typeof v !== 'object' || v === null) return v;
     if (isBlobStub(v)) {
       if (!isTextMedia(v.blob.mediaType)) return v as unknown as Json;
@@ -1137,10 +1191,10 @@ class Engine implements ProtocolClient<Json> {
     }
     const holder = v as Record<string, Json>;
     for (const k of Array.isArray(v) ? indices(v.length) : ownKeys(holder)) {
-      if ((++this.visited & 63) === 0 && this.overBudget()) await this.nextTurn();
+      if ((++this.visited & 63) === 0) for (let wait = pace(); wait; wait = pace()) await wait;
       const child = holder[k] as Json;
       if (typeof child !== 'object' || child === null) continue;
-      const resolved = await this.resolveBlobs(child, failed);
+      const resolved = await this.resolveBlobs(child, failed, pace);
       if (resolved !== child) Object.defineProperty(holder, k, { value: resolved, writable: true, enumerable: true, configurable: true });
     }
     return v;
