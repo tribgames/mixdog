@@ -1,7 +1,7 @@
 {
   "name": "explore",
   "title": "Explore",
-  "description": "Read-only code search in parallel explorers outside your context; returns one merged answer with path:line evidence. Use when locating needs 3+ searches, spans 2+ files or areas, or covers independent questions; a known file or one lookup: read/grep. Returns final results in this call.",
+  "description": "Read-only code search in parallel explorers outside your context; returns locations with path:line evidence. Asks where, never how or why. Use for independent questions or searches one batched call cannot cover; a known file or one lookup: read/grep. Returns final results in this call.",
   "annotations": {
     "title": "Explore",
     "readOnlyHint": true,
