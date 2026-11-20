@@ -237,7 +237,7 @@ export function RouteEditor({
     placement,
     align,
     sheetHeight,
-    effortCount: effortOptions.length + (autoEffort ? 1 : 0),
+    effortCount: effortOptions.length + (autoEffort && !autoEffort.unavailable ? 1 : 0),
     surfaceActive,
     onOpenSheet,
   });

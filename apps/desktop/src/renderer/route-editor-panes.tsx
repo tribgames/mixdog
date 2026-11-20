@@ -208,17 +208,6 @@ export function routeEffortPane({
 }): ReactNode {
   return (
     <>
-      {autoEffort?.unavailable && (
-        <div
-          key="auto"
-          className="route-sheet-note"
-          role="note"
-          data-effort-option="auto-unavailable"
-          title={t('Auto is not available for this model')}
-        >
-          {t('Auto is not available for this model')}
-        </div>
-      )}
       {autoEffort && !autoEffort.unavailable && (
         <button
           type="button"

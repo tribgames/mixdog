@@ -279,21 +279,6 @@
   text-align: right;
   white-space: nowrap;
 }
-/* A non-interactive line in an effort pane: one option row tall (the sheet height counts it as a row). */
-.route-sheet-note {
-  width: 100%;
-  height: 36px;
-  min-height: 36px;
-  display: flex;
-  align-items: center;
-  padding: 0 10px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-ui);
-  line-height: var(--mx-line-ui);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .route-sheet-row svg,
 .route-sheet-option svg {
   flex: 0 0 auto;
