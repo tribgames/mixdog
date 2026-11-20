@@ -191,6 +191,11 @@ impl SocketWrite for EndWrite {
     }
 }
 
+// The server's own minimal-params generator, over the same checked-in schema.
+#[cfg(test)]
+#[path = "../../mixdog-app-server/src/tests/samples.rs"]
+mod sample;
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -201,10 +206,6 @@ mod tests {
     use super::*;
     use crate::compose::ComposeConfig;
     use crate::compose::compose;
-
-    // The server's own minimal-params generator, over the same checked-in schema.
-    #[path = "../../../../mixdog-app-server/src/tests/samples.rs"]
-    mod sample;
 
     async fn reply(halves: &mut mixdog_app_server_client::api::TransportHalves, id: u64) -> serde_json::Value {
         loop {
