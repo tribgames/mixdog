@@ -28,6 +28,13 @@ mod state_tables;
 pub mod supplement;
 mod title;
 
+/// Whether a session's own `title` names it on the desktop: `generatedSessionTitle(row.title)`
+/// is not empty (`desktop-state.ts`). The desktop showed `names` > the session's own title >
+/// its legacy `titles` map > the preview, so a usable own title outranks the legacy entry.
+pub fn has_own_title(title: &str) -> bool {
+    !title::generated_title(title).is_empty()
+}
+
 #[cfg(test)]
 mod tests;
 

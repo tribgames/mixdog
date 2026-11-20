@@ -429,10 +429,14 @@ pub struct Backups {
 }
 
 /// The app's internal "no project" working folder, created on demand.
-pub fn task_workspace(user_data: &Path) -> WsResult<PathBuf> {
-    let path = user_data.join("workspace").join("unclassified");
-    std::fs::create_dir_all(&path)?;
-    canonical(&path).map_err(Into::into)
+pub fn task_workspace(folder: &Path) -> WsResult<PathBuf> {
+    std::fs::create_dir_all(folder)?;
+    canonical(folder).map_err(Into::into)
+}
+
+/// Where tasks run when no folder is recorded: `<userData>/workspace/unclassified`.
+pub fn default_task_workspace(user_data: &Path) -> PathBuf {
+    user_data.join("workspace").join("unclassified")
 }
 
 #[cfg(test)]

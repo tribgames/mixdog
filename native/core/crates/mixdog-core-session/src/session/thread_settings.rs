@@ -230,17 +230,16 @@ impl ArchiveRetention for ConfigArchiveRetention {
     }
 }
 
-/// [`ProjectFolders`] over the Project catalog of the workspace service; `user_data` holds the
-/// task workspace (`workspace/unclassified`).
+/// [`ProjectFolders`] over the Project catalog of the workspace service, which also names the
+/// task workspace.
 pub struct WorkspaceFolders {
     service: Arc<WorkspaceService>,
-    user_data: std::path::PathBuf,
     lanes: super::SessionLanes,
 }
 
 impl WorkspaceFolders {
-    pub fn new(service: Arc<WorkspaceService>, user_data: std::path::PathBuf, lanes: super::SessionLanes) -> Self {
-        Self { service, user_data, lanes }
+    pub fn new(service: Arc<WorkspaceService>, lanes: super::SessionLanes) -> Self {
+        Self { service, lanes }
     }
 }
 
@@ -274,11 +273,7 @@ impl ProjectFolders for WorkspaceFolders {
     }
 
     async fn task_workspace(&self) -> Result<String, String> {
-        let user_data = self.user_data.clone();
-        let job = move |_: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>| {
-            mixdog_workspace::editorcfg::task_workspace(&user_data).map(|path| text_of(&path)).map_err(|error| error.message)
-        };
-        on_lane(self.lanes.durability, &CancellationToken::new(), job).await.map_err(|error| format!("{error:?}"))?
+        self.service.task_workspace(&CancellationToken::new()).await.map(|path| text_of(&path)).map_err(|error| error.message)
     }
 
     async fn touch_selected(&self, cwd: &str) -> Result<(), String> {

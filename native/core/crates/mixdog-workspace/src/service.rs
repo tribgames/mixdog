@@ -290,6 +290,8 @@ pub struct WorkspaceService {
     sweepers: std::sync::Once,
     /// The user's Markdown default view, read when editor settings are (see [`Self::set_user_markdown_view`]).
     user_markdown_view: OnceLock<UserMarkdownView>,
+    /// The task folder the host resolved (see [`Self::set_task_folder`]); unset: the default under the user data.
+    task_folder: OnceLock<PathBuf>,
     /// Where a path inside a managed worktree is resolved to its owner Project (see [`ManagedProjects`]).
     managed: OnceLock<Arc<dyn ManagedProjects>>,
     releases: Arc<crate::release::FolderReleases>,
@@ -615,6 +617,21 @@ mod serverdownload_calls {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn the_task_folder_is_the_resolved_one_for_every_reader() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = service(dir.path());
+        let cancel = CancellationToken::new();
+        let default = service.task_workspace(&cancel).await.unwrap();
+        assert!(default.ends_with(Path::new("workspace").join("unclassified")));
+        let migrated = dir.path().join("old-tasks");
+        service.set_task_folder(migrated.clone());
+        let resolved = service.task_workspace(&cancel).await.unwrap();
+        assert!(resolved.ends_with("old-tasks") && migrated.is_dir());
+        let answered = call(&service, "project/taskWorkspace", json!({})).await.unwrap();
+        assert_eq!(answered, json!({ "path": resolved.to_string_lossy() }));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn a_server_that_is_not_linked_is_not_connected() {
         let dir = tempfile::tempdir().unwrap();
         let service = service(dir.path());
@@ -714,6 +731,7 @@ impl WorkspaceService {
             page_server: OnceLock::new(),
             sweepers: std::sync::Once::new(),
             user_markdown_view: OnceLock::new(),
+            task_folder: OnceLock::new(),
             managed: OnceLock::new(),
             releases: deps.releases,
             upload_chunk_bytes: deps.upload_chunk_bytes,
@@ -778,6 +796,19 @@ impl WorkspaceService {
     /// `capabilityUnavailable`. Set once.
     pub fn set_host(&self, host: Arc<dyn HostChannel>) {
         let _ = self.host.set(host);
+    }
+
+    /// The folder tasks run in, when the host resolved one other than `<userData>/workspace/unclassified`
+    /// (a migrated profile keeps its old one). `project/taskWorkspace` and the move of a session back to
+    /// Tasks answer with it. Set once.
+    pub fn set_task_folder(&self, folder: PathBuf) {
+        let _ = self.task_folder.set(folder);
+    }
+
+    /// The task folder, created if missing, as its real path.
+    pub async fn task_workspace(&self, cancel: &CancellationToken) -> WsResult<PathBuf> {
+        let folder = self.task_folder.get().cloned().unwrap_or_else(|| crate::editorcfg::default_task_workspace(&self.user_data));
+        run_fallible(self.lanes.durability, cancel, move || crate::editorcfg::task_workspace(&folder)).await
     }
 
     /// Connects where the user's Markdown default view is stored (the config key `desktop.editor.markdownDefaultView`;
@@ -2067,8 +2098,7 @@ impl WorkspaceService {
                 )
             }
             "project/taskWorkspace" => {
-                let user_data = self.user_data.clone();
-                let path = run_fallible(self.lanes.durability, &cancel, move || crate::editorcfg::task_workspace(&user_data)).await?;
+                let path = self.task_workspace(&cancel).await?;
                 value(json!({ "path": path.to_string_lossy() }))
             }
             "project/codeGraph" => {

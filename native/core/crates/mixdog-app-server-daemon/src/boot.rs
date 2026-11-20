@@ -224,7 +224,10 @@ impl Behind {
             .into_iter()
             .zip(kept)
             .map(|((session, mut row), kept)| {
-                row.extend(kept);
+                // The row's own title outranks the desktop's legacy one, as it does when the session is converted.
+                if let Some(kept) = mixdog_migrate::session::without_outranked_title(&row, kept) {
+                    row.extend(kept);
+                }
                 pending_row(session, row)
             })
             .collect();

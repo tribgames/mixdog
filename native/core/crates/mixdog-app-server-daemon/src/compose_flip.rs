@@ -62,6 +62,14 @@ pub(crate) fn config_file(data_dir: &std::path::Path) -> std::path::PathBuf {
     data_dir.join(mixdog_core_config::user_data::CONFIG_FILE)
 }
 
+/// The recorded task folder, when it is an absolute path. A blank or relative value is not a folder
+/// this process can own, so the default applies.
+fn recorded_task_workspace(recorded: Option<serde_json::Value>) -> Option<std::path::PathBuf> {
+    let recorded = recorded?;
+    let path = std::path::Path::new(recorded.as_str()?.trim());
+    path.is_absolute().then(|| path.to_path_buf())
+}
+
 /// `promptConfigSlice(config)` (`prompt-settings.mjs:36`) over the whole in-memory config: `??` falls through on `null`/absent only.
 fn prompt_config_slice(root: &serde_json::Map<String, serde_json::Value>) -> serde_json::Value {
     let agent = root.get("agent").and_then(serde_json::Value::as_object);
@@ -280,6 +288,19 @@ mod tests {
     use mixdog_core_api::mock::MockStatePublisher;
     use mixdog_core_api::state::SectionChange;
     use mixdog_protocol::SectionName;
+
+    #[test]
+    fn the_recorded_task_folder_is_used_only_when_absolute() {
+        let absolute = std::env::temp_dir().join("old-tasks");
+        let recorded = |v: serde_json::Value| recorded_task_workspace(Some(v));
+        assert_eq!(recorded(serde_json::json!(absolute.to_str().unwrap())), Some(absolute.clone()));
+        assert_eq!(recorded(serde_json::json!(format!("  {}  ", absolute.display()))), Some(absolute));
+        assert_eq!(recorded(serde_json::json!("")), None);
+        assert_eq!(recorded(serde_json::json!("   ")), None);
+        assert_eq!(recorded(serde_json::json!("workspace/unclassified")), None);
+        assert_eq!(recorded(serde_json::json!(7)), None);
+        assert_eq!(recorded_task_workspace(None), None);
+    }
 
     /// The first start's downloads are a notice while they run and no notice after: a progress report raises it once, the end removes it.
     #[test]
@@ -1448,7 +1469,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let home = std::env::home_dir().ok_or(ComposeError::NoHome)?;
     // `mixdogHome()`: `MIXDOG_HOME`, else `~/.mixdog` (the layout `server_ensure` hands the daemon); the conversation transcripts live under its `projects`.
     let mixdog_home = (b.env)("MIXDOG_HOME").filter(|v| !v.is_empty()).map(std::path::PathBuf::from).unwrap_or_else(|| home.join(".mixdog"));
-    let task_workspace = b.user_data_dir.join("workspace").join("unclassified");
+    // A profile migrated from Node keeps the folder its tasks already ran in (the migration records it as
+    // `desktop.unclassifiedWorkspaceRoot`); without it a new install starts in `<userData>/workspace/unclassified`.
+    let task_workspace = recorded_task_workspace(config.get(mixdog_protocol::config::keys::DESKTOP_UNCLASSIFIED_WORKSPACE_ROOT))
+        .unwrap_or_else(|| b.user_data_dir.join("workspace").join("unclassified"));
+    let workspace_task_folder = task_workspace.clone();
     crate::compose::create_dir(&b.tokens, task_workspace.clone()).await.map_err(ComposeError::StateDir)?;
     // The local provider needs only the data folder, the process manager, the config and the stop token.
     let local_provider = build_local_provider(&b.data_dir, &b.tidy_processes, &config, &b.cancel).map_err(ComposeError::ComposeDomains)?;
@@ -4394,6 +4419,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     .map_err(ComposeError::Workspace)?;
     reuses.bind_watcher(workspace.watcher());
     workspace.spawn_idle_sweeper(); // abandoned uploads go at their idle deadline, as Node's per-upload timer
+    workspace.set_task_folder(workspace_task_folder);
     workspace.set_user_markdown_view({
         let config = config.clone();
         Arc::new(move || config.markdown_default_view())
@@ -4902,7 +4928,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     );
     late_workspaces.bind(Arc::new(workspaces.clone())).map_err(|_| ComposeError::AlreadyBound("session workspaces"))?;
     let resolver = Arc::new(crate::project_workspaces::SessionProjectWorkspaces::new(
-        Arc::new(mixdog_core_session::session::thread_settings::WorkspaceFolders::new(workspace.clone(), b.user_data_dir.clone(), session_lanes())),
+        Arc::new(mixdog_core_session::session::thread_settings::WorkspaceFolders::new(workspace.clone(), session_lanes())),
         worktrees.clone(),
     ));
     // `project/directory` and `project/touch` take a managed worktree path as Node's `projectScope` does: the one resolver.
@@ -5001,7 +5027,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     ));
     // The directory's `thread/start` (draft worktree) and `thread/fork` (heir's Project) reach the workspace service and the Projects through this cell.
     let new_place_folders: Arc<dyn mixdog_core_session::session::thread_settings::ProjectFolders> =
-        Arc::new(mixdog_core_session::session::thread_settings::WorkspaceFolders::new(workspace.clone(), b.user_data_dir.clone(), session_lanes()));
+        Arc::new(mixdog_core_session::session::thread_settings::WorkspaceFolders::new(workspace.clone(), session_lanes()));
     late_new_place
         .bind(Arc::new(mixdog_core_session::session::worktree::worktree_service::ScmNewThreadPlace::new(thread_scm.clone(), new_place_folders)))
         .map_err(ComposeError::AlreadyBound)?;
@@ -5199,11 +5225,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             directory: directory.clone(),
             workspaces: workspaces.clone(),
             effort: route_service.clone(), // `impl EffortTuning for RouteService`; the same Arc as `RouteSetService.routes` and `ThreadRouteService`
-            projects: Arc::new(mixdog_core_session::session::thread_settings::WorkspaceFolders::new(
-                workspace.clone(),
-                b.user_data_dir.clone(),
-                session_lanes(),
-            )),
+            projects: Arc::new(mixdog_core_session::session::thread_settings::WorkspaceFolders::new(workspace.clone(), session_lanes())),
             trees: archive_trees.clone(),
             ops: domain_inputs.scopes.scopes("thread").map_err(ComposeError::ComposeDomains)?,
             surface: surface_generation.clone(),
