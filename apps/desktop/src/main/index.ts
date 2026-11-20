@@ -2445,6 +2445,9 @@ function installLocalWindowFeatures(
   // above 1 GB and nothing hands that back while the desktop sits untouched.
   const windowIdleReclaim = attachWindowIdleReclaim(window, {
     reclaim: () => reclaimRendererMemory(window),
+    // Whole seconds, rounded down: the upper bound, so input just before a
+    // release never reads as newer than it.
+    systemIdleMs: () => (powerMonitor.getSystemIdleTime() + 1) * 1000,
   });
   idleReclaim = windowIdleReclaim;
   window.on('focus', () => {
@@ -2844,14 +2847,13 @@ function startDesktopDiagnostics(appReadyAt: number): void {
   startDiagnosticsEventLoopMonitor();
 }
 
-/** Keep-awake, taskbar attention, idle reclaim and the turn notifier feed on
+/** Keep-awake, taskbar attention and the turn notifier feed on
  *  the session state, roster and agent pool lanes. */
 function subscribeSessionLanes(): void {
   // Keep-awake + taskbar attention feed on the same session state lane.
   unsubscribeAwake = localService.subscribe((snapshot) => {
     awakeService.onSnapshot(snapshot);
     turnAttention?.onSnapshot(snapshot);
-    idleReclaim?.onSnapshot(snapshot);
   });
   // Every session's roster and the agent pool, not just the active pane:
   // the final-answer rule needs background work as well as turn state.

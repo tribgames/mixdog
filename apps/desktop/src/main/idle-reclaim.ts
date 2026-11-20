@@ -6,34 +6,38 @@
 // was reclaimable — the same log shows unforced drops of 500 MB once the host
 // came under pressure — but nothing asks for it back while RAM is plentiful.
 // So this drops what the app itself owns (recomputable caches), and only when
-// the user cannot notice: window unfocused, no turn streaming, and one release
-// per quiet stretch. The V8 heap is NOT forced down from here; main/index.ts
+// the user cannot notice: window unfocused or the machine idle (background
+// turns do not count as use), and one release per quiet stretch. The V8 heap is NOT forced down from here; main/index.ts
 // caps the renderer's old space instead, which is the supported lever.
 import type { BrowserWindow } from 'electron';
-import type { SessionSnapshot } from '../shared/contract';
-import { turnInProgress } from './turn-attention';
 
 export const IDLE_RECLAIM_EVENT = 'mixdog:idle-reclaim';
 const IDLE_RECLAIM_DELAY_MS = 5 * 60_000;
+const IDLE_RECLAIM_POLL_MS = 30_000;
 
 interface IdleReclaimHooks {
   isFocused(): boolean;
   reclaim(): void | Promise<void>;
   delayMs?: number;
+  /** Milliseconds since the user last touched the machine's keyboard or mouse.
+   *  Covers a window that stayed focused (or never blurred) while the user left. */
+  systemIdleMs?(): number;
+  pollMs?: number;
 }
 
 export interface IdleReclaim {
   onFocus(): void;
   onBlur(): void;
-  onSnapshot(snapshot: SessionSnapshot): void;
   dispose(): void;
 }
 
 export function createIdleReclaim(hooks: IdleReclaimHooks): IdleReclaim {
   const delayMs = hooks.delayMs ?? IDLE_RECLAIM_DELAY_MS;
+  const pollMs = hooks.pollMs ?? IDLE_RECLAIM_POLL_MS;
   let timer: ReturnType<typeof setTimeout> | null = null;
-  let busy = false;
+  let poller: ReturnType<typeof setTimeout> | null = null;
   let released = false;
+  let releasedAt = 0;
   let disposed = false;
 
   const cancel = () => {
@@ -41,6 +45,37 @@ export function createIdleReclaim(hooks: IdleReclaimHooks): IdleReclaim {
     clearTimeout(timer);
     timer = null;
   };
+  const run = () => {
+    released = true;
+    releasedAt = Date.now();
+    void Promise.resolve(hooks.reclaim()).catch(() => {
+      /* best effort */
+    });
+  };
+  // Background turns deliberately do not gate or reset this: they kept the
+  // idle clock from ever completing while nobody was at the PC. Only the user
+  // (focus, input) ends a quiet stretch.
+  const poll = () => {
+    poller = null;
+    if (disposed) return;
+    let idleMs = 0;
+    try {
+      idleMs = hooks.systemIdleMs?.() ?? 0;
+    } catch {
+      /* unreadable idle time counts as present */
+    }
+    // Only input newer than the release ends its quiet stretch; a short idle
+    // reading alone does not, or a release by the blur timer would be
+    // repeated here moments later.
+    if (released && idleMs < Date.now() - releasedAt) released = false;
+    if (!released && idleMs >= delayMs) run();
+    poller = setTimeout(poll, pollMs);
+    poller.unref?.();
+  };
+  if (hooks.systemIdleMs) {
+    poller = setTimeout(poll, pollMs);
+    poller.unref?.();
+  }
   // A destroyed or unreadable window counts as focused: the reclaim is an
   // optimization, and skipping it is always the safe answer.
   const focused = () => {
@@ -51,14 +86,11 @@ export function createIdleReclaim(hooks: IdleReclaimHooks): IdleReclaim {
     }
   };
   const arm = () => {
-    if (disposed || released || busy || timer || focused()) return;
+    if (disposed || released || timer || focused()) return;
     timer = setTimeout(() => {
       timer = null;
-      if (disposed || busy || focused()) return;
-      released = true;
-      void Promise.resolve(hooks.reclaim()).catch(() => {
-        /* best effort */
-      });
+      if (disposed || released || focused()) return;
+      run();
     }, delayMs);
     timer.unref?.();
   };
@@ -73,27 +105,18 @@ export function createIdleReclaim(hooks: IdleReclaimHooks): IdleReclaim {
     onBlur() {
       arm();
     },
-    onSnapshot(snapshot) {
-      const next = turnInProgress(snapshot);
-      if (next === busy) return;
-      busy = next;
-      if (busy) {
-        // A running turn allocates again, so a later quiet stretch is worth
-        // another release even if this background window already had one.
-        released = false;
-        cancel();
-      } else arm();
-    },
     dispose() {
       disposed = true;
       cancel();
+      if (poller) clearTimeout(poller);
+      poller = null;
     },
   };
 }
 
 export function attachWindowIdleReclaim(
   window: Pick<BrowserWindow, 'on' | 'once' | 'isDestroyed' | 'isFocused'>,
-  hooks: Pick<IdleReclaimHooks, 'reclaim' | 'delayMs'>
+  hooks: Pick<IdleReclaimHooks, 'reclaim' | 'delayMs' | 'systemIdleMs' | 'pollMs'>
 ): IdleReclaim {
   const controller = createIdleReclaim({
     ...hooks,

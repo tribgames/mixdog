@@ -38,6 +38,8 @@ using System.Runtime.InteropServices;
 public static class MixdogNotificationAudio {
   [DllImport("winmm.dll", CharSet = CharSet.Unicode, SetLastError = true)]
   public static extern bool PlaySound(string sound, IntPtr module, uint flags);
+  [DllImport("winmm.dll")]
+  public static extern uint waveOutGetNumDevs();
   [DllImport("shell32.dll")]
   public static extern int SHQueryUserNotificationState(out int state);
 }
@@ -50,9 +52,12 @@ if ($env:MIXDOG_NOTIFICATION_SOUND_CHECK_ONLY -eq '1') {
   @{ status = 'allowed' } | ConvertTo-Json -Compress
   exit 0
 }
+# PlaySound has no output to open without a wave device and then only returns FALSE: a named
+# condition (all outputs unplugged/disabled), not a playback fault.
+if ([MixdogNotificationAudio]::waveOutGetNumDevs() -eq 0) { Skip 'no-audio-output-device' }
 # SND_SYSTEM | SND_FILENAME | SND_NODEFAULT, synchronous until the short WAV ends.
 if (-not [MixdogNotificationAudio]::PlaySound($env:MIXDOG_NOTIFICATION_SOUND_FILE, [IntPtr]::Zero, 0x00220002)) {
-  throw 'Notification sound playback failed'
+  throw "Notification sound playback failed: PlaySound refused $env:MIXDOG_NOTIFICATION_SOUND_FILE (exists: $(Test-Path -LiteralPath $env:MIXDOG_NOTIFICATION_SOUND_FILE))"
 }
 @{ status = 'played' } | ConvertTo-Json -Compress
 `;
