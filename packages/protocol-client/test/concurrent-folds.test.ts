@@ -270,10 +270,11 @@ test('an app snapshot fold and a thread reducer alternate: neither waits more th
   // The budget is 0 and the clock advances on every ask, so each turn holds one unit of work, the thread's (a step, or its finish)
   // or the app fold's (staging a section, announcing it): a turn the thread did not run in belongs to the app.
   const turns = await h.drain(THREAD_STEPS + 1 + SECTIONS * (2 + SCAN_ASKS) + 2);
-  const lastThread = turns.findLastIndex((turn) => turn.steps.length + turn.finished > 0);
+  const ran = turns.map((turn) => turn.steps.length + turn.finished > 0);
+  const lastThread = ran.lastIndexOf(true);
   assert.equal(h.stepsOf('t0').length, THREAD_STEPS, 'the thread finished');
   assert.ok(lastThread >= THREAD_STEPS - 2, 'the thread ran across the turns');
-  const threadRan = turns.slice(0, lastThread + 1).map((turn) => turn.steps.length + turn.finished > 0);
+  const threadRan = ran.slice(0, lastThread + 1);
   for (let i = 1; i < threadRan.length; i++) {
     assert.notEqual(threadRan[i], threadRan[i - 1], `turns ${i - 1} and ${i} went to the ${threadRan[i] ? 'thread' : 'app fold'} both times: ${threadRan.map((r) => (r ? 'T' : 'A')).join('')}`);
   }
