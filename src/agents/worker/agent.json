@@ -1,6 +1,6 @@
 {
   "id": "worker",
   "name": "Worker",
-  "description": "Default implementation agent: features, fixes, refactors, tests, and investigations that need something run. Use when the end state can be stated up front, however large.",
+  "description": "Mechanical implementation: the same change applied across many sites, removals, renames, moves, test and fixture updates, edits the brief already spells out, and checks that only need running. Use when every edit follows from the brief or an existing pattern, however many files.",
   "entry": "AGENT.md"
 }
