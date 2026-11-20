@@ -18,5 +18,5 @@ test('clipboard commands keep the session refs; window mutations retire them', (
   const embedded = /\$readActions = (@\([^)]*\))/.exec(
     PS_RUNTIME.slice(PS_RUNTIME.indexOf('function Invalidate-RefsForRequest'))
   );
-  assert.ok(embedded && embedded[1].includes('clipboard_write'));
+  assert.ok(embedded?.[1].includes('clipboard_write'));
 });

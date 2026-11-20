@@ -12,10 +12,8 @@ export function isScenarioUserControl(code: unknown): boolean {
  *  during the native call carries none. */
 export function userControlDetail(reply: Record<string, unknown>): string {
   const recovery = reply.input_recovery as Record<string, unknown> | undefined;
-  const where = recovery
-    ? `the host's readback after the native call: ${JSON.stringify(recovery)}`
-    : reply.code === 'user_input_active'
-      ? 'a check during the native call'
-      : 'the host coordinator';
+  let where = 'the host coordinator';
+  if (recovery) where = `the host's readback after the native call: ${JSON.stringify(recovery)}`;
+  else if (reply.code === 'user_input_active') where = 'a check during the native call';
   return `${String(reply.code)} from ${where}${reply.message ? `; ${String(reply.message)}` : ''}`;
 }

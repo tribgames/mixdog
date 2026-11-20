@@ -51,12 +51,14 @@ function fakeSources(overrides = {}) {
     calls,
     displays: () => [display('11', 0, 0, true), display('12', 1, 2000)],
     ownedWindow: (id) => (id === 'hwnd:0x1' ? ownedWindow(async () => image(800, 600)) : null),
-    displayPixels: async (d, size) => (
-      calls.push(['display', d.id, size.width, size.height]), image(size.width, size.height)
-    ),
-    windowPixels: async (id, size) => (
-      calls.push(['window', id, size.width, size.height]), image(size.width, size.height)
-    ),
+    displayPixels: async (d, size) => {
+      calls.push(['display', d.id, size.width, size.height]);
+      return image(size.width, size.height);
+    },
+    windowPixels: async (id, size) => {
+      calls.push(['window', id, size.width, size.height]);
+      return image(size.width, size.height);
+    },
     screenAccess: () => undefined,
     ...overrides,
   };
@@ -170,7 +172,10 @@ test('encoding: jpeg takes the quality, png does not, empty bytes are refused', 
 test('an upload goes in chunks under the limit, each carrying the digest of the whole', async () => {
   const bytes = Buffer.alloc(250_000, 7);
   const puts = [];
-  const result = await uploadBlob(async (method, params) => (puts.push({ method, ...params }), {}), bytes);
+  const result = await uploadBlob(async (method, params) => {
+    puts.push({ method, ...params });
+    return {};
+  }, bytes);
   assert.equal(result.byteLength, 250_000);
   assert.equal(result.digest, `sha256:${createHash('sha256').update(bytes).digest('hex')}`);
   assert.ok(puts.length >= 3 && puts.every((put) => put.method === 'blob/put' && put.digest === result.digest));
@@ -198,7 +203,10 @@ function host(sources, callCore) {
 
 test('the host method uploads before it answers the blob reference', async () => {
   const puts = [];
-  const ask = host(fakeSources(), async (_method, params) => (puts.push(params), {}));
+  const ask = host(fakeSources(), async (_method, params) => {
+    puts.push(params);
+    return {};
+  });
   const answer = await ask({
     target: { kind: 'display' },
     backend: 'screen',

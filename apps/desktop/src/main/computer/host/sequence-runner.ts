@@ -169,6 +169,10 @@ function assertSequenceStep(step: SequenceStep, index: number): string {
 
 /** A sequence whose preflight refused its delivery: no step ran, and the reply
  *  says so step by step so the caller can pick another delivery. */
+function errorMessage(error: unknown): string {
+  return (error as Error)?.message || String(error);
+}
+
 function preflightRefusedReply(
   windowId: string,
   stepCommands: ComputerCommand[],
@@ -213,10 +217,6 @@ export interface SequenceRunnerHost extends Pick<CaptureEngine, 'captureAfterAct
   /** Ends the no-activate holds the session's worker keeps across a background
    *  sequence's steps; sent whenever a background sequence finishes or stops. */
   releaseSequenceHolds?(sessionId: string): Promise<void>;
-}
-
-function errorMessage(error: unknown): string {
-  return (error as Error)?.message || String(error);
 }
 
 /** A worker reply refusing release_sequence_holds, as the error the sequence

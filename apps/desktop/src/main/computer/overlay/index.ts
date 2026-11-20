@@ -4,10 +4,11 @@
  * is being used, so a render that dies never vanishes without a trace, and
  * the Stop shortcut works whenever the banner is up or the user holds control.
  */
-import { globalShortcut, screen } from 'electron';
+import { errorMessage } from '../shared/common';
+import { screen } from 'electron';
 
 import { getLinuxComputerReadiness } from '../../../shared/core-src/runtime/computer-bridge/linux-readiness.mjs';
-import { usesGnomeHelper, watchGnomeStopSignal } from '../host/gnome-helper';
+import { usesGnomeHelper } from '../host/gnome-helper';
 import type { ComputerPresenceSource } from '../presence/mirror';
 import { computerUseCoordinator, type ComputerUseSnapshot } from '../session/coordinator';
 import { createComputerOverlayController, type ComputerUseOverlayControls } from './controls';
@@ -16,12 +17,12 @@ import { createGnomeIndicator } from './gnome-indicator';
 import { computerUseOverlayPresentation } from './model';
 import { createOverlayFade } from './overlay-fade';
 import { setComputerUsePillShown } from './overlay-presence';
+import { createStopShortcut } from './stop-shortcut';
 import { createOverlayWindows } from './overlay-windows';
 import { renderComputerOverlayWindows } from './render-windows';
 
 export type { ComputerUseOverlayControls } from './controls';
 
-const STOP_SHORTCUT = 'CommandOrControl+Alt+Escape';
 /** How long the hidden pill windows are kept for the next command before their renderers are released. */
 export const OVERLAY_IDLE_RETIRE_MS = 5 * 60_000;
 
@@ -121,12 +122,12 @@ export function createComputerUseOverlay(
     (async (): Promise<boolean> => (await getLinuxComputerReadiness()).capabilities.windows.state === 'ready');
 
   const render = async (): Promise<void> => {
-    ensureShortcut();
+    stopShortcut.ensure();
     const currentRender = ++renderRevision;
     const revision = latestSnapshot.revision;
     const presentation = computerUseOverlayPresentation(latestSnapshot, locale, {
       ...controller.state(),
-      shortcutUnavailable,
+      shortcutUnavailable: stopShortcut.unavailable(),
     });
     latestPresentation = presentation;
     if (presentation.visible) cancelIdleRetire();
@@ -180,43 +181,25 @@ export function createComputerUseOverlay(
    * desktop, so a render that dies must not vanish without a trace. */
   const scheduleRender = (): void => {
     void render().catch((error) => {
-      console.warn('[computer-overlay] render_failed', String((error as Error)?.message || error));
+      console.warn('[computer-overlay] render_failed', errorMessage(error));
     });
   };
 
-  let shortcutRegistered = false;
-  let shortcutUnavailable = false;
-  let stopWatcher: (() => void) | null = null;
-  const onStopShortcut = (): void => {
-    // The pill leaves between commands, but a turn that used the computer can
-    // still use it again: the emergency Stop reaches every such session.
-    const active =
-      latestPresentation.visible ||
-      latestPresentation.sessionIds.length > 0 ||
-      latestSnapshot.userControlActive ||
-      latestSnapshot.cleanupState !== 'ready';
-    console.log('[computer-overlay] stop_shortcut', active ? 'stopping' : 'idle');
-    if (active) stop();
-  };
-  /** Another process may own the chord; retry on every render until it is ours. */
-  const ensureShortcut = (): void => {
-    if (shortcutRegistered || disposed) return;
-    // Electron cannot register global shortcuts on Wayland; on GNOME the shell
-    // extension owns the chord and reports it over D-Bus.
-    if (usesGnomeHelper()) {
-      stopWatcher ??= watchGnomeStopSignal(onStopShortcut);
-      return;
-    }
-    shortcutRegistered = globalShortcut.register(STOP_SHORTCUT, onStopShortcut);
-    if (shortcutRegistered) shortcutUnavailable = false;
-    else if (!shortcutUnavailable) {
-      // The pill's Stop control still works, but the documented emergency exit
-      // does not: the pill says so (once per state change), besides the log.
-      shortcutUnavailable = true;
-      console.warn('[computer-overlay] stop_shortcut_unavailable', STOP_SHORTCUT);
-    }
-  };
-  ensureShortcut();
+  const stopShortcut = createStopShortcut(
+    () => {
+      // The pill leaves between commands, but a turn that used the computer can
+      // still use it again: the emergency Stop reaches every such session.
+      const active =
+        latestPresentation.visible ||
+        latestPresentation.sessionIds.length > 0 ||
+        latestSnapshot.userControlActive ||
+        latestSnapshot.cleanupState !== 'ready';
+      console.log('[computer-overlay] stop_shortcut', active ? 'stopping' : 'idle');
+      if (active) stop();
+    },
+    () => disposed
+  );
+  stopShortcut.ensure();
   const unsubscribe = source.subscribe((snapshot) => {
     if (latestSnapshot.userControlActive && !snapshot.userControlActive) windows.resetRendererFailures();
     latestSnapshot = snapshot;
@@ -250,9 +233,7 @@ export function createComputerUseOverlay(
       screen.removeListener('display-metrics-changed', onDisplaysChanged);
       screen.removeListener('display-added', onDisplaysChanged);
       screen.removeListener('display-removed', onDisplaysChanged);
-      if (shortcutRegistered) globalShortcut.unregister(STOP_SHORTCUT);
-      stopWatcher?.();
-      stopWatcher = null;
+      stopShortcut.dispose();
       indicator?.dispose();
       windows.destroyAll();
       setComputerUsePillShown(false);

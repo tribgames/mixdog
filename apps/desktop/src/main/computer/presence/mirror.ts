@@ -141,6 +141,79 @@ export function coordinatorPointerProgress(
   });
 }
 
+/** What the overlay draws from the section and the mirror's own pointer state. */
+interface PresenceState {
+  section: ComputerSectionValue | null;
+  revision: number;
+  at: number;
+  thinkingGraceMs: number;
+  cursors: ReadonlyMap<string, ComputerUseCursor>;
+  released: ReadonlySet<string>;
+  lastMode: ReadonlyMap<string, 'foreground' | 'background'>;
+  startedAt: ReadonlyMap<string, number>;
+  idleSince: ReadonlyMap<string, number>;
+}
+
+function buildSnapshot(state: PresenceState): ComputerUseSnapshot {
+  const { section, revision, at, thinkingGraceMs, cursors, released, lastMode, startedAt, idleSince } = state;
+  const value: ComputerSectionValue = section ?? {
+    active: false,
+    observeOnly: false,
+    controller: null,
+    sessionThreadId: null,
+    sessions: [],
+  };
+  const sessions = section?.active ? section.sessions : [];
+  const sessionIds = sessions.map((session) => session.sessionThreadId);
+  const hold = value.userControl;
+  const takeover = hold?.active === true;
+  // A yield (`active: false`) holds the sessions that wait for the user to be idle; the pill offers Resume only for a
+  // manual one (0 seconds; any other value reads as an automatic resume, `overlay/model.ts`).
+  const manualYield = hold && !hold.active && (hold.resumeMode === 'manual' || value.idleResumeSeconds === 0);
+  const activities: ComputerUseActivity[] = sessions.map((session) => {
+    const id = session.sessionThreadId;
+    const mode = cursors.get(id)?.mode ?? session.mode ?? lastMode.get(id) ?? 'background';
+    // A pointer event after the section said no command runs is a command running (the coordinator's `showCursor`
+    // makes the activity active), so the arrow is not read as one held while the session thinks.
+    let phase: ComputerUseActivityPhase;
+    if (takeover) phase = 'paused_user_takeover';
+    else if (session.phase && ACTIVITY_PHASES.has(session.phase)) phase = session.phase as ComputerUseActivityPhase;
+    else if (session.mode === null && !cursors.has(id)) phase = 'thinking';
+    else phase = mode === 'foreground' ? 'active_foreground' : 'active_background';
+    return {
+      sessionId: id,
+      action: session.observeOnly ? 'observe' : 'control',
+      target: '',
+      mode,
+      phase,
+      startedAt: startedAt.get(id) ?? at,
+      updatedAt: at,
+    };
+  });
+  const idleResumeSeconds =
+    hold && !hold.active ? (manualYield ? 0 : value.idleResumeSeconds || 1) : value.idleResumeSeconds;
+  return {
+    revision,
+    userControlActive: takeover,
+    ...(hold?.active ? { takeoverReason: hold.reason, pausedSessionIds: sessionIds } : {}),
+    ...(hold && !hold.active ? { yieldedSessionIds: sessionIds } : {}),
+    ...(idleResumeSeconds === undefined ? {} : { idleResumeSeconds }),
+    // A section without a latch is settled, as an idle coordinator is.
+    cleanupState: value.cleanupState ?? 'ready',
+    activities,
+    cursors: [...cursors.values()].map((cursor) => ({ ...cursor })).sort((left, right) => left.eventId - right.eventId),
+    releasedPointerSessionIds: [...released],
+    presentSessionIds: activities
+      .filter(
+        (activity) => activity.phase !== 'thinking' || at < (idleSince.get(activity.sessionId) ?? at) + thinkingGraceMs
+      )
+      .map((activity) => activity.sessionId),
+    targetLeases: sessions.flatMap((session) =>
+      (session.windowIds ?? []).map((windowId) => ({ sessionId: session.sessionThreadId, windowId, expiresAt: null }))
+    ),
+  };
+}
+
 export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPresence {
   const { coordinator, notifyPointerReleased } = deps;
   const now = deps.now ?? Date.now;
@@ -164,72 +237,8 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
 
   const sessionsOf = (): ComputerSectionSession[] => (section?.active ? section.sessions : []);
 
-  const build = (): ComputerUseSnapshot => {
-    const value: ComputerSectionValue = section ?? {
-      active: false,
-      observeOnly: false,
-      controller: null,
-      sessionThreadId: null,
-      sessions: [],
-    };
-    const at = now();
-    const sessions = sessionsOf();
-    const sessionIds = sessions.map((session) => session.sessionThreadId);
-    const hold = value.userControl;
-    const takeover = hold?.active === true;
-    // A yield (`active: false`) holds the sessions that wait for the user to be idle; the pill offers Resume only for a
-    // manual one (0 seconds; any other value reads as an automatic resume, `overlay/model.ts`).
-    const manualYield = hold && !hold.active && (hold.resumeMode === 'manual' || value.idleResumeSeconds === 0);
-    const activities: ComputerUseActivity[] = sessions.map((session) => {
-      const id = session.sessionThreadId;
-      const mode = cursors.get(id)?.mode ?? session.mode ?? lastMode.get(id) ?? 'background';
-      // A pointer event after the section said no command runs is a command running (the coordinator's `showCursor`
-      // makes the activity active), so the arrow is not read as one held while the session thinks.
-      const phase: ComputerUseActivityPhase = takeover
-        ? 'paused_user_takeover'
-        : session.phase && ACTIVITY_PHASES.has(session.phase)
-          ? (session.phase as ComputerUseActivityPhase)
-          : session.mode === null && !cursors.has(id)
-            ? 'thinking'
-            : mode === 'foreground'
-              ? 'active_foreground'
-              : 'active_background';
-      return {
-        sessionId: id,
-        action: session.observeOnly ? 'observe' : 'control',
-        target: '',
-        mode,
-        phase,
-        startedAt: startedAt.get(id) ?? at,
-        updatedAt: at,
-      };
-    });
-    const idleResumeSeconds =
-      hold && !hold.active ? (manualYield ? 0 : value.idleResumeSeconds || 1) : value.idleResumeSeconds;
-    return {
-      revision,
-      userControlActive: takeover,
-      ...(hold?.active ? { takeoverReason: hold.reason, pausedSessionIds: sessionIds } : {}),
-      ...(hold && !hold.active ? { yieldedSessionIds: sessionIds } : {}),
-      ...(idleResumeSeconds === undefined ? {} : { idleResumeSeconds }),
-      // A section without a latch is settled, as an idle coordinator is.
-      cleanupState: value.cleanupState ?? 'ready',
-      activities,
-      cursors: [...cursors.values()]
-        .map((cursor) => ({ ...cursor }))
-        .sort((left, right) => left.eventId - right.eventId),
-      releasedPointerSessionIds: [...released],
-      presentSessionIds: activities
-        .filter(
-          (activity) =>
-            activity.phase !== 'thinking' || at < (idleSince.get(activity.sessionId) ?? at) + thinkingGraceMs
-        )
-        .map((activity) => activity.sessionId),
-      targetLeases: sessions.flatMap((session) =>
-        (session.windowIds ?? []).map((windowId) => ({ sessionId: session.sessionThreadId, windowId, expiresAt: null }))
-      ),
-    };
-  };
+  const build = (): ComputerUseSnapshot =>
+    buildSnapshot({ section, revision, at: now(), thinkingGraceMs, cursors, released, lastMode, startedAt, idleSince });
 
   const snapshot = (): ComputerUseSnapshot => {
     if (coordinator && delegating()) return coordinator.snapshot();

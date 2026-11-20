@@ -8,13 +8,13 @@ import type { ComputerCommand } from '../shared/types';
 import type { ComputerWindowRecord } from '../shared/window-transition';
 import type { InspectHost } from './inspect';
 
+const failureMessage = (error: unknown) => (error as Error).message || String(error);
+
 const DIAGNOSE_ACCESSIBILITY_TIMEOUT_MS = 2_500;
 const DIAGNOSE_OCR_TIMEOUT_MS = 3_000;
 
 export type DiagnoseProbeHost = Pick<InspectHost, 'callPowerShell' | 'sessionIdFor'>;
 export type ProbeReport = Record<string, unknown>;
-
-const failureMessage = (error: unknown) => (error as Error).message || String(error);
 
 export async function probeAccessibility(
   host: DiagnoseProbeHost,

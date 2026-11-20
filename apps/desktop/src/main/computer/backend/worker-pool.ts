@@ -113,6 +113,31 @@ function reportPointerProgress(
   }
 }
 
+/** The worker reports who held the lock; what the lease thread did when it was asked joins that, so one reply
+ *  carries both. The facts are taken whether the request was answered or failed. */
+function withLeaseFacts(
+  dispatched: Promise<PowerShellResponse>,
+  foregroundLock: HostForegroundLock,
+  instance: number,
+  id: number
+): Promise<PowerShellResponse> {
+  return dispatched.then(
+    (response) => {
+      const facts = foregroundLock.takeFacts(instance, id);
+      const result = response.result;
+      if (facts && result) {
+        const worker = result.foreground_lock;
+        result.foreground_lock = { ...(worker && typeof worker === 'object' ? worker : {}), host: facts };
+      }
+      return response;
+    },
+    (error: unknown) => {
+      foregroundLock.takeFacts(instance, id);
+      throw error;
+    }
+  );
+}
+
 export interface WorkerPoolHost {
   /** Where the host script and its assembly cache belong. */
   dataDirectory(): string;
@@ -338,23 +363,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
     const foregroundLock = host.foregroundLock;
     const instance = instanceOf.get(child);
     if (!foregroundLock || instance === undefined) return dispatched;
-    // The worker reports who held the lock; what the lease thread did when it
-    // was asked joins that, so one reply carries both.
-    return dispatched.then(
-      (response) => {
-        const facts = foregroundLock.takeFacts(instance, id);
-        const result = response.result;
-        if (facts && result) {
-          const worker = result.foreground_lock;
-          result.foreground_lock = { ...(worker && typeof worker === 'object' ? worker : {}), host: facts };
-        }
-        return response;
-      },
-      (error: unknown) => {
-        foregroundLock.takeFacts(instance, id);
-        throw error;
-      }
-    );
+    return withLeaseFacts(dispatched, foregroundLock, instance, id);
   }
 
   return {

@@ -92,3 +92,7 @@ export async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, l
     if (timeout) clearTimeout(timeout);
   }
 }
+
+export function errorMessage(error: unknown): string {
+  return String((error as Error)?.message || error);
+}

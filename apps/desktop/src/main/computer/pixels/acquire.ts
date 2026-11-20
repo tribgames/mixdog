@@ -106,12 +106,10 @@ function reasonOf(error: unknown): string {
 }
 
 function pickDisplay(displays: PixelDisplay[], target: Extract<PixelTarget, { kind: 'display' }>): PixelDisplay {
-  const found =
-    target.displayId !== undefined
-      ? displays.find((display) => display.id === target.displayId)
-      : target.index !== undefined
-        ? displays.find((display) => display.index === target.index)
-        : (displays.find((display) => display.primary) ?? displays[0]);
+  let found: PixelDisplay | undefined;
+  if (target.displayId !== undefined) found = displays.find((display) => display.id === target.displayId);
+  else if (target.index !== undefined) found = displays.find((display) => display.index === target.index);
+  else found = displays.find((display) => display.primary) ?? displays[0];
   if (!found) {
     throw new PixelsError('computer_capture_unavailable', 'capture_source_unavailable: no such display to capture');
   }

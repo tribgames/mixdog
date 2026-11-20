@@ -4,6 +4,7 @@
  * preload; a renderer that dies is retired once and recovered on the next
  * render, never spun into an automatic crash loop.
  */
+import { errorMessage } from '../shared/common';
 import { join } from 'node:path';
 
 import { app, BrowserWindow, type Display, screen } from 'electron';
@@ -178,7 +179,7 @@ export function createOverlayWindows(host: OverlayWindowsHost) {
           // Silence here means the user never learns the agent is using their
           // computer, so the cause stays in the host log and the counters.
           recordCursorDiagnostic('overlay_window_unavailable');
-          console.warn('[computer-overlay] window_unavailable', String((error as Error)?.message || error));
+          console.warn('[computer-overlay] window_unavailable', errorMessage(error));
           return null;
         })
       )

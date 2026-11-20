@@ -439,9 +439,8 @@ export function nativeFallbackUnlock(native: () => LeaseNative): () => FallbackU
   return () => {
     try {
       const result = native().leaseUnlock();
-      return result.outcome === 'released'
-        ? { outcome: 'released' }
-        : { outcome: 'unknown', ...(result.error == null ? {} : { error: result.error }) };
+      if (result.outcome === 'released') return { outcome: 'released' };
+      return { outcome: 'unknown', ...(result.error == null ? {} : { error: result.error }) };
     } catch (error) {
       return { outcome: 'failed', error: failureOf(error) };
     }
