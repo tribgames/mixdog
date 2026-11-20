@@ -62,7 +62,7 @@ import {
   withCaptureTimeout,
   type LiveCaptureAssertions,
 } from './capture-assertions';
-import { CAPTURE_SHOWCASE_PROMPT, jitterProbeEnabled } from './capture-host';
+import { CAPTURE_SHOWCASE_PROMPT } from './capture-host';
 
 /** Shipped sidebar geometry, from its sources: the 48px activity rail
  *  (06-activity-rail.css), the titlebar plus the desktop body's 1px top
@@ -858,13 +858,6 @@ async function captureWindow(): Promise<void> {
   if (!requestedOutputPath) throw new Error('Capture output path is required and must end in .png.');
   if (!captureId) throw new Error('Capture ID is required.');
   await app.whenReady();
-  // The jitter probe injects synthetic frames into the renderer's state channels. A window on a core takes its frames
-  // from the core alone, so there is nothing for the probe to drive: it is off, said once, before anything starts.
-  if (jitterProbeEnabled()) {
-    throw new Error(
-      `MIXDOG_JITTER_PROBE=${process.env.MIXDOG_JITTER_PROBE} is off: the capture window is a client of a core and the probe has no seam to publish frames through.`
-    );
-  }
   const core = await startCaptureCore({ userData: app.getPath('userData'), fixtures: captureFixtures });
   const relay = createCaptureRelay(core, { log: (message) => console.error(message) });
   const { window, removeIpc, rendererConsoleErrors } = createCaptureRendererWindow(relay);

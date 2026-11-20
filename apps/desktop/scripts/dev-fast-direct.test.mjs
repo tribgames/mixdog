@@ -88,7 +88,6 @@ test('FastDirect renderer and main inputs cover consumed changelogs and Vite plu
 
 test('FastDirect shell applies the full package output exclusions', () => {
   assert.equal(packageExcludesOutputFile('out/main/capture-window.js'), true);
-  assert.equal(packageExcludesOutputFile('out/main/chunks/jitter-probe-abc.js'), true);
   assert.equal(packageExcludesOutputFile('out/renderer/assets/index-abc.js.map'), true);
   assert.equal(packageExcludesOutputFile('out/main/index.js'), false);
 });
