@@ -124,9 +124,7 @@ export function pruneTarget({ target, profile, packages, cacheRoot }) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = Object.fromEntries(
-    process.argv
-      .slice(2)
-      .reduce((pairs, arg, i, all) => (arg.startsWith('--') ? [...pairs, [arg.slice(2), all[i + 1]]] : pairs), [])
+    process.argv.slice(2).flatMap((arg, i, all) => (arg.startsWith('--') ? [[arg.slice(2), all[i + 1]]] : []))
   );
   if (!args.target || !args.profile || !(args.packages || args['manifest-path']))
     throw new Error(

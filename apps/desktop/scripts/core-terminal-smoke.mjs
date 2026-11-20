@@ -184,7 +184,10 @@ class Link {
 
   tap(tabId) {
     let tap = this.taps.get(tabId);
-    if (!tap) this.taps.set(tabId, (tap = new Tap(tabId)));
+    if (!tap) {
+      tap = new Tap(tabId);
+      this.taps.set(tabId, tap);
+    }
     return tap;
   }
 

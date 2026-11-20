@@ -77,7 +77,7 @@ export function analyzeCoreSrc({ desktopRoot, runtimeRoot }) {
   }
   // A declaration file lives and dies with the module it declares.
   for (const file of coreFiles) {
-    if (file.endsWith('.d.mts') && reached.has(file.slice(0, -'.d.mts'.length) + '.mjs')) reached.add(file);
+    if (file.endsWith('.d.mts') && reached.has(`${file.slice(0, -'.d.mts'.length)}.mjs`)) reached.add(file);
   }
 
   const unreferenced = coreFiles.filter((file) => !reached.has(file) && !file.endsWith('.d.mts'));

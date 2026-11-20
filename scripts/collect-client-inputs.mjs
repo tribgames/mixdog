@@ -85,7 +85,7 @@ for (const [kind, doc] of [
 
 const deref = (defs, s) => {
   let cur = s;
-  while (cur && cur.$ref) cur = defs[cur.$ref.replace('#/definitions/', '')];
+  while (cur?.$ref) cur = defs[cur.$ref.replace('#/definitions/', '')];
   return cur ?? {};
 };
 
@@ -119,7 +119,7 @@ function validate(defs, schema, v, at = '$') {
       errs.push(`${at}: fewer than ${schema.minItems} items`);
     if (schema.maxItems !== undefined && v.length > schema.maxItems)
       errs.push(`${at}: more than ${schema.maxItems} items`);
-    v.forEach((x, i) => errs.push(...validate(defs, schema.items, x, `${at}[${i}]`)));
+    for (const [i, x] of v.entries()) errs.push(...validate(defs, schema.items, x, `${at}[${i}]`));
   } else if (t === 'object') {
     for (const k of schema.required ?? []) if (!(k in v)) errs.push(`${at}.${k}: required`);
     for (const [k, x] of Object.entries(v)) {
@@ -145,7 +145,7 @@ let opCounter = 0;
 const CYCLE = Symbol('cycle');
 
 function example(defs, schema, full, name = '', stack = []) {
-  if (schema && schema.$ref) {
+  if (schema?.$ref) {
     if (stack.includes(schema.$ref)) return CYCLE;
     stack = [...stack, schema.$ref];
   }

@@ -129,7 +129,7 @@ export async function processesInside(dir) {
     const script =
       String.raw`$d = $env:PROBE_DIR.TrimEnd('\', '/') + '\'; $q = $d.Replace('\', '\\').Replace("'", "\'").Replace('%', '[%]').Replace('_', '[_]'); Get-CimInstance Win32_Process -Filter "ExecutablePath LIKE '$q%'" | ForEach-Object { "$($_.ProcessId)` +
       '`' +
-      String.raw`t$($_.ExecutablePath)" }`;
+      't$($_.ExecutablePath)" }';
     const stdout = await powershell(script, 60_000, { DIR: dir });
     return stdout
       .split(/\r?\n/)
@@ -140,7 +140,7 @@ export async function processesInside(dir) {
   return stdout
     .split('\n')
     .map((line) => line.trim().match(/^(\d+) (.*)$/))
-    .filter((m) => m && m[2].includes(dir))
+    .filter((m) => m?.[2].includes(dir))
     .map((m) => ({ pid: Number(m[1]), what: m[2] }));
 }
 

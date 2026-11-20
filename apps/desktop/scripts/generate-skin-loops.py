@@ -66,7 +66,7 @@ def star(size):
 
 
 def add(frame, patch, r, x, y, color):
-    x, y = int(round(x)), int(round(y))
+    x, y = round(x), round(y)
     x0, x1, y0, y1 = max(0, x - r), min(W, x + r + 1), max(0, y - r), min(H, y + r + 1)
     if x0 >= x1 or y0 >= y1:
         return
@@ -77,19 +77,19 @@ def add(frame, patch, r, x, y, color):
 def motes(rng, count, region, size, alpha):
     x0, y0, x1, y1 = region
     return [
-        dict(
-            x=rng.uniform(x0, x1),
-            y=rng.uniform(y0, y1),
-            ax=rng.uniform(15, 50),
-            ay=rng.uniform(10, 40),
-            px=rng.uniform(0, 6.3),
-            py=rng.uniform(0, 6.3),
-            k=int(rng.integers(1, 3)),
-            tw=int(rng.integers(1, 4)),
-            tp=rng.uniform(0, 6.3),
-            a=rng.uniform(*alpha),
-            s=sprite(rng.uniform(*size)),
-        )
+        {
+            "x": rng.uniform(x0, x1),
+            "y": rng.uniform(y0, y1),
+            "ax": rng.uniform(15, 50),
+            "ay": rng.uniform(10, 40),
+            "px": rng.uniform(0, 6.3),
+            "py": rng.uniform(0, 6.3),
+            "k": int(rng.integers(1, 3)),
+            "tw": int(rng.integers(1, 4)),
+            "tp": rng.uniform(0, 6.3),
+            "a": rng.uniform(*alpha),
+            "s": sprite(rng.uniform(*size)),
+        }
         for _ in range(count)
     ]
 
@@ -138,19 +138,19 @@ def render(skin):
         for _ in range(90):
             radius = rng.uniform(2.0, 5.0)
             dust.append(
-                dict(
-                    x=rng.uniform(0, W),
-                    y=rng.uniform(0, H),
-                    ax=rng.uniform(20, 70),
-                    ay=rng.uniform(15, 55),
-                    px=rng.uniform(0, 2 * math.pi),
-                    py=rng.uniform(0, 2 * math.pi),
-                    k=int(rng.integers(1, 3)),
-                    tw=int(rng.integers(1, 4)),
-                    tp=rng.uniform(0, 2 * math.pi),
-                    a=rng.uniform(0.45, 0.95),
-                    s=sprite(radius),
-                )
+                {
+                    "x": rng.uniform(0, W),
+                    "y": rng.uniform(0, H),
+                    "ax": rng.uniform(20, 70),
+                    "ay": rng.uniform(15, 55),
+                    "px": rng.uniform(0, 2 * math.pi),
+                    "py": rng.uniform(0, 2 * math.pi),
+                    "k": int(rng.integers(1, 3)),
+                    "tw": int(rng.integers(1, 4)),
+                    "tp": rng.uniform(0, 2 * math.pi),
+                    "a": rng.uniform(0.45, 0.95),
+                    "s": sprite(radius),
+                }
             )
         floor = 0.55
         spots = [
@@ -185,9 +185,12 @@ def render(skin):
             )
             / 255
         )
-        ripple = dict(
-            mask=np.clip((soft - 0.55) / 0.25, 0, 1), amp=2.0, wave=9.0, cycles=4
-        )
+        ripple = {
+            "mask": np.clip((soft - 0.55) / 0.25, 0, 1),
+            "amp": 2.0,
+            "wave": 9.0,
+            "cycles": 4,
+        }
     elif skin == "spring-window":
         wall = box(0, 0, 1420, 1080, 120)
         sun = np.clip((luma - 0.78) / 0.15, 0, 1) * wall
@@ -196,20 +199,20 @@ def render(skin):
         dust_color = np.array([1.0, 0.95, 0.85], np.float32)
         for _ in range(26):
             petals.append(
-                dict(
-                    x=rng.uniform(1100, 1900),
-                    y=rng.uniform(0, H + 80),
-                    sway=rng.uniform(20, 70),
-                    sp=rng.uniform(0, 6.3),
-                    passes=int(rng.integers(1, 3)),
-                    size=rng.uniform(6, 11),
-                    spin=int(rng.integers(2, 5)),
-                    c=np.array(
+                {
+                    "x": rng.uniform(1100, 1900),
+                    "y": rng.uniform(0, H + 80),
+                    "sway": rng.uniform(20, 70),
+                    "sp": rng.uniform(0, 6.3),
+                    "passes": int(rng.integers(1, 3)),
+                    "size": rng.uniform(6, 11),
+                    "spin": int(rng.integers(2, 5)),
+                    "c": np.array(
                         [1.0, rng.uniform(0.72, 0.84), rng.uniform(0.8, 0.9)],
                         np.float32,
                     ),
-                    a=rng.uniform(0.7, 0.95),
-                )
+                    "a": rng.uniform(0.7, 0.95),
+                }
             )
     elif skin == "tech-studio":
         sat = base.max(axis=2) - base.min(axis=2)
@@ -223,7 +226,7 @@ def render(skin):
         screens = np.maximum(
             box(1215, 545, 1900, 800, 12), box(1300, 345, 1690, 555, 12)
         ) * np.clip((luma - 0.5) / 0.2, 0, 1)
-        band = dict(mask=screens, cycles=2)
+        band = {"mask": screens, "cycles": 2}
         dust = motes(rng, 45, (250, 480, 1200, 960), (1.5, 3.5), (0.3, 0.7))
         dust_color = np.array([0.95, 0.9, 1.0], np.float32)
     else:
@@ -309,7 +312,7 @@ def render(skin):
                 )
                 * p["a"]
             )
-            xi, yi = int(round(x)), int(round(y))
+            xi, yi = round(x), round(y)
             x0, x1, y0, y1 = (
                 max(0, xi - r),
                 min(W, xi + r + 1),

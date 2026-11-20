@@ -47,7 +47,10 @@ test('findOrtLibrary: first existing candidate, none on macOS x64, an error when
     repoRoot: 'r',
     platform: 'win32',
     arch: 'x64',
-    exists: (p) => (seen.push(p), p.includes(join('d', 'node_modules'))),
+    exists: (p) => {
+      seen.push(p);
+      return p.includes(join('d', 'node_modules'));
+    },
   });
   assert.ok(found.endsWith(join('onnxruntime-node', 'bin', 'napi-v6', 'win32', 'x64', 'onnxruntime.dll')));
   assert.equal(seen.length, 2);
