@@ -88,6 +88,22 @@ pub struct Below {
     compaction: Option<FramePos>,
 }
 
+impl Effect {
+    /// Whether the record changes the shape of the session's history (`log_epoch`): a rewind moves the history revision
+    /// and may cut the base; the delete mark ends the session's reads. The lineage is the session record's, never a
+    /// later one's.
+    pub(crate) fn reshapes(&self) -> bool {
+        match self {
+            Effect::Rewind { .. } => true,
+            Effect::Header(change) => {
+                change.set.iter().any(|(key, _)| key == crate::summary::DELETED)
+                    || change.unset.iter().any(|key| key == crate::summary::DELETED)
+            }
+            _ => false,
+        }
+    }
+}
+
 /// What one record does to the fold, computed by `prepare`.
 #[derive(Debug, Clone)]
 pub(crate) enum Effect {

@@ -9,6 +9,11 @@
 //! for as long as it may touch the folder. [`settled`] answers the version of a session nothing is writing: two equal
 //! answers mean no such operation began between them, so the bytes are the same.
 //!
+//! A reader that keeps only the shape of a session's history (its lineage, its cut of the base and its history revision,
+//! and that the session is not deleted) holds the same thing after an append of records that change none of these, which
+//! is nearly every append. Those appends are an [`appending`] operation: they move the version and not the shape's, which
+//! [`shape_settled`] answers.
+//!
 //! The count is by session id and for the process: one process owns a data dir (`daemon-owner.lock`), and a test process
 //! with several data dirs only sees a version move more often than it had to. An entry is never removed, so a folder
 //! removed and created again does not start over at a version a reader may still hold.
@@ -24,6 +29,9 @@ use std::sync::PoisonError;
 struct State {
     version: u64,
     writing: u32,
+    /// The version of the history's shape, and the operations running that may change it.
+    shape: u64,
+    reshaping: u32,
 }
 
 type Shared = Arc<Mutex<State>>;
@@ -39,18 +47,18 @@ fn of(session: &str) -> Shared {
 
 /// An operation that may change a session's log, from before its first write to after its last (a rollback included).
 #[must_use = "the operation is over when this is dropped"]
-pub struct Writing(Shared);
+pub struct Writing {
+    state: Shared,
+    reshapes: bool,
+}
 
-/// Begins an operation on `session`'s log. The version moves here, before anything is written: what a reader folded
-/// from the log before this is not what it holds after, whether or not the operation succeeds.
+/// Begins an operation on `session`'s log that may change anything in it, the shape of its history included. The
+/// versions move here, before anything is written: what a reader folded from the log before this is not what it holds
+/// after, whether or not the operation succeeds.
 pub fn writing(session: &str) -> Writing {
-    let state = of(session);
-    {
-        let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.version += 1;
-        state.writing += 1;
-    }
-    Writing(state)
+    let mut writing = appending(session);
+    writing.reshape();
+    writing
 }
 
 /// [`writing`] for the session whose folder is `dir` (`<data>/sessions/<id>`).
@@ -58,9 +66,40 @@ pub fn writing_dir(dir: &Path) -> Writing {
     writing(&dir.file_name().unwrap_or_default().to_string_lossy())
 }
 
+/// Begins an append to the log of the session whose folder is `dir`. The version moves; the shape's moves only once the
+/// append is known to change it ([`Writing::reshape`]).
+pub fn appending_dir(dir: &Path) -> Writing {
+    appending(&dir.file_name().unwrap_or_default().to_string_lossy())
+}
+
+fn appending(session: &str) -> Writing {
+    let state = of(session);
+    {
+        let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.version += 1;
+        state.writing += 1;
+    }
+    Writing { state, reshapes: false }
+}
+
+impl Writing {
+    /// The operation may change the shape of the session's history. Called before it writes.
+    pub fn reshape(&mut self) {
+        if self.reshapes {
+            return;
+        }
+        self.reshapes = true;
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.shape += 1;
+        state.reshaping += 1;
+    }
+}
+
 impl Drop for Writing {
     fn drop(&mut self) {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner).writing -= 1;
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.writing -= 1;
+        state.reshaping -= u32::from(self.reshapes);
     }
 }
 
@@ -69,6 +108,13 @@ pub fn settled(session: &str) -> Option<u64> {
     let state = of(session);
     let state = state.lock().unwrap_or_else(PoisonError::into_inner);
     (state.writing == 0).then_some(state.version)
+}
+
+/// The version of the shape of `session`'s history, or `None` while an operation that may change it runs.
+pub fn shape_settled(session: &str) -> Option<u64> {
+    let state = of(session);
+    let state = state.lock().unwrap_or_else(PoisonError::into_inner);
+    (state.reshaping == 0).then_some(state.shape)
 }
 
 #[cfg(test)]
@@ -92,5 +138,27 @@ mod tests {
         let after = settled(session).expect("nothing writes");
         assert!(after > first);
         assert_eq!(settled(other), Some(apart));
+    }
+
+    /// An append moves the version and leaves the shape's version settled where it was, until the append is found to
+    /// change the shape: from then to its end there is none, and after it another one.
+    #[test]
+    fn an_append_moves_the_shape_only_once_it_reshapes() {
+        let dir = Path::new("data/sessions/log-epoch-test-shape");
+        let session = "log-epoch-test-shape";
+        let (version, shape) = (settled(session).expect("nothing writes"), shape_settled(session).expect("nothing writes"));
+        let append = appending_dir(dir);
+        assert_eq!((settled(session), shape_settled(session)), (None, Some(shape)));
+        drop(append);
+        assert!(settled(session).expect("nothing writes") > version);
+        assert_eq!(shape_settled(session), Some(shape));
+        let mut rewind = appending_dir(dir);
+        rewind.reshape();
+        rewind.reshape();
+        assert_eq!(shape_settled(session), None);
+        drop(rewind);
+        assert_eq!(shape_settled(session), Some(shape + 1));
+        drop(writing(session));
+        assert_eq!(shape_settled(session), Some(shape + 2));
     }
 }

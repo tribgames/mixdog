@@ -143,12 +143,14 @@ async fn a_value_carried_after_the_scan_never_stays_in_the_thread() {
     assert_eq!(holding(data.path(), &[CODE, LATER]), Vec::<String>::new());
 }
 
-/// What the row reads hold of a thread's log is kept while nothing writes the log and read again after each thing that
-/// does: an append, a rewind (whose history revision the kept one must not answer), and a rewrite that leaves the file's
-/// name, length and write time as they were (a marked value as long as its replacement, the write time put back). Each
-/// time it answers what an open made then answers.
+/// What the row reads hold of a thread's log is kept while nothing changes it and read again after each thing that may:
+/// a rewind (whose history revision the kept one must not answer), a rewrite that leaves the file's name, length and
+/// write time as they were (a marked value as long as its replacement, the write time put back), and the delete mark,
+/// after which the read is refused. An append of rows changes none of it: the log is not read again (a running thread
+/// appends on every step, and every status pass reads its message count). Each time it answers what an open made then
+/// answers.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn what_the_row_reads_keep_of_a_log_is_read_again_after_every_write() {
+async fn what_the_row_reads_keep_of_a_log_is_read_again_after_every_write_that_may_change_it() {
     const SAME_LENGTH: &str = "4829130157";
     const THREAD: &str = "kept-shape-thread";
     assert_eq!(SAME_LENGTH.len(), "[redacted]".len());
@@ -174,13 +176,15 @@ async fn what_the_row_reads_keep_of_a_log_is_read_again_after_every_write() {
     append(&log, tokens, vec![row("b", "a second row")]).await;
     threads.projected().await;
     let (appended, (kept, opened)) = shape(threads.clone()).await;
-    assert!(!Arc::ptr_eq(&first, &appended), "an appended log is opened again");
+    assert!(first.of_one_read(&appended), "a log that rows were appended to is not opened again");
+    assert!(!first.is_current() && appended.is_current(), "the kept shape is of the log as it is now");
     assert_eq!(kept, opened);
     assert!(Arc::ptr_eq(&appended, &shape(threads.clone()).await.0));
 
     append(&log, tokens, vec![commit(json!({"k":"rewind","to_ordinal":2,"reason":"edit"}))]).await;
     threads.projected().await;
     let (rewound, (kept, opened_after_rewind)) = shape(threads.clone()).await;
+    assert!(!appended.of_one_read(&rewound), "a rewound log is opened again");
     assert_eq!(kept, opened_after_rewind);
     assert_ne!(opened_after_rewind.0, opened.0, "the rewind moved the history revision");
 
@@ -194,8 +198,151 @@ async fn what_the_row_reads_keep_of_a_log_is_read_again_after_every_write() {
     std::fs::File::options().write(true).open(&newest).expect("the log file").set_modified(before.modified().expect("a write time")).expect("the write time put back");
     assert_eq!(std::fs::metadata(&newest).expect("metadata").len(), before.len(), "the rewrite left the file's length");
     let (rewritten, (kept, opened)) = shape(threads.clone()).await;
-    assert!(!Arc::ptr_eq(&rewound, &rewritten), "the rewritten log is opened again");
+    assert!(!rewound.of_one_read(&rewritten), "the rewritten log is opened again");
     assert_eq!(kept, opened);
+
+    append(&log, tokens, vec![commit(json!({"k":"meta","change":{"inline":{"set":{"deleted":true},"unset":[]}}}))]).await;
+    threads.projected().await;
+    let refused = LaneToken::submit(tokens.interactive_io, &CancellationToken::new(), move |lane| threads.shape_refused(lane, &ThreadId::from(THREAD)))
+        .expect("lane")
+        .await
+        .expect("job ran");
+    assert!(refused, "the kept shape does not answer for a deleted thread");
+}
+
+/// The length of a thread's model context is counted from the index once and followed in memory from then on, through the
+/// thread's own commits: a model row adds one, a row the model does not see and an amend add none, a compaction starts
+/// the context again at its replacement. The number is there as the commit returns, before the index has the rows, and it
+/// is what the index counts once it has them. A rewind drops it, and the next ask counts again.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_length_of_a_context_is_followed_in_memory_through_the_threads_commits() {
+    const THREAD: &str = "kept-length-thread";
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let marks = Arc::new(SensitiveStore::default());
+    let threads = store_over(data.path(), index_over(data.path(), tokens).await, tokens, &marks).await;
+    let log = create(&threads, tokens, THREAD, vec![row("a", "one")]).await;
+    threads.projected().await;
+    let id = ThreadId::from(THREAD);
+    let message = json!({"role":"user","content":"again"});
+    let ask = |threads: Arc<StoreThreads>| async move {
+        LaneToken::submit(tokens.interactive_io, &CancellationToken::new(), move |lane| {
+            let id = ThreadId::from(THREAD);
+            (threads.context_len(lane, &id).expect("the context's length"), threads.context_len_kept_and_counted(lane, &id))
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+    };
+    assert_eq!(threads.context_len_kept(&id), None, "nothing is kept of a thread never counted");
+    assert_eq!(ask(threads.clone()).await, (1, (Some(1), 1)));
+
+    append(&log, tokens, vec![
+        row("b", "two"),
+        commit(json!({"k":"item","iid":"n","role":"user","form":"message","model":false,"visible":true,"refs":[],"body":{"inline":message}})),
+        commit(json!({"k":"amend","iid":"a","refs":[],"body":{"inline":message}})),
+        row("c", "three"),
+    ]).await;
+    assert_eq!(threads.context_len_kept(&id), Some(3), "the count holds the batch as its commit returns");
+    threads.projected().await;
+    assert_eq!(ask(threads.clone()).await, (3, (Some(3), 3)));
+
+    append(&log, tokens, vec![
+        commit(json!({"k":"compacted","cid":"c","replacement":{"inline":[{"iid":"s","body":message},{"iid":"t","body":message}]}})),
+        row("d", "four"),
+    ]).await;
+    assert_eq!(threads.context_len_kept(&id), Some(3), "the context starts again at the replacement");
+    threads.projected().await;
+    assert_eq!(ask(threads.clone()).await, (3, (Some(3), 3)));
+
+    append(&log, tokens, vec![commit(json!({"k":"rewind","to_ordinal":7,"reason":"edit"}))]).await;
+    assert_eq!(threads.context_len_kept(&id), None, "a rewind drops the count");
+    threads.projected().await;
+    let (len, (kept, counted)) = ask(threads.clone()).await;
+    assert_eq!((len, kept), (counted, Some(counted)), "the next ask counts again and keeps it");
+    assert_eq!(counted, 2, "the row after the compaction was rewound");
+}
+
+/// A count taken while a batch is in the thread's log and its projection is not yet sent is not kept. Here the batch is a
+/// rewind: the count pairs the rewound shape with the index's rows from before it, and the rewind's own batch adds
+/// nothing to a kept number, so one kept there would stay the thread's length. On the product's lanes: the held batch
+/// keeps its own lane thread, and the count runs on another.
+#[tokio::test]
+async fn a_count_taken_beside_a_batch_in_the_log_is_not_kept() {
+    const THREAD: &str = "counted-mid-batch-thread";
+    let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(4)).expect("production lanes");
+    let data = tempfile::tempdir().expect("data dir");
+    let marks = Arc::new(SensitiveStore::default());
+    let threads = store_over(data.path(), index_over(data.path(), tokens).await, tokens, &marks).await;
+    let log = create(&threads, tokens, THREAD, vec![row("a", "one"), row("b", "two"), row("c", "three")]).await;
+    threads.projected().await;
+    let id = ThreadId::from(THREAD);
+    let ask = |threads: Arc<StoreThreads>| async move {
+        LaneToken::submit(tokens.interactive_io, &CancellationToken::new(), move |lane| {
+            let id = ThreadId::from(THREAD);
+            (threads.context_len(lane, &id).expect("the context's length"), threads.context_len_kept_and_counted(lane, &id))
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+    };
+    assert_eq!(ask(threads.clone()).await, (3, (Some(3), 3)));
+
+    let (reached_tx, reached) = tokio::sync::oneshot::channel::<()>();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let (reached_tx, released) = (Mutex::new(Some(reached_tx)), Mutex::new(released));
+    // The first batch to get there is held, once.
+    rewrite_holds::set("appended", move || {
+        let Some(tx) = reached_tx.lock().expect("reached").take() else { return };
+        let _ = tx.send(());
+        let _ = released.lock().expect("released").recv();
+    });
+    let rewind = {
+        let log = log.clone();
+        LaneToken::submit(tokens.durability_io, &CancellationToken::new(), move |lane| {
+            log.lock().expect("log").commit(lane, &[commit(json!({"k":"rewind","to_ordinal":2,"reason":"edit"}))]).expect("appended");
+        })
+        .expect("lane")
+    };
+    reached.await.expect("the rewind is in the log");
+    let (_, (kept, _)) = ask(threads.clone()).await;
+    assert_eq!(kept, None, "a count beside the rewind's batch was kept");
+    release.send(()).expect("the batch is held");
+    rewind.await.expect("the rewind ran");
+    threads.projected().await;
+    assert_eq!(threads.context_len_kept(&id), None, "nothing was kept across the rewind");
+    assert_eq!(ask(threads.clone()).await, (1, (Some(1), 1)));
+}
+
+/// A batch the index refused is in the thread's log and not in the index. From then on nothing kept answers for the
+/// thread: every reader is given the index's count, asked every time.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_thread_one_of_whose_batches_the_index_lost_is_counted_in_the_index() {
+    const THREAD: &str = "lost-batch-thread";
+    let tokens = mixdog_rt::testing::tokens();
+    let data = tempfile::tempdir().expect("data dir");
+    let marks = Arc::new(SensitiveStore::default());
+    let threads = store_over(data.path(), index_over(data.path(), tokens).await, tokens, &marks).await;
+    let log = create(&threads, tokens, THREAD, vec![row("a", "one")]).await;
+    threads.projected().await;
+    let ask = |threads: Arc<StoreThreads>| async move {
+        LaneToken::submit(tokens.interactive_io, &CancellationToken::new(), move |lane| {
+            let id = ThreadId::from(THREAD);
+            (threads.context_len(lane, &id).expect("the context's length"), threads.context_len_kept_and_counted(lane, &id))
+        })
+        .expect("lane")
+        .await
+        .expect("job ran")
+    };
+    assert_eq!(ask(threads.clone()).await, (1, (Some(1), 1)));
+
+    threads.refuse_next_projection();
+    append(&log, tokens, vec![row("b", "two")]).await;
+    threads.projected().await;
+    assert_eq!(ask(threads.clone()).await, (1, (None, 1)), "the kept number, which holds the lost row, answered");
+    append(&log, tokens, vec![row("c", "three")]).await;
+    threads.projected().await;
+    assert_eq!(ask(threads.clone()).await, (2, (None, 2)));
 }
 
 /// (b) The process ends after a child marked a value whose earlier report its parent holds and before the parent's rewrite:

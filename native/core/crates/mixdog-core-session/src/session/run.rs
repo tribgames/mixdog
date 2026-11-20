@@ -86,8 +86,9 @@ impl ModelContext {
         self.len().await.map(|len| len == 0)
     }
 
-    /// How many rows [`read`](Self::read) returns for a context with no input row, answered from the store's index: a caller
-    /// that wants `session.messages.length` never reads the conversation.
+    /// How many rows [`read`](Self::read) returns for a context with no input row: a caller that wants
+    /// `session.messages.length` never reads the conversation. A position in the rows a later read returns: every
+    /// write acknowledged before the ask is counted, and the index holds what is counted.
     pub async fn len(&self) -> Result<usize, CoreError> {
         let token = CancellationToken::new();
         self.store.unheld().await;
@@ -99,6 +100,17 @@ impl ModelContext {
             .map_err(context_refused)?
             .await
             .map_err(|_| context_dropped())?
+    }
+
+    /// [`len`](Self::len) for a caller that shows the number and reads no row by it (a status pass asks it of every
+    /// running worker): from memory once the store has counted the thread, with no lane and no wait for the index.
+    /// A thread whose index lost one of its batches shows the index's count, asked every time, until the next start
+    /// re-projects it.
+    pub async fn shown_len(&self) -> Result<usize, CoreError> {
+        match self.store.context_len_kept(&self.thread) {
+            Some(len) => Ok(len),
+            None => self.len().await,
+        }
     }
 
     /// `rememberSensitiveValues(sessionId, executionCalls)` for this thread (`loop/tool-phase.mjs:49`).
