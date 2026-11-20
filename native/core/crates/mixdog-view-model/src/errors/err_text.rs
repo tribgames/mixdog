@@ -419,10 +419,11 @@ pub fn present_error_text(error: Js, options: &PresentOptions) -> String {
     if matches!(presentation.kind.as_str(), "image-size" | "payload-size" | "request" | "model-unavailable" | "tool-schema") {
         return presentation.summary;
     }
-    if has_typed_evidence(error) && presentation.kind != "unknown" {
-        if let Some(line) = kind_line(presentation.provider_kind, presentation.retry_after_ms) {
-            return line;
-        }
+    if has_typed_evidence(error)
+        && presentation.kind != "unknown"
+        && let Some(line) = kind_line(presentation.provider_kind, presentation.retry_after_ms)
+    {
+        return line;
     }
     let surface = options.surface;
     let subject = subject_for_surface(surface);

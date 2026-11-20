@@ -63,7 +63,6 @@ const CONTENT_MATCH_CAP: usize = 200_000;
 /// `PUBLIC_PATH_BATCH_LIMIT`: the scopes one grep `path` array may name.
 const GREP_PATH_BATCH_LIMIT: usize = 10;
 
-// ---------------------------------------------------------------------------
 // shared walk helpers
 
 /// Node `rootScanIgnoreGlobs`: a scan rooted at a POSIX filesystem root never enters the
@@ -739,7 +738,6 @@ async fn expand_absolute_globs(ctx: &ToolContext, patterns: &[String], limit: us
     out
 }
 
-// ---------------------------------------------------------------------------
 // glob
 
 pub struct GlobTool {
@@ -830,7 +828,6 @@ fn locator_budget(text: String, targets: &[String], offset: usize) -> String {
     if best.is_empty() { byte_prefix(&footer(&[]), locator_max_bytes()).to_owned() } else { best }
 }
 
-// ---------------------------------------------------------------------------
 // find
 
 pub struct FindTool {
@@ -2313,7 +2310,6 @@ impl FindTool {
         Ok(output(text, complete))
     }
 }
-// ---------------------------------------------------------------------------
 // grep
 
 /// Waits until a search's hard deadline: a sleep on the runtime's clock, or a test's timer.

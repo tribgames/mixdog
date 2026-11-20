@@ -8838,18 +8838,19 @@ impl SessionActor {
             self.persist_prompt(prompt);
         }
         // `noteTurnForCacheWarm` (`ask-session.mjs:313`) runs in the run's task, below.
+        let model_context = ModelContext {
+            store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
+            lanes: self.deps.lanes,
+            thread: self.id.clone(),
+            input: input_iid.clone(),
+        };
         let warm = super::turn_warm::WarmNote {
             port: self.deps.warm.clone(),
             thread: self.id.clone(),
             input: super::turn_warm::warm_input(input.options.as_ref(), &input_body),
             ready: input_rx.clone(),
-            context: ModelContext {
-                store: self.deps.store.clone(),
-                sensitive: self.deps.sensitive.clone(),
-                lanes: self.deps.lanes,
-                thread: self.id.clone(),
-                input: input_iid.clone(),
-            },
+            context: model_context.clone(),
             cancel: token.clone(),
         };
         // The run's handle for a replay's settled signal, given to the port before the run is spawned (its tools' waits count on it).
@@ -8919,13 +8920,7 @@ impl SessionActor {
             input_body,
             header: run_header,
             port,
-            context: ModelContext {
-                store: self.deps.store.clone(),
-                sensitive: self.deps.sensitive.clone(),
-                lanes: self.deps.lanes,
-                thread: self.id.clone(),
-                input: input_iid.clone(),
-            },
+            context: model_context,
             surface: self.surface.subscribe(),
             progress: self.cell.progress.clone(),
             turn_messages: self.cell.turn_messages.clone(),

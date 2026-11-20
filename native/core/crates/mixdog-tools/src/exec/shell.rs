@@ -14,6 +14,7 @@ use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::fs::EntryKind;
 use mixdog_core_api::domain::fs::FsErrorKind;
 use mixdog_core_api::domain::process::CommandSpec;
+use mixdog_core_api::domain::process::EnvSpec;
 use mixdog_core_api::domain::process::ExitStatus;
 use mixdog_core_api::domain::process::KillReason;
 use mixdog_core_api::domain::process::OutputMode;
@@ -868,6 +869,62 @@ mod tests {
     }
 }
 
+/// The spec, the filter-rescue tee file and the PowerShell script fed on stdin to `POWERSHELL_BOOTSTRAP` (Node's fresh
+/// pwsh spawn, `shell-run-spawn.mjs`).
+async fn shell_command_spec(
+    runtime: &ExecRuntime,
+    ctx: &ToolContext,
+    command: &str,
+    shell_program: String,
+    cwd: &AbsPath,
+    launcher_dir: Option<&Path>,
+    env: &mut EnvSpec,
+) -> (CommandSpec, Option<PathBuf>, Option<String>) {
+    let skill = runtime.config.skill_runtime.as_ref();
+    if runtime.config.windows && runtime.config.powershell {
+        // Filter-swallow rescue: tee the unfiltered producer stream of an exactly-recognised filter pipeline, so a
+        // failing run can attach the original tail in this call. Then the UTF-8 console preamble.
+        let tmp = std::env::temp_dir().to_string_lossy().into_owned();
+        let tee = build_powershell_filter_tee_plan(command, &spill::fresh_token(), &tmp, '\\');
+        let body = tee.as_ref().map_or_else(|| command.to_owned(), |t| t.command.clone());
+        let tee_path = tee.map(|t| PathBuf::from(t.tee_path));
+        let spec = CommandSpec::Shell { script: POWERSHELL_BOOTSTRAP.to_owned(), shell: Some(shell_program) };
+        (spec, tee_path, Some(prefix_powershell_utf8(&body, skill)))
+    } else if runtime.config.powershell {
+        let spec = CommandSpec::Shell { script: POWERSHELL_BOOTSTRAP.to_owned(), shell: Some(shell_program) };
+        (spec, None, Some(prefix_powershell_skill_function(command, skill)))
+    } else if !runtime.config.windows && (shell_program.contains("bash") || shell_program.contains("zsh")) {
+        // The command travels in the environment, not argv, behind a snapshot of the user's shell state when one can
+        // be made.
+        let mut wrapped = command.to_owned();
+        if std::env::var("MIXDOG_BASH_SNAPSHOT").as_deref() != Ok("off")
+            && let (Some(data), Some(dir)) = (runtime.config.data_dir.as_deref(), launcher_dir)
+        {
+            let snapshot = runtime
+                .snapshots
+                .get(SnapshotRequest {
+                    processes: &ctx.processes,
+                    lane: runtime.config.lanes.spawn,
+                    cancel: &ctx.cancel,
+                    shell_path: &shell_program,
+                    data_dir: data,
+                    launcher_dir: &dir.to_string_lossy(),
+                    cwd: cwd.clone(),
+                    thread: ctx.thread_id.clone(),
+                    call: ctx.call_id.clone(),
+                })
+                .await;
+            if let Some(snapshot) = snapshot {
+                wrapped = wrap_with_snapshot(&snapshot.to_string_lossy(), command);
+            }
+        }
+        env.set.push(("MIXDOG_SHELL_SCRIPT".to_owned(), wrapped));
+        (CommandSpec::Shell { script: EVAL_SCRIPT.to_owned(), shell: Some(shell_program) }, None, None)
+    } else {
+        (CommandSpec::Shell { script: command.to_owned(), shell: None }, None, None)
+    }
+}
+
 fn process_env(name: &str) -> Option<String> {
     std::env::var(name).ok()
 }
@@ -1023,58 +1080,9 @@ impl ShellTool {
         let direct =
             plan_direct_exe(runtime.config.lanes.spawn, &ctx.cancel, &command, runtime.config.windows, runtime.config.powershell, cwd.as_path(), &path_value)
                 .await;
-        let mut tee_path: Option<PathBuf> = None;
-        // A PowerShell script is fed on stdin to `POWERSHELL_BOOTSTRAP` (Node's fresh pwsh spawn,
-        // `shell-run-spawn.mjs`).
-        let mut fed_script: Option<String> = None;
-        let spec = match direct {
-            Some(direct) => CommandSpec::Argv { program: direct.exe.to_string_lossy().into_owned(), args: direct.argv },
-            None => {
-                let skill = runtime.config.skill_runtime.as_ref();
-                if runtime.config.windows && runtime.config.powershell {
-                    // Filter-swallow rescue: tee the unfiltered producer stream of an
-                    // exactly-recognised filter pipeline, so a failing run can attach the
-                    // original tail in this call. Then the UTF-8 console preamble.
-                    let tmp = std::env::temp_dir().to_string_lossy().into_owned();
-                    let tee = build_powershell_filter_tee_plan(&command, &spill::fresh_token(), &tmp, '\\');
-                    let body = tee.as_ref().map_or_else(|| command.clone(), |t| t.command.clone());
-                    tee_path = tee.map(|t| PathBuf::from(t.tee_path));
-                    fed_script = Some(prefix_powershell_utf8(&body, skill));
-                    CommandSpec::Shell { script: POWERSHELL_BOOTSTRAP.to_owned(), shell: Some(shell_program) }
-                } else if runtime.config.powershell {
-                    fed_script = Some(prefix_powershell_skill_function(&command, skill));
-                    CommandSpec::Shell { script: POWERSHELL_BOOTSTRAP.to_owned(), shell: Some(shell_program) }
-                } else if !runtime.config.windows && (shell_program.contains("bash") || shell_program.contains("zsh")) {
-                    // The command travels in the environment, not argv, behind a snapshot of the
-                    // user's shell state when one can be made.
-                    let mut wrapped = command.clone();
-                    if std::env::var("MIXDOG_BASH_SNAPSHOT").as_deref() != Ok("off")
-                        && let (Some(data), Some(dir)) = (runtime.config.data_dir.as_deref(), launcher_dir.as_deref())
-                    {
-                        let snapshot = runtime
-                            .snapshots
-                            .get(SnapshotRequest {
-                                processes: &ctx.processes,
-                                lane: runtime.config.lanes.spawn,
-                                cancel: &ctx.cancel,
-                                shell_path: &shell_program,
-                                data_dir: data,
-                                launcher_dir: &dir.to_string_lossy(),
-                                cwd: cwd.clone(),
-                                thread: ctx.thread_id.clone(),
-                                call: ctx.call_id.clone(),
-                            })
-                            .await;
-                        if let Some(snapshot) = snapshot {
-                            wrapped = wrap_with_snapshot(&snapshot.to_string_lossy(), &command);
-                        }
-                    }
-                    env.set.push(("MIXDOG_SHELL_SCRIPT".to_owned(), wrapped));
-                    CommandSpec::Shell { script: EVAL_SCRIPT.to_owned(), shell: Some(shell_program) }
-                } else {
-                    CommandSpec::Shell { script: command.clone(), shell: None }
-                }
-            }
+        let (spec, tee_path, fed_script) = match direct {
+            Some(direct) => (CommandSpec::Argv { program: direct.exe.to_string_lossy().into_owned(), args: direct.argv }, None, None),
+            None => shell_command_spec(runtime, ctx, &command, shell_program, &cwd, launcher_dir.as_deref(), &mut env).await,
         };
 
         let task_id = format!("task-{}", ctx.call_id);

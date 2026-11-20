@@ -89,7 +89,7 @@ fn unique_tool_names<'a>(names: impl Iterator<Item = Option<&'a Value>>) -> Vec<
     out
 }
 
-fn list_of<'a>(value: Option<&'a Value>) -> Vec<Option<&'a Value>> {
+fn list_of(value: Option<&Value>) -> Vec<Option<&Value>> {
     match value {
         Some(Value::Array(items)) => items.iter().map(Some).collect(),
         _ => Vec::new(),

@@ -288,7 +288,7 @@ fn split_path_and_delta(value: &str, explicit_delta: &str) -> (String, String) {
 /// deletions).
 pub fn parse_line_delta(delta: &str) -> LineDelta {
     let mut totals = LineDelta::default();
-    for part in delta.split(|c: char| matches!(c, '·' | ',' | '(' | ')' | '\r' | '\n')) {
+    for part in delta.split(['·', ',', '(', ')', '\r', '\n']) {
         if !DELTA_FIELD.is_match(part) {
             continue;
         }

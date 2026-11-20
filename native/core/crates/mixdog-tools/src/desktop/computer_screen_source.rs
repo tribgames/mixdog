@@ -111,7 +111,6 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-// ---------------------------------------------------------------------------------------------------------------
 // The public surface
 
 /// How a client's screen access ended, which is its session's stop reason.
@@ -401,7 +400,6 @@ pub struct ScreenSourcesDeps {
     pub log: Arc<dyn Fn(Value) + Send + Sync>,
 }
 
-// ---------------------------------------------------------------------------------------------------------------
 // Access
 
 type AccessListener = Arc<dyn Fn(&Option<ScreenAccessEnd>) + Send + Sync>;
@@ -537,7 +535,6 @@ impl ViewerAuthorization for SessionAccess {
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------
 // Displays
 
 fn screen_display(index: usize, monitor: &Monitor, primary: bool) -> ScreenDisplay {
@@ -680,7 +677,6 @@ impl ScreenDisplays for DisplaySet {
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------
 // Frames
 
 /// Pictures of a display read one at a time from the desktop's pixels, a pause apart.
@@ -709,7 +705,6 @@ impl MediaFrameSource for PixelsSource {
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------
 // Adapters between the ports and the session's own traits
 
 struct InputHostAdapter(Arc<dyn ScreenInputHost>);
@@ -931,7 +926,6 @@ impl VideoScreen<HelperPicture> for ScreenSession {
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------
 // One viewer's source
 
 /// One viewer's whole-PC screen: what the live view's host drives as the video source of `screen:<screenId>`.
@@ -1013,7 +1007,6 @@ impl ScreenViewer {
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------
 // The sources
 
 struct Live {

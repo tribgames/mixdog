@@ -62,7 +62,7 @@ fn is_space(unit: u16) -> bool {
 
 /// `[\s([{"'`]`: what may stand before a `$`.
 fn is_mention_prefix(unit: u16) -> bool {
-    is_space(unit) || [b'(', b'[', b'{', b'"', b'\'', b'`'].iter().any(|b| u16::from(*b) == unit)
+    is_space(unit) || b"([{\"'`".iter().any(|b| u16::from(*b) == unit)
 }
 
 fn is_name_start(unit: u16) -> bool {

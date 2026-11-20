@@ -1320,10 +1320,8 @@ impl mixdog_core_session::session::purge::RetiredAgents for RetiredAgentPurge {
     }
 }
 
-pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
-    let boot = b.log.clone();
-    boot.boot_mark("real-core-start");
-    // ---- 1. state, config ---------------------------------------------------------------------
+/// Section 1 of `real_core`: the one section state, the first-start retirement of shipped copies, the config and its separations.
+async fn open_state_and_config(b: &Built) -> Result<(Arc<StateRuntime>, Config, mixdog_app_protocol::v1::DefaultsSeparation), ComposeError> {
     // The app feed has ONE section state: the composed one (`ComposedCore::sections()`, which `serving::start` takes too); a second would split the sections.
     let routes = Arc::new(mixdog_core_base::state::ScopedRouteTable::default());
     let state = Arc::new(StateRuntime {
@@ -1351,7 +1349,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // Node's boot runs `ensureDefaultsSeparated` before any session reads the config: a file from before the separation is backed up and
     // rewritten with only what differs from the defaults (the agent roster as a delta: advisor starts off) and takes the marker.
     let boot_ms = mixdog_core_session::session::Clock::now_ms(&mixdog_core_session::session::SystemClock);
-    boot.boot_mark("before-config-separate-defaults");
+    b.log.boot_mark("before-config-separate-defaults");
     config.separate_defaults(boot_ms).await.map_err(|e| ComposeError::Config(format!("{e:?}")))?;
     // From K1 the daemon is the only config writer, so the desktop's one-time `desktop` section separation
     // (`DesktopSettingsStore.separateDefaults`, which Node's app ran at app-ready, after the daemon had separated the file) runs here, as
@@ -1363,6 +1361,14 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // Node's notification store stamps `migratedAt: now` when it first loads with no document; so does the boot (notify owner: `audience.rs`
     // reads `migrated_at()` and no longer sees 0 for a store nobody wrote).
     config.stamp_notifications(boot_ms).await.map_err(|e| ComposeError::Config(format!("{e:?}")))?;
+    Ok((state, config, defaults_separation))
+}
+
+pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
+    let boot = b.log.clone();
+    boot.boot_mark("real-core-start");
+    // ---- 1. state, config ---------------------------------------------------------------------
+    let (state, config, defaults_separation) = open_state_and_config(&b).await?;
     // Node's `surfaceGeneration`: the extension and feature seams move it, the Lead's surface host checks an empty thread against it.
     let surface_generation = mixdog_core::run_host::surface_host::SurfaceGeneration::default();
 

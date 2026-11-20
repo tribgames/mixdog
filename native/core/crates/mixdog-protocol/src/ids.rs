@@ -133,6 +133,8 @@ impl std::fmt::Display for BlobDigest {
     }
 }
 
+impl std::error::Error for InvalidBlobDigest {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,5 +176,3 @@ mod tests {
         assert!(serde_json::from_str::<crate::BlobDescriptor>(&text("sha256:AB")).is_err());
     }
 }
-
-impl std::error::Error for InvalidBlobDigest {}

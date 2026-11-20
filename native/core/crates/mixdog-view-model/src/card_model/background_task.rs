@@ -114,7 +114,7 @@ pub fn parse_background_task_result(value: &str) -> Option<BackgroundMeta> {
         }
     }
     let text_of = |key: &str| fields.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
-    let pick = |keys: &[&str]| keys.iter().map(|key| text_of(*key)).find(|text| !text.is_empty()).unwrap_or_default();
+    let pick = |keys: &[&str]| keys.iter().map(|key| text_of(key)).find(|text| !text.is_empty()).unwrap_or_default();
     let status = js_to_lowercase(&text_of("status"));
     let error = text_of("error");
     let has_response = !body.is_empty() && !is_background_error_only_body(&body, &error, None) && !LIVE_STATUS.is_match(&status);

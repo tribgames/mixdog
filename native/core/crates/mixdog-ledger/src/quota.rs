@@ -1266,6 +1266,57 @@ fn series_value(series: &[Series]) -> Value {
     )
 }
 
+fn focus_value(f: &Instance) -> Value {
+    let mut o = Map::new();
+    o.insert("startMs".into(), js_number(f.start_ms));
+    o.insert("endMs".into(), js_number(f.end_ms));
+    o.insert("resetAt".into(), f.reset_at.map_or(Value::Null, js_number));
+    o.insert("usedPct".into(), js_number(f.last_pct));
+    o.insert("readAt".into(), js_number(f.last_at));
+    o.insert("peak".into(), js_number(f.peak));
+    o.insert("exhaustedAt".into(), f.exhausted_at.map_or(Value::Null, js_number));
+    o.insert("current".into(), f.current.into());
+    // Whether the window's opening is known, so an even pace can be drawn.
+    o.insert("paced".into(), f.paced.into());
+    Value::Object(o)
+}
+
+fn slot_value(slot: &Slot, points: &[Point], last_point: f64, shown: &[&Instance]) -> Value {
+    let mut o = Map::new();
+    o.insert("fromMs".into(), js_number(slot.from_ms));
+    o.insert("toMs".into(), js_number(slot.to_ms));
+    o.insert("future".into(), slot.future.into());
+    o.insert("startPct".into(), js_number(round_to(value_at(points, slot.from_ms), 1)));
+    o.insert("endPct".into(), js_number(round_to(value_at(points, min(slot.to_ms, last_point)), 1)));
+    o.insert("consumed".into(), js_number(round_to(slot.usage.consumed + slot.outside, 2)));
+    o.insert("outside".into(), js_number(round_to(slot.outside, 2)));
+    o.insert("tokens".into(), js_number(slot.usage.tokens()));
+    o.insert("turns".into(), js_number(slot.usage.turns));
+    let slot_rate = period_quota_rate(shown, slot.from_ms, slot.to_ms);
+    put_cost_fields(
+        &mut o,
+        slot.usage.cost_usd,
+        if slot_rate.is_none() || slot.outside_unpriced > 0.0 { None } else { Some(slot.outside_cost_usd) },
+        slot.usage.cost_known_turns < slot.usage.turns,
+    );
+    let mut slot_models: Vec<Value> = slot
+        .models
+        .iter()
+        .map(|(model, usage)| {
+            let mut m = Map::new();
+            m.insert("model".into(), model.clone().into());
+            put_identity(&mut m, model);
+            m.insert("consumed".into(), js_number(round_to(usage.consumed, 2)));
+            m.insert("tokens".into(), js_number(usage.tokens()));
+            m.insert("costUsd".into(), rounded_cost(usage.cost_usd));
+            Value::Object(m)
+        })
+        .collect();
+    sort_model_tiers(&mut slot_models, model_of_row, &["consumed", "tokens"]);
+    o.insert("models".into(), Value::Array(slot_models));
+    Value::Object(o)
+}
+
 /// The history of one limit window over a period: the meter's path, who moved it (per model and
 /// hover slot), where each window in it peaked and, for the open window, where the current pace
 /// ends it. `view: window` selects one window (the latest, or `anchor`); any other view reads
@@ -1397,23 +1448,7 @@ pub(crate) fn read_quota_history(conn: &Connection, query: &QuotaHistoryQuery, n
             decimate(points.clone(), domain_from, domain_to).iter().map(|p| Value::Array(vec![js_number(p.at), js_number(p.percent), p.kind.into()])).collect(),
         ),
     );
-    out.insert(
-        "focus".into(),
-        focus.map_or(Value::Null, |f| {
-            let mut o = Map::new();
-            o.insert("startMs".into(), js_number(f.start_ms));
-            o.insert("endMs".into(), js_number(f.end_ms));
-            o.insert("resetAt".into(), f.reset_at.map_or(Value::Null, js_number));
-            o.insert("usedPct".into(), js_number(f.last_pct));
-            o.insert("readAt".into(), js_number(f.last_at));
-            o.insert("peak".into(), js_number(f.peak));
-            o.insert("exhaustedAt".into(), f.exhausted_at.map_or(Value::Null, js_number));
-            o.insert("current".into(), f.current.into());
-            // Whether the window's opening is known, so an even pace can be drawn.
-            o.insert("paced".into(), f.paced.into());
-            Value::Object(o)
-        }),
-    );
+    out.insert("focus".into(), focus.map_or(Value::Null, focus_value));
     out.insert("forecast".into(), forecast);
     let mut summary = Map::new();
     summary.insert("consumed".into(), js_number(round_to(totals.consumed + outside_total, 2)));
@@ -1427,44 +1462,7 @@ pub(crate) fn read_quota_history(conn: &Connection, query: &QuotaHistoryQuery, n
     out.insert("outside".into(), js_number(round_to(outside_total, 2)));
     out.insert("models".into(), Value::Array(exported_models));
     out.insert("slotMs".into(), js_number(slot_ms));
-    let slot_values: Vec<Value> = slots
-        .iter()
-        .map(|slot| {
-            let mut o = Map::new();
-            o.insert("fromMs".into(), js_number(slot.from_ms));
-            o.insert("toMs".into(), js_number(slot.to_ms));
-            o.insert("future".into(), slot.future.into());
-            o.insert("startPct".into(), js_number(round_to(value_at(&points, slot.from_ms), 1)));
-            o.insert("endPct".into(), js_number(round_to(value_at(&points, min(slot.to_ms, last_point as f64)), 1)));
-            o.insert("consumed".into(), js_number(round_to(slot.usage.consumed + slot.outside, 2)));
-            o.insert("outside".into(), js_number(round_to(slot.outside, 2)));
-            o.insert("tokens".into(), js_number(slot.usage.tokens()));
-            o.insert("turns".into(), js_number(slot.usage.turns));
-            let slot_rate = period_quota_rate(&shown_refs, slot.from_ms, slot.to_ms);
-            put_cost_fields(
-                &mut o,
-                slot.usage.cost_usd,
-                if slot_rate.is_none() || slot.outside_unpriced > 0.0 { None } else { Some(slot.outside_cost_usd) },
-                slot.usage.cost_known_turns < slot.usage.turns,
-            );
-            let mut slot_models: Vec<Value> = slot
-                .models
-                .iter()
-                .map(|(model, usage)| {
-                    let mut m = Map::new();
-                    m.insert("model".into(), model.clone().into());
-                    put_identity(&mut m, model);
-                    m.insert("consumed".into(), js_number(round_to(usage.consumed, 2)));
-                    m.insert("tokens".into(), js_number(usage.tokens()));
-                    m.insert("costUsd".into(), rounded_cost(usage.cost_usd));
-                    Value::Object(m)
-                })
-                .collect();
-            sort_model_tiers(&mut slot_models, model_of_row, &["consumed", "tokens"]);
-            o.insert("models".into(), Value::Array(slot_models));
-            Value::Object(o)
-        })
-        .collect();
+    let slot_values: Vec<Value> = slots.iter().map(|slot| slot_value(slot, &points, last_point as f64, &shown_refs)).collect();
     out.insert("slots".into(), Value::Array(slot_values));
     out.insert("modelSeries".into(), Value::Array(model_series(&slots, &shown_refs, &series_keys, now)));
     // A period over several windows marks where each of them peaked.

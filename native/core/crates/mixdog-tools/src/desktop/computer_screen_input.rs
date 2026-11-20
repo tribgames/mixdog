@@ -77,7 +77,6 @@ const MAX_LINE_BYTES: usize = 64 * 1024;
 
 static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
 
-// ---------------------------------------------------------------------------------------------------------------
 // Errors
 
 /// A failed input: the process's code (`out_of_bounds`, `protocol_error`, ...) or this side's (`host_unavailable`,
@@ -107,7 +106,6 @@ impl From<ScreenInputError> for ComputerError {
 
 type Reply = Result<Vec<String>, ScreenInputError>;
 
-// ---------------------------------------------------------------------------------------------------------------
 // The wire
 
 enum Command<'a> {
@@ -211,7 +209,6 @@ impl Lines {
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------
 // The process
 
 /// How the process is run: the helper binary, the input marker tagging what it injects (distinct from Computer Use's, so its
@@ -273,8 +270,6 @@ pub struct ScreenInput {
     inner: Arc<Inner>,
 }
 
-// ---------------------------------------------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
@@ -288,7 +283,6 @@ mod tests {
 
     use super::*;
 
-    // -----------------------------------------------------------------------------------------------------------
     // A fake `mixdog-computer --screen-input`
 
     struct Events(mpsc::UnboundedReceiver<ProcessEvent>);
@@ -474,7 +468,6 @@ mod tests {
         }
     }
 
-    // -----------------------------------------------------------------------------------------------------------
     // The wire
 
     #[test]
@@ -546,7 +539,6 @@ mod tests {
         input.start().await.expect("the fake serves");
         (fake, input)
     }
-    // -----------------------------------------------------------------------------------------------------------
     // The viewer's input through the geometry
 
     #[tokio::test(start_paused = true)]
@@ -722,7 +714,6 @@ mod tests {
         assert!(!input.alive());
         assert_eq!(input.apply(&InputOp::Move { x: 1, y: 1 }).await, Err(ScreenInputError::new("host_unavailable")));
     }
-    // -----------------------------------------------------------------------------------------------------------
     // The desktop watcher
 
     #[tokio::test(start_paused = true)]

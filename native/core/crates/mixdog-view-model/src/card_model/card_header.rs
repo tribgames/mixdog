@@ -42,15 +42,15 @@ fn header_label(base: &CardBase, surface: &CardSurface, display: &DisplayedResul
     if detail.is_agent_response {
         return agent_response_title(parsed_args, base.group_count, base.rt.as_deref().unwrap_or_default());
     }
-    if display.is_background_response {
-        if let Some(meta) = &display.background_meta {
-            return background_task_result_title(normalized_name, meta);
-        }
+    if display.is_background_response
+        && let Some(meta) = &display.background_meta
+    {
+        return background_task_result_title(normalized_name, meta);
     }
-    if display.is_background_metadata_result {
-        if let Some(meta) = &display.background_meta {
-            return background_task_action_title(normalized_name, meta);
-        }
+    if display.is_background_metadata_result
+        && let Some(meta) = &display.background_meta
+    {
+        return background_task_action_title(normalized_name, meta);
     }
     if *is_shell_surface {
         return shell_header(status.shell_status, base.group_count, parsed_args.get("verifyShell") == Some(&serde_json::Value::Bool(true)));

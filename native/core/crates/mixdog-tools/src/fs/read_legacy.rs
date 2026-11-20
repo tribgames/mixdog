@@ -452,9 +452,7 @@ pub(super) fn guard_read(a: &mut Obj) -> Result<bool, String> {
     Ok(defaulted)
 }
 
-// ---------------------------------------------------------------------------
 // The glance modes: head, tail, count, summary, hex
-// ---------------------------------------------------------------------------
 
 /// `parseInt(value ?? default) || default`, clamped: `0` and what is not a number take the default.
 pub(super) fn mode_count(v: Option<&JsonValue>, default: i64, min: i64, max: i64) -> i64 {
