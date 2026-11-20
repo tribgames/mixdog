@@ -60,7 +60,8 @@ pub struct SkillRuntime {
     pub electron: bool,
 }
 
-fn ps_quote(value: &str) -> String {
+/// A PowerShell single-quoted literal yielding `value`.
+pub(super) fn ps_quote(value: &str) -> String {
     // PowerShell also treats the typographic single quotes as quote characters.
     let doubled: String = value
         .chars()

@@ -417,6 +417,34 @@ fn the_bootstrap_runs_nothing_of_a_script_that_arrived_in_part() {
     assert_eq!((whole.status.code(), String::from_utf8_lossy(&whole.stdout).trim()), (Some(0), "whole"));
 }
 
+/// The hand-off prelude gives PowerShell the scratch directory and the working directory as they are, whatever quotes
+/// and scripts their names hold, and carries them in the clear.
+#[cfg(windows)]
+#[test]
+fn the_hand_off_prelude_sets_paths_with_quotes_of_every_kind_in_the_clear() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let dir = tempfile::tempdir().unwrap();
+    let cwd = dir.path().join("it's \u{2018}a\u{2019} \u{201a}b\u{201b} 한글 $x `y");
+    std::fs::create_dir(&cwd).unwrap();
+    let cwd = cwd.to_string_lossy().into_owned();
+    let env = mixdog_core_api::domain::process::EnvSpec { inherit: true, set: vec![("TEMP".to_owned(), cwd.clone())], remove: vec!["TMP".to_owned(), "TMPDIR".to_owned()] };
+    let prelude = super::standby::hand_off_prelude(&env, &cwd);
+    assert!(prelude.contains("한글"), "{prelude}");
+    let script = format!("{prelude}[Console]::Out.Write($env:TEMP + \"`n\" + (Get-Location).Path + \"`n\" + [System.Environment]::CurrentDirectory + \"`n\" + [string]$env:TMP)");
+    let mut child = std::process::Command::new("powershell.exe")
+        .args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", super::invocation::POWERSHELL_BOOTSTRAP])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(super::invocation::frame_powershell_script(&script).as_bytes()).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), format!("{cwd}\n{cwd}\n{cwd}\n"));
+}
+
 /// A shell source like the daemon's: the default is probed when first needed, kept, and dropped by
 /// a setting change (`setConfiguredShell`). Each probe finds the next installation in `installs`.
 #[derive(Default)]

@@ -13,7 +13,6 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use base64::Engine;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::process::CommandSpec;
 use mixdog_core_api::domain::process::EnvSpec;
@@ -25,6 +24,7 @@ use mixdog_protocol::ProcessHandle;
 use mixdog_rt::TaskClass;
 
 use super::invocation::POWERSHELL_BOOTSTRAP;
+use super::invocation::ps_quote;
 
 /// The session scratch variables: they differ between sessions by design, so they stay out of the reuse signature and
 /// are set by the hand-off prelude (`SCRATCH_ENV_KEYS`).
@@ -65,13 +65,6 @@ fn signature(env: &EnvSpec) -> String {
     sha2::Sha256::digest(entries.join("\n")).iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// `psStringExpr`: a PowerShell expression yielding `value`, which travels as UTF-8 Base64 (PowerShell quoting has no
-/// safe form for typographic apostrophes and the like).
-fn ps_string(value: &str) -> String {
-    let encoded = base64::engine::general_purpose::STANDARD.encode(value.as_bytes());
-    format!("[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('{encoded}'))")
-}
-
 /// The value `key` has in the environment `env` gives a process.
 fn value_in(env: &EnvSpec, key: &str) -> Option<String> {
     if let Some((_, value)) = env.set.iter().rev().find(|(k, _)| k == key) {
@@ -81,19 +74,20 @@ fn value_in(env: &EnvSpec, key: &str) -> Option<String> {
 }
 
 /// What is fed ahead of the command's script (`feed`): the command's own scratch variables (set, or cleared when it has
-/// none), then its working directory for PowerShell and for .NET.
+/// none), then its working directory for PowerShell and for .NET. The values travel in the clear, as quoted literals: a
+/// script that decodes its own text is what antivirus heuristics take for a hidden payload.
 pub fn hand_off_prelude(env: &EnvSpec, cwd: &str) -> String {
     let mut prelude: String = SCRATCH_KEYS
         .iter()
         .map(|key| match value_in(env, key) {
-            Some(value) => format!("$env:{key} = {}; ", ps_string(&value)),
+            Some(value) => format!("$env:{key} = {}; ", ps_quote(&value)),
             None => format!("Remove-Item -LiteralPath 'Env:{key}' -ErrorAction SilentlyContinue; "),
         })
         .collect();
     if !cwd.is_empty() {
         prelude.push_str(&format!(
             "$__mixdogCwd = {}; Set-Location -LiteralPath $__mixdogCwd; [System.Environment]::CurrentDirectory = $__mixdogCwd; ",
-            ps_string(cwd)
+            ps_quote(cwd)
         ));
     }
     prelude
