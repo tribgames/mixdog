@@ -1,6 +1,7 @@
 export function canonicalRouteProvider(value: unknown): string;
 export function routeChain(route: Record<string, unknown>): Record<string, unknown>[];
 export function executionFallbacks(route: Record<string, unknown> | null | undefined): Record<string, unknown>[];
+export function routeIdentity(route: Record<string, unknown>): string;
 export function validateRouteChainProviders(
   routes: Record<string, unknown>[],
   options?: { allowDuplicates?: boolean }

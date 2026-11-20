@@ -97,17 +97,22 @@ pub fn route_chain(route: &Value) -> Result<Vec<Value>, String> {
     Ok(chain)
 }
 
-/// The fallbacks a chain runs: those on a provider not already used by the
-/// primary or an earlier fallback.
+/// A route's identity: its canonical provider plus its model.
+pub fn route_identity(route: &Value) -> (String, String) {
+    (canonical_route_provider(&clean(route.get("provider"))), clean(route.get("model")))
+}
+
+/// The fallbacks a chain runs: those whose provider and model are not already
+/// used by the primary or an earlier fallback.
 pub fn execution_fallbacks(route: &Value) -> Result<Vec<Value>, String> {
     let mut chain = route_chain(route)?.into_iter();
     let Some(primary) = chain.next() else { return Ok(Vec::new()) };
-    let mut seen = vec![canonical_route_provider(&clean(primary.get("provider")))];
+    let mut seen = vec![route_identity(&primary)];
     let mut out = Vec::new();
     for entry in chain {
-        let provider = canonical_route_provider(&clean(entry.get("provider")));
-        if !seen.contains(&provider) {
-            seen.push(provider);
+        let identity = route_identity(&entry);
+        if !seen.contains(&identity) {
+            seen.push(identity);
             out.push(entry);
         }
     }
@@ -115,22 +120,23 @@ pub fn execution_fallbacks(route: &Value) -> Result<Vec<Value>, String> {
 }
 
 /// `validateRouteChainProviders`: every route names a provider and model; a
-/// provider repeats only when `allow_duplicates`; `default` (follow Main) is
-/// only the primary.
+/// provider plus model repeats only when `allow_duplicates`; `default` (follow
+/// Main) is only the primary.
 pub fn validate_route_chain_providers(routes: &[Value], allow_duplicates: bool) -> Result<(), String> {
-    let mut providers: Vec<String> = Vec::new();
+    let mut seen: Vec<(String, String)> = Vec::new();
     for route in routes {
-        let provider = canonical_route_provider(&clean(route.get("provider")));
-        if provider.is_empty() || clean(route.get("model")).is_empty() {
+        let identity = route_identity(route);
+        let provider = &identity.0;
+        if provider.is_empty() || identity.1.is_empty() {
             return Err("route requires provider and model".into());
         }
-        if !allow_duplicates && providers.contains(&provider) {
-            return Err(format!("duplicate route provider \"{provider}\""));
+        if !allow_duplicates && seen.contains(&identity) {
+            return Err(format!("duplicate route \"{provider}/{}\"", identity.1));
         }
-        if !providers.is_empty() && provider == "default" {
+        if !seen.is_empty() && provider == "default" {
             return Err("follow Main is only allowed as the primary route".into());
         }
-        providers.push(provider);
+        seen.push(identity);
     }
     Ok(())
 }
@@ -397,7 +403,7 @@ pub struct SearchCandidate {
 }
 
 /// `nativeWebSearchRoutes`: the configured chain resolved to candidates,
-/// deduplicated by provider. `catalog_row_for(provider, model)` is the
+/// deduplicated by provider plus model. `catalog_row_for(provider, model)` is the
 /// catalog's row for a bare id.
 pub fn native_web_search_routes(
     web_search_route: &Value,
@@ -408,7 +414,7 @@ pub fn native_web_search_routes(
     for selected in route_chain(web_search_route)? {
         let Some(mut candidate) = resolve_candidate(&selected, main, catalog_row_for) else { continue };
         candidate.provider = canonical_route_provider(&candidate.provider);
-        if out.iter().any(|c| c.provider == candidate.provider) {
+        if out.iter().any(|c| c.provider == candidate.provider && c.model == candidate.model) {
             continue;
         }
         out.push(candidate);

@@ -5,7 +5,7 @@ import { canonicalJson } from '../shared/remote-view-resume';
 import type { RecordValue } from './desktop-types';
 import { ModelRouteEditor } from './ModelRouteEditor';
 import { t } from './i18n';
-import { canonicalRouteProvider, routeChain } from '../shared/core-src/runtime/shared/model-route-chain.mjs';
+import { canonicalRouteProvider, routeChain, routeIdentity } from '../shared/core-src/runtime/shared/model-route-chain.mjs';
 import './route-chain-editor.css';
 
 export function routeChainComplete(route: RecordValue) {
@@ -60,9 +60,9 @@ export function RouteChainEditor({
     save(next);
     grabbed.current = to;
   };
-  const occupied = new Set(rows.map((entry) => canonicalRouteProvider(entry.provider)).filter(Boolean));
+  const occupied = new Set(rows.filter((entry) => entry.provider && entry.model).map((entry) => routeIdentity(entry)));
   const hasAvailableProvider = models.some(
-    (model) => model.provider !== 'default' && !occupied.has(canonicalRouteProvider(model.provider))
+    (model) => model.provider !== 'default' && !occupied.has(routeIdentity(model as unknown as RecordValue))
   );
   const canAdd = routeChainComplete(route) && hasAvailableProvider;
   return (
@@ -146,9 +146,10 @@ export function RouteChainEditor({
               value={entry as unknown as DesktopModelSelection}
               models={models.filter((model) => {
                 const provider = canonicalRouteProvider(model.provider);
+                const identity = routeIdentity(model as unknown as RecordValue);
                 return (
                   (index === 0 || provider !== 'default') &&
-                  (!occupied.has(provider) || provider === canonicalRouteProvider(entry.provider))
+                  (!occupied.has(identity) || identity === routeIdentity(entry))
                 );
               })}
               onChange={(selection) =>
@@ -170,11 +171,11 @@ export function RouteChainEditor({
         ))}
       </ol>
       {rows.length > 1 && !routeChainComplete(route) && (
-        <small className="route-chain-hint">{t('Fallback models must use different providers.')}</small>
+        <small className="route-chain-hint">{t('Each combination of provider and model can appear only once.')}</small>
       )}
       {allowFallbacks && !hasAvailableProvider && (
         <small className="route-chain-unavailable" role="status">
-          {t('No other providers are available to add.')}
+          {t('No other models are available to add.')}
         </small>
       )}
     </div>

@@ -74,12 +74,24 @@ fn a_null_fallbacks_list_is_refused_like_node() {
 }
 
 #[test]
+fn two_models_of_one_provider_are_a_valid_chain_that_fails_over() {
+    let r = |p: &str, m: &str| serde_json::json!({"provider": p, "model": m});
+    assert!(validate_route_chain_providers(&[r("anthropic", "fable"), r("anthropic", "opus")], false).is_ok());
+    let route = serde_json::json!({"provider": "anthropic", "model": "fable", "fallbacks": [r("anthropic-api", "opus"), r("anthropic", "fable")]});
+    assert_eq!(execution_fallbacks(&route).unwrap(), vec![r("anthropic-api", "opus")]);
+    let search = serde_json::json!({"provider": "anthropic", "model": "fable", "fallbacks": [r("anthropic", "opus"), r("anthropic-api", "fable")]});
+    let none = |_: &str, _: &str| None;
+    let got = native_web_search_routes(&search, None, &none).unwrap();
+    assert_eq!(got.iter().map(|c| c.model.as_str()).collect::<Vec<_>>(), ["fable", "opus"]);
+}
+
+#[test]
 fn chain_providers_are_validated_like_node() {
     let r = |p: &str, m: &str| serde_json::json!({"provider": p, "model": m});
     assert!(validate_route_chain_providers(&[r("openai-api", "m"), r("anthropic", "m")], false).is_ok());
     assert_eq!(
         validate_route_chain_providers(&[r("openai", "m"), r("openai-api", "m")], false).unwrap_err(),
-        "duplicate route provider \"openai\""
+        "duplicate route \"openai/m\""
     );
     assert!(validate_route_chain_providers(&[r("openai", "m"), r("openai-api", "m")], true).is_ok());
     assert_eq!(validate_route_chain_providers(&[r("a", " ")], false).unwrap_err(), "route requires provider and model");
@@ -388,7 +400,7 @@ fn a_web_search_route_is_normalised_and_its_chain_checked_as_documented() {
         (r#"[{"provider":"openai-api","model":" gpt-5 ","effort":"HIGH","fast":true,"toolType":" web_search ","modelParameters":{"a":"1"}}]"#, Ok(r#"{"provider":"openai","model":"gpt-5","effort":"high","fast":true,"modelParameters":{"a":"1"},"toolType":"web_search"}"#), false, &[r#"{"provider":"openai","model":"gpt-5","effort":"high","fast":true,"modelParameters":{"a":"1"},"toolType":"web_search"}"#], &[]),
         (r#"[{"provider":"xai","model":"grok-4.5","effort":"bogus","fast":"yes"}]"#, Ok(r#"{"provider":"xai","model":"grok-4.5"}"#), false, &[r#"{"provider":"xai","model":"grok-4.5"}"#], &[]),
         (r#"[{"provider":"openai","model":"gpt-5","fallbacks":[{"provider":"gemini","model":"gemini-2.5-pro"}]}]"#, Ok(r#"{"provider":"openai","model":"gpt-5","fallbacks":[{"provider":"gemini","model":"gemini-2.5-pro"}]}"#), false, &[r#"{"provider":"openai","model":"gpt-5"}"#, r#"{"provider":"gemini","model":"gemini-2.5-pro"}"#], &[r#"{"provider":"gemini","model":"gemini-2.5-pro"}"#]),
-        (r#"[{"provider":"anthropic","model":"m","fallbacks":[{"provider":"anthropic-api","model":"m2"}]}]"#, Err("duplicate route provider \"anthropic\""), false, &[], &[]),
+        (r#"[{"provider":"anthropic","model":"m","fallbacks":[{"provider":"anthropic-api","model":"m"}]}]"#, Err("duplicate route \"anthropic/m\""), false, &[], &[]),
         (r#"[{"provider":"openai","model":"m","fallbacks":[{"provider":"default","model":"default"}]}]"#, Err("follow Main is only allowed as the primary route"), false, &[], &[]),
         (r#"[{"provider":"openai","model":"m","fallbacks":[{"provider":"x"}]}]"#, Err("fallback route requires provider and model"), false, &[], &[]),
         (r#"[{"provider":"","model":"x"},{"provider":"gemini","model":"g"}]"#, Ok(r#"{"provider":"gemini","model":"g"}"#), false, &[r#"{"provider":"gemini","model":"g"}"#], &[]),
