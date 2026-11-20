@@ -4,7 +4,8 @@ import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { t } from './i18n';
 import { forgetComposerScope } from './composer-draft';
 import { deleteSessionImagePreviews } from './image-preview-store';
-import type { NavigationSelection, WorkspaceSelection, WorkspaceTab } from './navigation';
+import type { NavigationSelection, WorkspaceTab } from './navigation';
+import type { SessionTabsClosed } from './session-tab-cleanup';
 import { navigationKey } from './text-format';
 import { useStableEvent } from './use-stable-event';
 
@@ -13,7 +14,6 @@ export function useAppSessionActions({
   setSessions,
   tabs,
   setTabs,
-  selection,
   setError,
   refreshSessions,
   pendingRenames,
@@ -32,7 +32,6 @@ export function useAppSessionActions({
   setSessions: Dispatch<SetStateAction<DesktopSessionSummary[]>>;
   tabs: WorkspaceTab[];
   setTabs: Dispatch<SetStateAction<WorkspaceTab[]>>;
-  selection: NavigationSelection;
   setError: Dispatch<SetStateAction<string>>;
   refreshSessions(): Promise<DesktopSessionSummary[]>;
   pendingRenames: MutableRefObject<Map<string, { title: string }>>;
@@ -42,9 +41,9 @@ export function useAppSessionActions({
   applySnapshot(next: SessionSnapshot | null): void;
   activateSelection(selection: NavigationSelection, title: string, replaceKey?: string): void;
   onSessionDeleted(sessionId: string): void;
-  /** Closes every pane tab of the session; returns the neighbour tab to show
-   *  when the focused active tab was one of them. */
-  closeSessionTabs(sessionId: string): { selection: WorkspaceSelection; title: string } | null;
+  /** Closes every tab of the session (tab list and panes); reports whether it
+   *  was the focused active tab and the neighbour tab to show then. */
+  closeSessionTabs(sessionId: string): SessionTabsClosed;
   openSession(sessionId: string): void | Promise<void>;
   navigationEpoch: MutableRefObject<number>;
   setRequestedSessionId: Dispatch<SetStateAction<string>>;
@@ -98,6 +97,30 @@ export function useAppSessionActions({
     [invalidateSessionListings, pendingRenames, refreshSessions, sessions, setError, setSessions, setTabs, tabs]
   );
 
+  /** Closes every tab of a deleted or archived session, exactly like closing
+   *  it by hand: whether to move on is read from the focused pane as it is
+   *  now, never from a selection captured when the request started. */
+  const closeTabsAndFollow = useCallback(
+    (sessionId: string) => {
+      const { shown, fallback } = closeSessionTabs(sessionId);
+      if (!shown) return;
+      navigationEpoch.current += 1;
+      if (fallback?.selection.kind === 'session') {
+        void openSession(fallback.selection.id);
+      } else if (fallback?.selection.kind === 'new' || fallback?.selection.kind === 'project') {
+        activateSelection(fallback.selection, fallback.title);
+        setRequestedSessionId('');
+      } else if (fallback) {
+        // The pane already activated its neighbouring file/terminal/... tab.
+        setRequestedSessionId('');
+      } else {
+        activateSelection({ kind: 'new' }, t('New task'));
+        setRequestedSessionId('');
+      }
+    },
+    [activateSelection, closeSessionTabs, navigationEpoch, openSession, setRequestedSessionId]
+  );
+
   const archiveSession = useCallback(
     async (sessionId: string, archived: boolean) => {
       const previousSession = sessions.find((session) => session.id === sessionId);
@@ -125,11 +148,12 @@ export function useAppSessionActions({
         setError(reason instanceof Error ? reason.message : String(reason));
         throw reason;
       }
-      if (pendingArchives.current.get(sessionId) === pending) {
-        pendingArchives.current.delete(sessionId);
-      }
+      if (pendingArchives.current.get(sessionId) !== pending) return;
+      pendingArchives.current.delete(sessionId);
+      // An archived session leaves the tab strip; restoring reopens nothing.
+      if (archived) closeTabsAndFollow(sessionId);
     },
-    [invalidateSessionListings, pendingArchives, sessions, setError, setSessions]
+    [closeTabsAndFollow, invalidateSessionListings, pendingArchives, sessions, setError, setSessions]
   );
 
   const favoriteSession = useCallback(
@@ -181,8 +205,6 @@ export function useAppSessionActions({
     async (sessionId: string) => {
       const previousSession = sessions.find((session) => session.id === sessionId);
       if (!previousSession || pendingDeletes.current.has(sessionId)) return;
-      const deletingCurrent = selection.kind === 'session' && selection.id === sessionId;
-      const navigationToken = navigationEpoch.current;
       pendingDeletes.current.add(sessionId);
       setError('');
       let next: SessionSnapshot;
@@ -200,26 +222,7 @@ export function useAppSessionActions({
       pendingRenames.current.delete(sessionId);
       applySnapshot(next);
       setSessions((current) => current.filter((session) => session.id !== sessionId));
-      setTabs((current) =>
-        current.filter((tab) => !(tab.selection.kind === 'session' && tab.selection.id === sessionId))
-      );
-      // Every pane tab of the session closes, whichever entry point deleted it.
-      const fallback = closeSessionTabs(sessionId);
-      if (deletingCurrent && navigationEpoch.current === navigationToken) {
-        navigationEpoch.current += 1;
-        if (fallback?.selection.kind === 'session') {
-          void openSession(fallback.selection.id);
-        } else if (fallback?.selection.kind === 'new' || fallback?.selection.kind === 'project') {
-          activateSelection(fallback.selection, fallback.title);
-          setRequestedSessionId('');
-        } else if (fallback) {
-          // The pane already activated its neighbouring file/terminal/... tab.
-          setRequestedSessionId('');
-        } else {
-          activateSelection({ kind: 'new' }, t('New task'));
-          setRequestedSessionId('');
-        }
-      }
+      closeTabsAndFollow(sessionId);
       try {
         await refreshSessions();
       } catch {
@@ -229,22 +232,16 @@ export function useAppSessionActions({
       }
     },
     [
-      activateSelection,
       applySnapshot,
-      closeSessionTabs,
+      closeTabsAndFollow,
       invalidateSessionListings,
-      navigationEpoch,
       onSessionDeleted,
-      openSession,
       pendingDeletes,
       pendingRenames,
       refreshSessions,
-      selection,
       sessions,
       setError,
-      setRequestedSessionId,
       setSessions,
-      setTabs,
     ]
   );
 

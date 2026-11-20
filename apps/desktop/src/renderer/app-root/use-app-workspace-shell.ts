@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { usePaneWorkspace } from '../pane-workspace-state';
 import type { ExtensionsSection } from '../extension-sections';
 import type { WorkbenchQuickAccessMode } from '../workbench-overlays-loader';
@@ -39,10 +39,26 @@ export function useAppWorkspaceShell() {
   const startupFocusedPaneSelection = focusedPaneSelection;
   const editorState = useAppEditorState({ paneWorkspace, startupFocusedPaneSelection, bottomPanel });
 
-  const paneLeavesRef = useRef(paneWorkspace.leaves);
-  paneLeavesRef.current = paneWorkspace.leaves;
-  const focusedLeafIdRef = useRef(paneWorkspace.focusedLeafId);
-  focusedLeafIdRef.current = paneWorkspace.focusedLeafId;
+  // Both read through to the workspace as it is now, not as it last rendered:
+  // two handlers in one batch (a bulk archive's completions) each see what the
+  // one before did.
+  const { now: paneWorkspaceNow } = paneWorkspace;
+  const paneLeavesRef = useMemo(
+    () => ({
+      get current() {
+        return paneWorkspaceNow().leaves;
+      },
+    }),
+    [paneWorkspaceNow]
+  );
+  const focusedLeafIdRef = useMemo(
+    () => ({
+      get current() {
+        return paneWorkspaceNow().focusedLeafId;
+      },
+    }),
+    [paneWorkspaceNow]
+  );
   const activeFileKey = focusedPaneSelection?.kind === 'file' ? navigationKey(focusedPaneSelection) : '';
   const [quickAccessMode, setQuickAccessMode] = useState<WorkbenchQuickAccessMode | null>(null);
 

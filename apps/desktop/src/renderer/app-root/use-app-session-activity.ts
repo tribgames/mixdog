@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { isAgentHomeSessionId } from '../../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { BOT_DELETED_EVENT } from '../agent-profile-actions';
-import { navigationKey } from '../text-format';
+import { closeSessionTabsEverywhere } from '../session-tab-cleanup';
 import { sessionDisplayTitle } from '../session-display-title';
 import type { useAppSessionActions } from '../use-app-session-actions';
 import { isMobileRemoteSurface } from '../mobile-surface';
@@ -76,15 +76,7 @@ export function useAppSessionActivity({
   // and transport errors never reach this subscription, and a tab for a
   // session that was never listed (new draft, agent worker) is untouched.
   useEffect(() => {
-    const closeTabs = (ids: readonly string[]) => {
-      const gone = new Set(ids);
-      if (!gone.size) return;
-      setTabs((current) => {
-        const next = current.filter((tab) => !(tab.selection.kind === 'session' && gone.has(tab.selection.id)));
-        return next.length === current.length ? current : next;
-      });
-      for (const id of gone) closePaneTab(navigationKey({ kind: 'session', id }));
-    };
+    const closeTabs = (ids: readonly string[]) => closeSessionTabsEverywhere(ids, setTabs, closePaneTab);
     // An agent's home keeps its fixed id for good: after 대화 초기화 it is
     // empty, so the catalog leaves it out, yet its chat stays open.
     const unsubscribe = subscribeSessionsRemoved((removedIds) =>
