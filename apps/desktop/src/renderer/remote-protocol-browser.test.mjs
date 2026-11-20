@@ -14,14 +14,23 @@ function rig() {
   const eventListeners = new Set();
   let live = true;
   const client = {
-    call: async (method, params) => (requests.push([method, params]), { ok: method }),
+    call: async (method, params) => {
+      requests.push([method, params]);
+      return { ok: method };
+    },
     notify: (method, params) => notes.push([method, params]),
-    on: (listener) => (eventListeners.add(listener), () => eventListeners.delete(listener)),
+    on: (listener) => {
+      eventListeners.add(listener);
+      return () => eventListeners.delete(listener);
+    },
     store: {
       appFeed: () => ({ id: 'app', epoch: 'e1', seq: 1 }),
       section: (section, key) =>
         sections.has(`${section}:${key}`) ? { value: sections.get(`${section}:${key}`) } : undefined,
-      subscribe: (listener) => (storeListeners.add(listener), () => storeListeners.delete(listener)),
+      subscribe: (listener) => {
+        storeListeners.add(listener);
+        return () => storeListeners.delete(listener);
+      },
       appLive: () => live,
     },
   };
@@ -42,7 +51,10 @@ function rig() {
     ctx,
     client: () => client,
     declareLane() {},
-    onClient: (listener) => (listener(client), () => undefined),
+    onClient: (listener) => {
+      listener(client);
+      return () => undefined;
+    },
   };
   const setSection = (key, value) => {
     sections.set(`hostState:${key}`, value);

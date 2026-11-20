@@ -15,7 +15,11 @@ function client() {
   const read = new Promise((resolve) => (heard = resolve));
   return {
     read,
-    on: (listener) => (listeners.add(listener), heard(), () => listeners.delete(listener)),
+    on: (listener) => {
+      listeners.add(listener);
+      heard();
+      return () => listeners.delete(listener);
+    },
     store: { section: () => null, subscribe: () => () => undefined },
     server: { platformOs: 'windows' },
     output: (id, text) => {
@@ -50,7 +54,10 @@ test('after a re-pairing the terminal output of the new client reaches the page 
     ctx,
     client: () => current,
     declareLane: () => undefined,
-    onClient: (listener) => (clients.add(listener), () => clients.delete(listener)),
+    onClient: (listener) => {
+      clients.add(listener);
+      return () => clients.delete(listener);
+    },
   };
   const up = (next) => {
     current = next;

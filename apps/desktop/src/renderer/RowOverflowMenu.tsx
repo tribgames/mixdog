@@ -8,7 +8,7 @@ import { closeOnUserScroll, useMenuDismiss } from './menu-dismiss';
 import { useMobileBack } from './mobile-back';
 import { useSurfaceActive } from './surface-activity';
 import { captureRowMenuAnchor, positionRowMenu, useRowMenuClamp } from './row-menu-geometry';
-import { isContextMenuKey, pointerMenuPoint } from './ScmContextMenu';
+import { ENABLED_MENU_ITEM_SELECTOR, isContextMenuKey, pointerMenuPoint } from './ScmContextMenu';
 
 type RowOverflowMenuItem = {
   /** Stable semantic action identity; labels may change while the menu stays open. */
@@ -27,9 +27,10 @@ type RowOverflowMenuItem = {
   children?: RowOverflowMenuItem[];
 };
 
-/** Focusable entries: actions and check items alike. */
-const MENU_ENTRY =
-  "[role='menuitem']:not(:disabled), [role='menuitemcheckbox']:not(:disabled), [role='menuitemradio']:not(:disabled)";
+const menuItemRole = (item: RowOverflowMenuItem) => {
+  if (item.checked === undefined) return 'menuitem';
+  return item.radio ? 'menuitemradio' : 'menuitemcheckbox';
+};
 
 type RowOverflowOpener = (point?: { x: number; y: number }) => void;
 /** Each mounted menu registers its opener under its trigger button. */
@@ -85,7 +86,7 @@ function useRowOverflowDismiss({
   // biome-ignore lint/correctness/useExhaustiveDependencies: panel is a ref and setOpen a useState setter (both stable); path is a deliberate trigger that refocuses the first item on each submenu level.
   useEffect(() => {
     if (!menuOpen) return undefined;
-    queueMicrotask(() => panel.current?.querySelector<HTMLButtonElement>(MENU_ENTRY)?.focus());
+    queueMicrotask(() => panel.current?.querySelector<HTMLButtonElement>(ENABLED_MENU_ITEM_SELECTOR)?.focus());
     const close = () => setOpen(false);
     window.addEventListener('resize', close);
     const stopScrollDismiss = closeOnUserScroll(close, (target) => Boolean(panel.current?.contains(target)));
@@ -109,7 +110,7 @@ function rowOverflowMenuKeyDown(
     setPath(update: (current: number[]) => number[]): void;
   }
 ): void {
-  const entries = [...(panel.current?.querySelectorAll<HTMLButtonElement>(MENU_ENTRY) || [])];
+  const entries = [...(panel.current?.querySelectorAll<HTMLButtonElement>(ENABLED_MENU_ITEM_SELECTOR) || [])];
   if (!entries.length) return;
   const current = Math.max(0, entries.indexOf(document.activeElement as HTMLButtonElement));
   let next = -1;
@@ -153,7 +154,7 @@ function renderRowOverflowItem({
       key={item.id}
       type="button"
       data-action-id={item.id}
-      role={item.checked === undefined ? 'menuitem' : item.radio ? 'menuitemradio' : 'menuitemcheckbox'}
+      role={menuItemRole(item)}
       aria-checked={item.checked === undefined ? undefined : item.checked}
       aria-haspopup={submenu ? 'menu' : undefined}
       data-submenu={submenu ? 'true' : undefined}
@@ -252,7 +253,7 @@ export function RowOverflowMenu({
   useEffect(() => {
     if (!surfaceActive && open) setOpen(false);
   }, [open, surfaceActive]);
-  // ABB (user: 백버튼 대응): the open menu owns hardware back, so the phone's
+  // ABB: the open menu owns hardware back, so the phone's
   // back gesture closes it instead of leaving the PWA.
   useMobileBack(menuOpen, () => setOpen(false));
   const menuItems = path.reduce<RowOverflowMenuItem[]>((current, index) => current[index]?.children ?? current, items);

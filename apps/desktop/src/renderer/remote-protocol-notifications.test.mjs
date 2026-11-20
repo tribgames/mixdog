@@ -6,7 +6,12 @@ import { adapter } from './remote-protocol-notifications.ts';
 
 function scripted(replies = {}) {
   const sent = [];
-  const client = { call: async (method, params) => (sent.push({ method, params }), replies[method] ?? {}) };
+  const client = {
+    call: async (method, params) => {
+      sent.push({ method, params });
+      return replies[method] ?? {};
+    },
+  };
   const host = { ctx: {}, client: () => client, declareLane() {} };
   return { sent, call: async (name, args) => adapter.calls[name](args, host) };
 }
@@ -60,14 +65,20 @@ test('only a notice the connected client hears raised live is shown; a snapshot 
   let notify;
   const client = {
     store: {
-      subscribe: (fn) => ((notify = fn), () => {}),
+      subscribe: (fn) => {
+        notify = fn;
+        return () => {};
+      },
       section: (name, key) => sections[`${name}:${key}`],
       appLive: () => live,
     },
   };
   const host = {
     ctx: { desktopNoticeListeners: 'N', fanOut: (list, notice) => shown.push([list, notice]) },
-    onClient: (wire) => (wire(client), () => {}),
+    onClient: (wire) => {
+      wire(client);
+      return () => {};
+    },
   };
   adapter.install(host);
   notify({ type: 'section', section: 'notice', key: 'a' });

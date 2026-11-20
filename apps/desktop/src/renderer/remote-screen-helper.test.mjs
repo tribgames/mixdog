@@ -318,7 +318,10 @@ test('a transition during the key load or the signature ends the challenge, even
       epoch: () => 2,
       active: () => state.active,
       send: (message) => sent.push(message) > 0,
-      sign: async () => (signed.push(1), 'c2ln'),
+      sign: async () => {
+        signed.push(1);
+        return 'c2ln';
+      },
     });
     const result = grants.challenge(challenge);
     state.active = false;
@@ -337,7 +340,10 @@ test('a transition during the key load or the signature ends the challenge, even
       epoch: () => 2,
       active: () => true,
       send: () => true,
-      sign: async () => (signed.push(1), 'c2ln'),
+      sign: async () => {
+        signed.push(1);
+        return 'c2ln';
+      },
     });
     const result = grants.challenge(challenge);
     grants.invalidate();

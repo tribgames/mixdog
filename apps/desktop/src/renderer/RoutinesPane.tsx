@@ -1,6 +1,6 @@
 // The Routines tile of an agent's home thread: the schedules that agent owns,
 // then its webhooks, each kind one grouped list. A row is a status dot, the
-// name (with a 실패 / 멈춤 tag) and one line — cadence and next run, or the
+// name (with a Failed / Paused tag) and one line — cadence and next run, or the
 // sender and latest event; run now, pause / resume, retry delivery and delete
 // live in its ⋯ menu. Routines are added and changed by asking the agent in
 // the chat.
@@ -30,31 +30,32 @@ type RoutinesApi = Partial<Pick<DesktopApi, 'invokeCapability'>>;
 
 const ROUTINES_REFERENCE_KEYS = ['channelSetup'] as const;
 
-function ScheduleItem({ row, ...controls }: RowControls & { row: RoutineRow }) {
+function scheduleDetail(row: RoutineRow): string {
   const cadence = describeSchedule(row.source);
-  const detail =
-    row.pausedAfter !== null
-      ? t('Paused after {{n}} failures in a row', { n: row.pausedAfter })
-      : !row.enabled
-        ? t('{{cadence}} · Paused', { cadence })
-        : row.nextAt !== null
-          ? t('{{cadence}} · Next {{time}}', { cadence, time: relativeTime(row.nextAt) })
-          : cadence;
+  if (row.pausedAfter !== null) return t('Paused after {{n}} failures in a row', { n: row.pausedAfter });
+  if (!row.enabled) return t('{{cadence}} · Paused', { cadence });
+  if (row.nextAt !== null) return t('{{cadence}} · Next {{time}}', { cadence, time: relativeTime(row.nextAt) });
+  return cadence;
+}
+
+function webhookDetail(row: WebhookRoutineRow): string {
+  if (row.pausedAfter !== null) return t('Paused after {{n}} failures in a row', { n: row.pausedAfter });
+  if (row.eventAt === null) return t('No events');
+  return t('{{source}} events · Latest {{time}}', {
+    source: webhookSourceLabel(row.parser),
+    time: relativeTime(row.eventAt),
+  });
+}
+
+function ScheduleItem({ row, ...controls }: RowControls & { row: RoutineRow }) {
+  const detail = scheduleDetail(row);
   return (
     <RoutineItem {...controls} name={row.name} enabled={row.enabled} last={row.last} detail={detail} health={row} />
   );
 }
 
 function WebhookItem({ row, ...controls }: RowControls & { row: WebhookRoutineRow }) {
-  const detail =
-    row.pausedAfter !== null
-      ? t('Paused after {{n}} failures in a row', { n: row.pausedAfter })
-      : row.eventAt !== null
-        ? t('{{source}} events · Latest {{time}}', {
-            source: webhookSourceLabel(row.parser),
-            time: relativeTime(row.eventAt),
-          })
-        : t('No events');
+  const detail = webhookDetail(row);
   return (
     <RoutineItem
       {...controls}
@@ -83,7 +84,7 @@ function RoutineSection({ title, count, children }: { title: string; count: numb
   );
 }
 
-/** A home thread's agent panel: 프로필 · 루틴 tabs over the profile
+/** A home thread's agent panel: Profile · Routines tabs over the profile
  *  (AgentProfilePane.tsx) and the routines below. The tab is remembered. */
 export function AgentPanel({
   sessionId,

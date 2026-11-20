@@ -33,7 +33,7 @@ export const browserProfile = async (): Promise<{ name: string; platform: string
     [/Safari\//u, 'Safari'],
   ];
   const browser = browserFamilies.find(([pattern]) => pattern.test(userAgent))?.[1] ?? 'Browser';
-  // Device identity (user: 무슨 기기인지도 나와야): Android Chromium exposes
+  // Device identity (the label must say which device it is): Android Chromium exposes
   // the hardware model via UA-Client Hints (e.g. "Pixel 8", "SM-S928N");
   // Apple never does, so iPhone/iPad fall back to the UA family.
   let model = '';

@@ -24,8 +24,16 @@ function rig(listing = [], pageSize = 2) {
       if (hold && from === pageSize) await hold.promise;
       return page;
     },
-    on: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
-    store: { subscribe: (listener) => (stores.add(listener), () => stores.delete(listener)) },
+    on: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    store: {
+      subscribe: (listener) => {
+        stores.add(listener);
+        return () => stores.delete(listener);
+      },
+    },
   };
   const feed = createRosterFeed({
     summaries: (rows) => rows.map((r) => `${r.id}:${r.name}`),
@@ -49,8 +57,12 @@ function rig(listing = [], pageSize = 2) {
         return h;
       };
     },
-    edge: (method, params) => listeners.forEach((l) => l({ type: 'notification', notification: { method, params } })),
-    store: (change) => stores.forEach((l) => l(change)),
+    edge: (method, params) => {
+      for (const l of listeners) l({ type: 'notification', notification: { method, params } });
+    },
+    store: (change) => {
+      for (const l of stores) l(change);
+    },
   };
 }
 
@@ -126,8 +138,16 @@ test('a client that replaces the first one (a re-pairing in the same page) is li
     return {
       stores,
       call: async () => ({ data: rows }),
-      on: (l) => (listeners.add(l), () => listeners.delete(l)),
-      store: { subscribe: (l) => (stores.add(l), () => stores.delete(l)) },
+      on: (l) => {
+        listeners.add(l);
+        return () => listeners.delete(l);
+      },
+      store: {
+        subscribe: (l) => {
+          stores.add(l);
+          return () => stores.delete(l);
+        },
+      },
     };
   };
   const first = makeClient([row('old', 9)]);
@@ -148,8 +168,15 @@ test('a client that replaces the first one (a re-pairing in the same page) is li
     },
     client: () => first,
     declareLane() {},
-    onClient: (listener) => ((handOver = listener), listener(first), () => undefined),
-    onPairingReset: (listener) => ((resetPairing = listener), () => undefined),
+    onClient: (listener) => {
+      handOver = listener;
+      listener(first);
+      return () => undefined;
+    },
+    onPairingReset: (listener) => {
+      resetPairing = listener;
+      return () => undefined;
+    },
   };
   adapter.install(host);
   for (const l of first.stores) l({ type: 'appSnapshot' });

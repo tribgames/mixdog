@@ -21,7 +21,12 @@ test('the adapter answers exactly the 62 source-control calls, each as a functio
 test("phone-scm forwards the call's `sent` claim on every request it writes (the router scopes the client per call)", async () => {
   const claim = () => {};
   const options = [];
-  const client = { call: async (_method, _params, option) => (options.push(option?.sent), null) };
+  const client = {
+    call: async (_method, _params, option) => {
+      options.push(option?.sent);
+      return null;
+    },
+  };
   const scoped = scopeClient(client, claim);
   await adapter.calls.gitStage([process.cwd(), ['a.txt']], { ctx: {}, client: () => scoped });
   assert.ok(options.length > 0);

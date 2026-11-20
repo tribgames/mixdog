@@ -136,8 +136,6 @@ export function screenHelperPanel(
   return { action, busy: pending && action !== null, lines };
 }
 
-// --- first-open notice --------------------------------------------------------
-
 /** Set the first time the notice is due for a PC, never cleared. Relay pages of
  *  every PC share one origin's storage, so the flag is namespaced by the
  *  connected PC's id (as the pairing keys are). */
@@ -189,8 +187,6 @@ export function screenHelperSheetShown(state: {
 }): boolean {
   return state.open && state.action !== null && (state.blocked || state.fromNotice);
 }
-
-// --- install request --------------------------------------------------------
 
 /** Phone → PC: enroll this phone's controller key and install (or update) the
  *  helper. Sent only when the person submits the Windows-password sheet,
@@ -251,8 +247,6 @@ export function createScreenHelperInstall(deps: {
   };
 }
 
-// --- the Windows-password sheet ----------------------------------------------
-
 /** What the sheet's fields hold. */
 export interface ScreenHelperForm {
   password: string;
@@ -297,8 +291,6 @@ export function submitScreenHelperForm(
   if (asksAccount) credential.user = form.user.trim();
   return { credential, form: { ...form, password: '' } };
 }
-
-// --- control grants ---------------------------------------------------------
 
 /** PC → phone: one helper challenge for video run `epoch`. */
 export interface ScreenHelperChallenge {

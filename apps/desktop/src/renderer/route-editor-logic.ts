@@ -54,9 +54,9 @@ function clamp(value: number, minimum: number, maximum: number): number {
 }
 
 /** Sheet width: the Codex-scale panel, widened to the pill's natural label
- *  width when a long model name needs more (user: 모델명 긴 거 잘림), and
+ *  width when a long model name needs more (long model names would be cut off), and
  *  capped to the viewport either way. */
-export function routeSheetWidth(viewport: { width: number }, preferredWidth = ROUTE_PANEL_WIDTH): number {
+function routeSheetWidth(viewport: { width: number }, preferredWidth = ROUTE_PANEL_WIDTH): number {
   return Math.min(
     Math.max(ROUTE_PANEL_WIDTH, Math.ceil(preferredWidth)),
     Math.max(1, viewport.width - ROUTE_PANEL_EDGE * 2)
@@ -166,8 +166,8 @@ function flyoutSides(
 
 /** True while a submenu still fits as a second column beside the sheet. A
  *  phone never does, and stacking the two panels left the submenu glued to
- *  the viewport top, detached from the pill (user: 서브 창이 공간이 부족해서
- *  위에 붙어 뜬다), so narrow surfaces drill down inside the sheet instead. */
+ *  the viewport top, detached from the pill (the sub-window runs out of room
+ *  and sticks to the top), so narrow surfaces drill down inside the sheet instead. */
 export function routeFlyoutFitsBeside(
   sheet: { left: number; width: number },
   viewport: RouteViewport,

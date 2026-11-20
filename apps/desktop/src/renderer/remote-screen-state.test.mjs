@@ -199,8 +199,7 @@ test('control lost between press and release still lets the ups out', () => {
   const live = { kind: 'live', control: true };
   const lost = { kind: 'blocked', reason: 'uac', dim: false };
   const sent = [];
-  const gated = (view, inputs) =>
-    inputs.filter((input) => screenInputAllowed(input, view)).forEach((i) => sent.push(i));
+  const gated = (view, inputs) => sent.push(...inputs.filter((input) => screenInputAllowed(input, view)));
   const chord = screenKeyChord(['AltLeft', 'Tab']);
   gated(live, chord.slice(0, 2));
   gated(lost, chord.slice(2));

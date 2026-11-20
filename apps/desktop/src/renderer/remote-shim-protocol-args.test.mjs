@@ -16,9 +16,15 @@ function routerSeeing() {
   const adapter = {
     group: 'probe',
     calls: {
-      echo: (params) => (seen.push(params), null),
+      echo: (params) => {
+        seen.push(params);
+        return null;
+      },
       // A coalesced read (Node's COALESCED_READS): identical reads share one request.
-      readSettings: (params) => (seen.push(params), { settings: true }),
+      readSettings: (params) => {
+        seen.push(params);
+        return { settings: true };
+      },
     },
     fires: {
       ping: (params) => {

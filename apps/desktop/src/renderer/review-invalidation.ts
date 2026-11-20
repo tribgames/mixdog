@@ -10,7 +10,10 @@ export function publishReviewInvalidation(sessionId: string): void {
 
 export function subscribeReviewInvalidation(sessionId: string, listener: () => void): () => void {
   let set = listeners.get(sessionId);
-  if (!set) listeners.set(sessionId, (set = new Set()));
+  if (!set) {
+    set = new Set();
+    listeners.set(sessionId, set);
+  }
   set.add(listener);
   return () => {
     set.delete(listener);

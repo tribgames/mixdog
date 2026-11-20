@@ -740,12 +740,11 @@ export function createRemoteTransportMediaClient(deps: {
   send(message: RemoteTransportMedia): void | Promise<void>;
   container?: MediaWorkerContainer | null;
 }): RemoteTransportMediaClient {
-  const container =
-    deps.container !== undefined
-      ? deps.container
-      : typeof navigator === 'undefined'
-        ? null
-        : ((navigator.serviceWorker as unknown as MediaWorkerContainer | undefined) ?? null);
+  const pageContainer = (): MediaWorkerContainer | null =>
+    typeof navigator === 'undefined'
+      ? null
+      : ((navigator.serviceWorker as unknown as MediaWorkerContainer | undefined) ?? null);
+  const container = deps.container !== undefined ? deps.container : pageContainer();
   const windows = new Map<string, { reply: MessagePort; headed: boolean }>();
   let sid: string | null = null;
   let next = 0;

@@ -26,7 +26,10 @@ test('edges reach the phone on the catalog clock: 400 ms after the first, no soo
   let listener;
   feed.attach({
     call: async () => ({ data: [] }),
-    on: (l) => ((listener = l), () => undefined),
+    on: (l) => {
+      listener = l;
+      return () => undefined;
+    },
     store: { subscribe: () => () => undefined },
   });
   await feed.list({ call: async () => ({ data: [] }) });
@@ -36,7 +39,8 @@ test('edges reach the phone on the catalog clock: 400 ms after the first, no soo
       notification: { method: 'thread/summary/updated', params: { thread: { id: 's', name } } },
     });
   const moveTo = (at) => {
-    for (let t; (t = timers.filter((x) => x.due <= at).sort((a, b) => a.due - b.due)[0]); ) {
+    const earliest = () => timers.filter((x) => x.due <= at).sort((a, b) => a.due - b.due)[0];
+    for (let t = earliest(); t; t = earliest()) {
       timers.splice(timers.indexOf(t), 1);
       now = t.due;
       t.run();
@@ -65,12 +69,13 @@ async function writtenThrough(wire = (adapter) => adapter) {
       written.push({ method, params, sent: options?.sent });
       return method === 'thread/list' ? { data: [] } : {};
     },
-    resumeThread: async (_threadId, _window, options) => (
-      written.push({ method: 'thread/resume', sent: options?.sent }), {}
-    ),
-    unsubscribeThread: async (_threadId, options) => (
-      written.push({ method: 'thread/unsubscribe', sent: options?.sent }), undefined
-    ),
+    resumeThread: async (_threadId, _window, options) => {
+      written.push({ method: 'thread/resume', sent: options?.sent });
+      return {};
+    },
+    unsubscribeThread: async (_threadId, options) => {
+      written.push({ method: 'thread/unsubscribe', sent: options?.sent });
+    },
     server: { connection: { device: 'Phone' } },
   };
   const made = [];

@@ -178,8 +178,12 @@ function harness({ documentId = 'p1:0', holdClose = false, refuse = null, extra 
     clock,
     route,
     signals: (type) => wire.filter((entry) => entry.signal === type),
-    answerRelay: () => relayGates.splice(0).forEach((gate) => gate.resolve()),
-    releaseClose: () => heldCloses.splice(0).forEach((resolve) => resolve()),
+    answerRelay: () => {
+      for (const gate of relayGates.splice(0)) gate.resolve();
+    },
+    releaseClose: () => {
+      for (const resolve of heldCloses.splice(0)) resolve();
+    },
     dropped: () => dropped,
   };
 }

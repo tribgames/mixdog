@@ -1,8 +1,8 @@
 // The side-view Schedules and Webhooks lists (SchedulesView/WebhooksView):
 // one single-select chip under the search field picks how the list is sorted
-// and grouped, remembered per view. Schedules: 다음 실행 (flat, soonest run
-// first, paused last), 주기 (grouped by cadence), 봇별 (grouped by bot).
-// Webhooks: 최근 이벤트 (flat, latest event first) and 봇별.
+// and grouped, remembered per view. Schedules: Next run (flat, soonest run
+// first, paused last), Cadence (grouped by cadence), By bot (grouped by bot).
+// Webhooks: Latest event (flat, latest event first) and By bot.
 import { useCallback, useState } from 'react';
 import type { RecordValue } from './desktop-types';
 
@@ -48,9 +48,9 @@ const CADENCE_ORDER: readonly Cadence[] = ['hourly', 'daily', 'weekdays', 'weekl
 /** One group of the list; a flat list is one group with an empty key. */
 export interface RoutineGroup {
   key: string;
-  /** The cadence of a 주기 group. */
+  /** The cadence of a Cadence group. */
   cadence?: Cadence;
-  /** The bot of a 봇별 group. */
+  /** The bot of a By bot group. */
   bot?: string;
   rows: RecordValue[];
 }
@@ -123,7 +123,7 @@ function groupByBot(
     .map((bot) => ({ key: `bot:${bot}`, bot, rows: sort(groups.get(bot) || []) }));
 }
 
-/** The schedule list under `sort`; `botOrder` orders the 봇별 groups. */
+/** The schedule list under `sort`; `botOrder` orders the By bot groups. */
 export function scheduleGroups(
   list: readonly RecordValue[],
   sort: ScheduleSort,

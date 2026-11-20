@@ -16,11 +16,20 @@ test('a late subscriber gets the PC list at once, then changes and the clearing'
       store: {
         appFeed: () => ({ id: 'app', epoch: 'e1', seq: 1 }),
         section: (_section, key) => (sections.has(key) ? { value: sections.get(key) } : undefined),
-        subscribe: (listener) => ((fold = listener), () => {}),
+        subscribe: (listener) => {
+          fold = listener;
+          return () => {};
+        },
       },
       on: () => () => {},
     };
-    const detach = browser.install({ ctx, onClient: (wire) => (wire(client), () => {}) });
+    const detach = browser.install({
+      ctx,
+      onClient: (wire) => {
+        wire(client);
+        return () => {};
+      },
+    });
     const update = (key, ids) => {
       sections.set(key, ids);
       fold({ type: 'section', section: 'hostState', key });

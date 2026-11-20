@@ -75,7 +75,8 @@ test('a new host (remoteParity) exposes the new members and retries submits with
       ...handlers,
       submitToSession: (params) => {
         submitted.push(params);
-        return (attempt += 1) === 1 ? Promise.reject(lostReply()) : true;
+        attempt += 1;
+        return attempt === 1 ? Promise.reject(lostReply()) : true;
       },
     },
     async ({ ctx, api, calls }) => {

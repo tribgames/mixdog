@@ -17,7 +17,6 @@ import { copyTextToClipboard } from './text-format';
 import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refresh-scheduler';
 import { describeSourceControlError, SourceControlErrorNotice } from './SourceControlErrorNotice';
 
-// ── Dock Git panel ───────────────────────
 interface GitPanelStatus {
   repository: boolean;
   branch: string;
@@ -123,6 +122,134 @@ export function GitFileDiff({
     </>
   );
 }
+
+type DiffState = string | null | { error: string };
+
+function ReviewNotice({ children }: { children: ReactNode }) {
+  return (
+    <div className="review-pane">
+      <p className="review-empty mx-empty-state">{children}</p>
+    </div>
+  );
+}
+
+function ReviewFileSection({
+  file,
+  open,
+  phone,
+  menuOpen,
+  patch,
+  forced,
+  diffStyle,
+  onForce,
+  onToggle,
+  onMenu,
+}: {
+  file: GitReviewFile;
+  open: boolean;
+  phone: boolean;
+  menuOpen: boolean;
+  /** undefined / null: not read yet; a string is the patch; `{ error }` a failed read. */
+  patch: DiffState | undefined;
+  /** The user chose to render a diff past the size limit. */
+  forced: boolean;
+  diffStyle: 'unified' | 'split';
+  onForce(): void;
+  onToggle(path: string, trigger: HTMLElement): void;
+  onMenu(file: GitReviewFile, x: number, y: number): void;
+}) {
+  const slash = file.path.lastIndexOf('/');
+  const dir = slash >= 0 ? file.path.slice(0, slash + 1) : '';
+  const name = slash >= 0 ? file.path.slice(slash + 1) : file.path;
+  const added = file.untracked || file.status === 'A';
+  const deleted = file.status === 'D';
+  const tooLarge = file.additions + file.deletions > 500 && !forced;
+  let fileBody: ReactNode;
+  if (tooLarge) {
+    fileBody = (
+      <div className="review-large-diff">
+        <b>{t('Large diff')}</b>
+        <span>
+          {t('{{count}} changed lines exceed the 500-line render limit.', {
+            count: (file.additions + file.deletions).toLocaleString(uiFormatLocale()),
+          })}
+        </span>
+        <button type="button" onClick={onForce}>
+          {t('Render anyway')}
+        </button>
+      </div>
+    );
+  } else if (patch === undefined || patch === null) {
+    fileBody = <p className="review-empty mx-empty-state">{t('Loading diff…')}</p>;
+  } else if (typeof patch === 'object') {
+    fileBody = <p className="review-empty mx-empty-state">{patch.error}</p>;
+  } else if (patch) {
+    fileBody = <GitFileDiff patch={patch} mode={diffStyle} />;
+  } else {
+    fileBody = <p className="review-empty mx-empty-state">{t('No textual diff for this file.')}</p>;
+  }
+  return (
+    <section className="review-file" data-open={open || undefined}>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: context-menu shortcut on the header; the trigger button inside carries the keyboard interaction. */}
+      <div
+        className="review-file-header"
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onMenu(file, event.clientX, event.clientY);
+        }}
+      >
+        <button
+          type="button"
+          className="review-file-trigger"
+          aria-expanded={open}
+          onClick={(event) => onToggle(file.path, event.currentTarget)}
+        >
+          <FileDiff size={14} aria-hidden="true" />
+          <span className="review-file-name">
+            {dir && <small>{dir}</small>}
+            <b>{name}</b>
+          </span>
+          <span className="review-file-meta">
+            {added && (
+              <em className="review-change-label" data-type="added">
+                {t('Added')}
+              </em>
+            )}
+            {deleted && (
+              <em className="review-change-label" data-type="removed">
+                {t('Removed')}
+              </em>
+            )}
+            {(file.additions > 0 || file.deletions > 0) && (
+              <span className="diff-stats">
+                {file.additions > 0 && <i>+{file.additions}</i>}
+                {file.deletions > 0 && <em>-{file.deletions}</em>}
+              </span>
+            )}
+          </span>
+          <ChevronDown size={14} className="review-chevron" aria-hidden="true" />
+        </button>
+        {phone && (
+          <button
+            type="button"
+            className="review-file-more"
+            aria-label={t('More actions')}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={(event) => {
+              const box = event.currentTarget.getBoundingClientRect();
+              onMenu(file, box.left, box.bottom);
+            }}
+          >
+            <MoreHorizontal size={16} aria-hidden="true" />
+          </button>
+        )}
+      </div>
+      {open && <div className="review-file-body">{fileBody}</div>}
+    </section>
+  );
+}
+
 export function ReviewPane({ cwd }: { cwd: string | null }) {
   const sessionId = useContext(DownloadSessionContext);
   const [status, setStatus] = useState<GitPanelStatus | null>(null);
@@ -132,7 +259,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
   const [busy, setBusy] = useState(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: cwd is the trigger; switching project clears the stale action error.
   useEffect(() => setActionError(''), [cwd]);
-  // Single-open accordion (user decision): opening a file closes the rest
+  // Single-open accordion: opening a file closes the rest
   // and snaps the opened card flush under the sticky header.
   const [openFile, setOpenFile] = useState('');
   // Right-click context menu: open / reveal / copy
@@ -163,7 +290,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
     setMenu({ x: Math.min(x, window.innerWidth - 208), y: Math.min(y, window.innerHeight - 168), file });
   const [forced, setForced] = useState<string[]>([]);
   // null = loading; a failed read keeps its message apart from patch text.
-  const [diffs, setDiffs] = useState<Record<string, string | null | { error: string }>>({});
+  const [diffs, setDiffs] = useState<Record<string, DiffState>>({});
   // No manual refresh control: Git evidence (file and git-dir events, focus)
   // owns freshness, so cached diffs self-invalidate when a file's stats change.
   const reviewRef = useRef<GitReviewInfo | null>(null);
@@ -254,30 +381,10 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
       setBusy(false);
     }
   };
-  if (!cwd)
-    return (
-      <div className="review-pane">
-        <p className="review-empty mx-empty-state">{t('Select a project to review changes.')}</p>
-      </div>
-    );
-  if (readError)
-    return (
-      <div className="review-pane">
-        <p className="review-empty mx-empty-state">{readError}</p>
-      </div>
-    );
-  if (!status)
-    return (
-      <div className="review-pane">
-        <p className="review-empty mx-empty-state">{t('Loading review…')}</p>
-      </div>
-    );
-  if (!status.repository)
-    return (
-      <div className="review-pane">
-        <p className="review-empty mx-empty-state">{t('Not a git repository.')}</p>
-      </div>
-    );
+  if (!cwd) return <ReviewNotice>{t('Select a project to review changes.')}</ReviewNotice>;
+  if (readError) return <ReviewNotice>{readError}</ReviewNotice>;
+  if (!status) return <ReviewNotice>{t('Loading review…')}</ReviewNotice>;
+  if (!status.repository) return <ReviewNotice>{t('Not a git repository.')}</ReviewNotice>;
   const changed = review?.files ?? [];
   const base = review?.base || 'HEAD';
   const totalAdditions = changed.reduce((sum, file) => sum + (file.additions || 0), 0);
@@ -359,100 +466,21 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
           </div>
         )}
         <div className="review-list">
-          {changed.map((file) => {
-            const open = openFile === file.path;
-            const slash = file.path.lastIndexOf('/');
-            const dir = slash >= 0 ? file.path.slice(0, slash + 1) : '';
-            const name = slash >= 0 ? file.path.slice(slash + 1) : file.path;
-            const added = file.untracked || file.status === 'A';
-            const deleted = file.status === 'D';
-            const tooLarge = file.additions + file.deletions > 500 && !forced.includes(file.path);
-            const patch = diffs[file.path];
-            let fileBody: ReactNode;
-            if (tooLarge) {
-              fileBody = (
-                <div className="review-large-diff">
-                  <b>{t('Large diff')}</b>
-                  <span>
-                    {t('{{count}} changed lines exceed the 500-line render limit.', {
-                      count: (file.additions + file.deletions).toLocaleString(uiFormatLocale()),
-                    })}
-                  </span>
-                  <button type="button" onClick={() => setForced((current) => [...current, file.path])}>
-                    {t('Render anyway')}
-                  </button>
-                </div>
-              );
-            } else if (patch === undefined || patch === null) {
-              fileBody = <p className="review-empty mx-empty-state">{t('Loading diff…')}</p>;
-            } else if (typeof patch === 'object') {
-              fileBody = <p className="review-empty mx-empty-state">{patch.error}</p>;
-            } else if (patch) {
-              fileBody = <GitFileDiff patch={patch} mode={diffStyle} />;
-            } else {
-              fileBody = <p className="review-empty mx-empty-state">{t('No textual diff for this file.')}</p>;
-            }
-            return (
-              <section className="review-file" data-open={open || undefined} key={file.path}>
-                {/* biome-ignore lint/a11y/noStaticElementInteractions: context-menu shortcut on the header; the trigger button inside carries the keyboard interaction. */}
-                <div
-                  className="review-file-header"
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    openMenu(file, event.clientX, event.clientY);
-                  }}
-                >
-                  <button
-                    type="button"
-                    className="review-file-trigger"
-                    aria-expanded={open}
-                    onClick={(event) => toggleFile(file.path, event.currentTarget)}
-                  >
-                    <FileDiff size={14} aria-hidden="true" />
-                    <span className="review-file-name">
-                      {dir && <small>{dir}</small>}
-                      <b>{name}</b>
-                    </span>
-                    <span className="review-file-meta">
-                      {added && (
-                        <em className="review-change-label" data-type="added">
-                          {t('Added')}
-                        </em>
-                      )}
-                      {deleted && (
-                        <em className="review-change-label" data-type="removed">
-                          {t('Removed')}
-                        </em>
-                      )}
-                      {(file.additions > 0 || file.deletions > 0) && (
-                        <span className="diff-stats">
-                          {file.additions > 0 && <i>+{file.additions}</i>}
-                          {file.deletions > 0 && <em>-{file.deletions}</em>}
-                        </span>
-                      )}
-                    </span>
-                    <ChevronDown size={14} className="review-chevron" aria-hidden="true" />
-                  </button>
-                  {phone && (
-                    <button
-                      type="button"
-                      className="review-file-more"
-                      aria-label={t('More actions')}
-                      aria-haspopup="menu"
-                      aria-expanded={menu?.file.path === file.path}
-                      onClick={(event) => {
-                        const box = event.currentTarget.getBoundingClientRect();
-                        openMenu(file, box.left, box.bottom);
-                      }}
-                    >
-                      <MoreHorizontal size={16} aria-hidden="true" />
-                    </button>
-                  )}
-                </div>
-                {open && <div className="review-file-body">{fileBody}</div>}
-              </section>
-            );
-          })}
+          {changed.map((file) => (
+            <ReviewFileSection
+              key={file.path}
+              file={file}
+              open={openFile === file.path}
+              phone={phone}
+              menuOpen={menu?.file.path === file.path}
+              patch={diffs[file.path]}
+              forced={forced.includes(file.path)}
+              diffStyle={diffStyle}
+              onForce={() => setForced((current) => [...current, file.path])}
+              onToggle={toggleFile}
+              onMenu={openMenu}
+            />
+          ))}
         </div>
       </div>
       {menu && (

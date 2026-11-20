@@ -12,6 +12,9 @@ import {
 } from '../shared/core-src/runtime/shared/model-route-chain.mjs';
 import './route-chain-editor.css';
 
+// The shared route helpers are untyped (.mjs): a model option or selection is read as the route record they take.
+const asRoute = (value: DesktopModelOption | DesktopModelSelection) => value as unknown as RecordValue;
+
 export function routeChainComplete(route: RecordValue) {
   return routeChain(route).every((entry) => Boolean(entry.provider && entry.model));
 }
@@ -66,7 +69,7 @@ export function RouteChainEditor({
   };
   const occupied = new Set(rows.filter((entry) => entry.provider && entry.model).map((entry) => routeIdentity(entry)));
   const hasAvailableProvider = models.some(
-    (model) => model.provider !== 'default' && !occupied.has(routeIdentity(model as unknown as RecordValue))
+    (model) => model.provider !== 'default' && !occupied.has(routeIdentity(asRoute(model)))
   );
   const canAdd = routeChainComplete(route) && hasAvailableProvider;
   return (
@@ -150,15 +153,13 @@ export function RouteChainEditor({
               value={entry as unknown as DesktopModelSelection}
               models={models.filter((model) => {
                 const provider = canonicalRouteProvider(model.provider);
-                const identity = routeIdentity(model as unknown as RecordValue);
+                const identity = routeIdentity(asRoute(model));
                 return (
                   (index === 0 || provider !== 'default') &&
                   (!occupied.has(identity) || identity === routeIdentity(entry))
                 );
               })}
-              onChange={(selection) =>
-                save(rows.map((row, at) => (at === index ? (selection as unknown as RecordValue) : row)))
-              }
+              onChange={(selection) => save(rows.map((row, at) => (at === index ? asRoute(selection) : row)))}
             />
             {rows.length > 1 && (
               <button

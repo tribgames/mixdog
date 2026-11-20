@@ -572,7 +572,7 @@ test('media session changes notify subscribers until they unsubscribe', async ()
   assert.equal(seen.length, 2);
 });
 
-// ── Direct media lane, page half (createRemoteTransportMediaClient) ─────────
+// Direct media lane, page half (createRemoteTransportMediaClient).
 
 const MEDIA_SID = 'M'.repeat(43);
 const FRAME = Buffer.from(Array.from({ length: 64 }, (_, i) => i));

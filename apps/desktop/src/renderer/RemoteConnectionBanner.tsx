@@ -15,8 +15,8 @@ import {
 // here is a failure: there is no error state, no cause (no internet, PC
 // offline) and nothing that blocks the screen. Every foreground return costs
 // a short reconnect gap (socket recycle, relay dial, E2EE handshake); that
-// blip gets NO surface at all (user: 백그라운드 갔다오니 디스커넥트 창 / 팝업 뜨지
-// 말고 자동으로 빨리 연결). Only an outage that outlives DISCONNECTED_AFTER_MS
+// blip gets NO surface at all (no disconnect window or popup; it reconnects
+// quietly and fast). Only an outage that outlives DISCONNECTED_AFTER_MS
 // earns one tiny status dot — no text, no card, nothing over the screen. An
 // unstable link must not flicker, so only a connection that holds for
 // RECOVERED_AFTER_MS counts as restored: that alone drops the dot and starts

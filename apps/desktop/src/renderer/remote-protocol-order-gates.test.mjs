@@ -22,11 +22,23 @@ test("a call of one group waits in the connection's queue behind an unfinished c
   const log = [];
   const chat = {
     group: 'chat',
-    calls: { renameSession: async () => (log.push('rename started'), await release.promise, log.push('rename done')) },
+    calls: {
+      renameSession: async () => {
+        log.push('rename started');
+        await release.promise;
+        return log.push('rename done');
+      },
+    },
   };
   const host = {
     ctx: { phone: { start: () => connected.promise, synced: () => synced.promise } },
-    client: () => ({ call: async (method) => (log.push(method), {}), notify() {} }),
+    client: () => ({
+      call: async (method) => {
+        log.push(method);
+        return {};
+      },
+      notify() {},
+    }),
     declareLane() {},
   };
   const router = createProtocolRouter([filesAdapter, terminalAdapter, chat], {

@@ -12,7 +12,10 @@ test('a query holding a lone surrogate is answered by the core echoing it with U
     for (const listener of listeners) listener({ type: 'notification', notification: { method, params } });
   };
   const client = {
-    on: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+    on: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     call: async (method, params) => {
       if (method === 'search/update') {
         // The core's frames as its decoder read the query: the lone unit is U+FFFD.

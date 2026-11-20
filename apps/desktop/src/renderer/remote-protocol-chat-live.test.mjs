@@ -17,8 +17,16 @@ function feedOver(listing) {
   const waiting = [];
   const client = {
     call: async () => ({ data: listing }),
-    on: (l) => (listeners.add(l), () => listeners.delete(l)),
-    store: { subscribe: (l) => (stores.add(l), () => stores.delete(l)) },
+    on: (l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
+    store: {
+      subscribe: (l) => {
+        stores.add(l);
+        return () => stores.delete(l);
+      },
+    },
   };
   // The feed's catalog clock, moved by the test: `refresh()` runs the refresh its edges set.
   const due = [];
@@ -26,21 +34,24 @@ function feedOver(listing) {
     summaries: (rows) => summariesOfThreadRows(rows),
     publish: (rows) => {
       published.push(plain(rows));
-      waiting.splice(0).forEach((resolve) => resolve());
+      for (const resolve of waiting.splice(0)) resolve();
     },
     timers: { now: () => 0, setTimeout: (run) => due.push(run) },
   });
   feed.attach(client);
   return {
     published,
-    refresh: () => due.splice(0).forEach((run) => run()),
+    refresh: () => {
+      for (const run of due.splice(0)) run();
+    },
     async attach() {
       const done = new Promise((resolve) => waiting.push(resolve));
-      stores.forEach((l) => l({ type: 'appSnapshot' }));
+      for (const l of stores) l({ type: 'appSnapshot' });
       await done;
     },
-    edge: ({ method, params }) =>
-      listeners.forEach((l) => l({ type: 'notification', notification: { method, params } })),
+    edge: ({ method, params }) => {
+      for (const l of listeners) l({ type: 'notification', notification: { method, params } });
+    },
   };
 }
 

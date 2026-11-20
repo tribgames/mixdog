@@ -16,7 +16,10 @@ function rig(answers = {}) {
   const noteListeners = new Set();
   const client = {
     status: { state: 'ready' },
-    on: (listener) => (noteListeners.add(listener), () => noteListeners.delete(listener)),
+    on: (listener) => {
+      noteListeners.add(listener);
+      return () => noteListeners.delete(listener);
+    },
     call: async (method, params) => {
       if (params.action !== 'lane') requests.push([method, params]);
       else lanes.push(params.input);
@@ -26,7 +29,10 @@ function rig(answers = {}) {
     store: {
       section: (section, key) =>
         sections.has(`${section}:${key}`) ? { value: sections.get(`${section}:${key}`) } : undefined,
-      subscribe: (listener) => (storeListeners.add(listener), () => storeListeners.delete(listener)),
+      subscribe: (listener) => {
+        storeListeners.add(listener);
+        return () => storeListeners.delete(listener);
+      },
       appLive: () => live,
     },
   };
@@ -41,7 +47,10 @@ function rig(answers = {}) {
     ctx,
     client: () => client,
     declareLane() {},
-    onClient: (listener) => (listener(client), () => undefined),
+    onClient: (listener) => {
+      listener(client);
+      return () => undefined;
+    },
   };
   const set = (value) => {
     sections.set('hostState:visualize', value);
