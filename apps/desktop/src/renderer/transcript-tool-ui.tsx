@@ -51,8 +51,15 @@ import { useClock } from './use-clock';
 import { CodeDiff } from './transcript-diff';
 import { TurnChangesContext } from './TurnChangesCard';
 import { requestSessionDiffFile } from './session-diff-focus';
-import { capPatchLines } from './renderer-logic.mjs';
 import { CopyControl } from './transcript-primitives';
+import {
+  capPresentation,
+  previewOutputLines,
+  toolActivityLooksMarkdown,
+  toolActivityPreviewMode,
+  type ToolActivityPreviewMode,
+  type ToolActivityPresentation,
+} from './transcript-tool-preview';
 import { FullToolOutputButton, useFullToolOutput } from './tool-full-output';
 import { useToolOutputPrefetch } from './tool-output-prefetch';
 import { TranscriptArtifacts } from './transcript-artifacts-ui';
@@ -512,8 +519,6 @@ function ToolActivityDetails({
   );
 }
 
-const TOOL_ACTIVITY_MARKDOWN_HINT = /(?:^|\n)\s{0,3}(?:#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```)|\n\s*\|[^\n]*\|\s*(?:\n|$)/;
-const TOOL_ACTIVITY_MARKDOWN_MAX = 20_000;
 const LazyToolMarkdownBody = lazy(preloadMarkdownBody);
 let loadedToolMarkdownBody: Awaited<ReturnType<typeof preloadMarkdownBody>>['default'] | null = null;
 let toolMarkdownWarm: Promise<void> | null = null;
@@ -543,10 +548,6 @@ function structuredKindLabel(kind: string): string {
   return kind === 'todos' ? TOOL_DETAIL_LABELS.todos : TOOL_DETAIL_LABELS.plan;
 }
 
-function toolActivityLooksMarkdown(text: string): boolean {
-  return text.length <= TOOL_ACTIVITY_MARKDOWN_MAX && TOOL_ACTIVITY_MARKDOWN_HINT.test(text);
-}
-
 export function ToolActivityRichBody({ text, fallbackClassName }: { text: string; fallbackClassName: string }) {
   return (
     <div className="markdown tool-activity-markdown">
@@ -561,13 +562,6 @@ function ToolActivityBody({ text, className }: { text: string; className: string
   if (!toolActivityLooksMarkdown(text)) return <pre className={className}>{text}</pre>;
   return <ToolActivityRichBody text={text} fallbackClassName={className} />;
 }
-
-type ToolActivityPresentation = ReturnType<typeof desktopToolActivityItemPresentation>;
-
-/** What a closed row says about the outcome: nothing, unless it changed
- *  lines (the +/- chips) or went wrong (the failure). Counts and statuses
- *  ("424 lines", "13 matches", "background task") wait inside the row —
- *  on every row they buried the list (user: 열기 전이 너무 디테일). */
 
 /** The closed row already carries this outcome as +/- chips. */
 function rowShowsOutcome(presentation: ToolActivityPresentation): boolean {
@@ -615,6 +609,10 @@ export function toolActivityOutcomeText(presentation: ToolActivityPresentation):
   return [...new Set([outcome, ...rest])].join(' · ');
 }
 
+/** What a closed row says about the outcome: nothing, unless it changed
+ *  lines (the +/- chips) or went wrong (the failure). Counts and statuses
+ *  ("424 lines", "13 matches", "background task") wait inside the row:
+ *  on every row they buried the list. */
 export function ToolRowOutcome({ presentation }: { presentation: ToolActivityPresentation }) {
   // A row that cannot open has nowhere to keep its status and id: they ride
   // here, beside the verb ("실행 · 완료 · 971b88").
@@ -733,108 +731,9 @@ function renderToolActivityHeader({
   );
 }
 
-const PREVIEW_OUTPUT_LINES = 5;
 // Every box a preview may cut short: plates and plain output. A command is
 // always shown whole.
 const PREVIEW_CUT_SELECTOR = '.tool-panel:not([data-kind="command"]) > .tool-panel-body, .tool-activity-item-output';
-
-type ToolActivityPreviewMode = 'lines' | 'height';
-
-/** A preview cuts a command run or plain text output by lines; anything else
- *  (files, code, diffs, rendered answers) by height. */
-function toolActivityPreviewMode(presentation: ToolActivityPresentation): ToolActivityPreviewMode {
-  const plainOutput =
-    !presentation.entries.length &&
-    !presentation.outputLanguage &&
-    (presentation.outputLiteral || !toolActivityLooksMarkdown(presentation.outputText));
-  const onlyText =
-    !presentation.diffPatch &&
-    !presentation.sections.length &&
-    !presentation.structuredRows.length &&
-    !presentation.promptText &&
-    !presentation.beforeText &&
-    !presentation.afterText &&
-    !presentation.targets.length &&
-    (presentation.fieldsInline || !presentation.fields.length);
-  return onlyText && (presentation.command || plainOutput) ? 'lines' : 'height';
-}
-
-/** The first lines of an output and how many it hides. A single hidden line
- *  is shown instead of being counted. */
-function previewOutputLines(text: string): { text: string; hidden: number } {
-  // Scanned, not split: an expanded card re-renders with the whole output, and splitting a large one built an array of
-  // every line each render only to keep the first few.
-  let end = -1;
-  for (let line = 0; line < PREVIEW_OUTPUT_LINES; line++) {
-    end = text.indexOf('\n', end + 1);
-    if (end < 0) return { text, hidden: 0 };
-  }
-  let total = PREVIEW_OUTPUT_LINES + 1;
-  for (let at = text.indexOf('\n', end + 1); at >= 0; at = text.indexOf('\n', at + 1)) total += 1;
-  if (total <= PREVIEW_OUTPUT_LINES + 1) return { text, hidden: 0 };
-  return { text: text.slice(0, end), hidden: total - PREVIEW_OUTPUT_LINES };
-}
-
-// The height clamp shows about six lines (6 × line + 16px); twice that always
-// overfills it, so what is cut here is never visible.
-const PREVIEW_HEIGHT_LINES = 12;
-
-/** The first `max` lines of a text without splitting all of it. */
-function capLines(text: string, max = PREVIEW_HEIGHT_LINES): { text: string; cut: boolean } {
-  let end = -1;
-  for (let line = 0; line < max; line++) {
-    end = text.indexOf('\n', end + 1);
-    if (end < 0) return { text, cut: false };
-  }
-  return { text: text.slice(0, end), cut: true };
-}
-
-/** A height-clamped preview's input, bounded to what the clamp can show. */
-function capPresentation(presentation: ToolActivityPresentation): {
-  view: ToolActivityPresentation;
-  cut: boolean;
-} {
-  let cut = false;
-  const lines = (text: string) => {
-    const capped = capLines(text);
-    cut ||= capped.cut;
-    return capped.text;
-  };
-  const rowsBudget = <T,>(list: readonly T[]) => {
-    cut ||= list.length > PREVIEW_HEIGHT_LINES;
-    return list.slice(0, PREVIEW_HEIGHT_LINES);
-  };
-  let budget = PREVIEW_HEIGHT_LINES;
-  const sections: typeof presentation.sections = [];
-  for (const section of presentation.sections) {
-    if (budget <= 0) {
-      cut = true;
-      break;
-    }
-    const rows = section.rows.slice(0, budget);
-    cut ||= rows.length < section.rows.length;
-    budget -= rows.length;
-    sections.push(rows.length < section.rows.length ? { ...section, rows } : section);
-  }
-  const view = {
-    ...presentation,
-    outputText: lines(presentation.outputText),
-    promptText: lines(presentation.promptText),
-    beforeText: lines(presentation.beforeText),
-    afterText: lines(presentation.afterText),
-    diffPatch: presentation.diffPatch
-      ? (() => {
-          const capped = capPatchLines(presentation.diffPatch, PREVIEW_HEIGHT_LINES);
-          cut ||= capped.cut;
-          return capped.text;
-        })()
-      : presentation.diffPatch,
-    entries: rowsBudget(presentation.entries),
-    structuredRows: rowsBudget(presentation.structuredRows),
-    sections,
-  };
-  return { view, cut };
-}
 
 /** A command run: the command sits in its own framed box, highlighted as
  *  shell, and what it printed follows as plain terminal text below the box. */

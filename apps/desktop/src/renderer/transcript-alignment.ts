@@ -16,7 +16,7 @@ type TextFingerprint = { length: number; hash: number };
 const clippedFingerprints = new WeakMap<object, TextFingerprint>();
 
 /** FNV-1a over the first `end` chars. */
-export function hashText(text: string, end = text.length): number {
+function hashText(text: string, end = text.length): number {
   let hash = 0x811c9dc5;
   for (let index = 0; index < end; index += 1) hash = Math.imul(hash ^ text.charCodeAt(index), 0x01000193) >>> 0;
   return hash;
@@ -161,7 +161,7 @@ const MIN_ANONYMOUS_OVERLAP = 8;
 
 /** Whether an alignment is evidence enough to adopt ids: at least one shared
  *  id, or an overlap covering the shorter side (up to MIN_ANONYMOUS_OVERLAP). */
-export function alignmentAnchored(
+function alignmentAnchored(
   candidate: { overlap: number; idMatches: number },
   previousLength: number,
   incomingLength: number
@@ -177,7 +177,7 @@ type PrependAlignment = { start: number; overlap: number; idMatches: number };
  *  loaded above it) carries `previous` from index `start` > 0. Offsets inside
  *  `previous` belong to findTranscriptAlignment; shared source ids rank
  *  before overlap length in both directions. */
-export function findTranscriptPrependAlignment(
+function findTranscriptPrependAlignment(
   previous: readonly TranscriptItem[],
   incoming: readonly TranscriptItem[],
   floor: { overlap: number; idMatches: number } | null

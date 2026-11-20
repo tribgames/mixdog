@@ -55,7 +55,7 @@ export function useTrendDetail(dependencies: readonly unknown[]) {
     // A capture listener on window sees EVERY scroller in the document, and a
     // transcript pinned to its end scrolls on each streamed token — a session
     // running BEHIND the popup kept closing this card while the pointer still
-    // sat on the bar (user: 바 위에 호버를 했는데 왜 팝업이 자동으로 사라지냐).
+    // sat on the bar.
     // Only a scroller that CARRIES the chart moves the anchor the card is
     // placed against, so nothing else may dismiss it; the card scrolls inside
     // the host and is excluded by the same containment test.
@@ -99,8 +99,8 @@ export function useTrendDetail(dependencies: readonly unknown[]) {
       ...popover.hostProps,
       // Only a bucket opens the card. Crossing the chart's frame on the way
       // in or out used to reopen the last bucket's card, so a stale date
-      // flashed whenever the pointer left the plot (user: 호버 영역 벗어나면
-      // 바로 날짜가 잠시 뜨네); entering the frame now only keeps an open card.
+      // flashed whenever the pointer left the plot; entering the frame now
+      // only keeps an open card.
       onMouseEnter: () => {
         if (popover.open) popover.hostProps.onMouseEnter();
       },

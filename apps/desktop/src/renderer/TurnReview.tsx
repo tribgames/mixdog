@@ -59,7 +59,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   });
   const authoritativeCheckpointId = reviewState.checkpointId;
   // The bar's own persisted Unified/Split choice, separate from the Source
-  // Control and Session Diff tabs (user: 3개 분리 저장).
+  // Control and Session Diff tabs.
   const [diffStyle, setDiffStyle] = useState<'unified' | 'split'>(() => readDiffStyle(TURN_REVIEW_DIFF_STYLE_KEY));
   useEffect(() => {
     writeDiffStyle(TURN_REVIEW_DIFF_STYLE_KEY, diffStyle);

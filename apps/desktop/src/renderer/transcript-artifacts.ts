@@ -101,15 +101,15 @@ export function transcriptArtifacts(items: readonly TranscriptItem[]): Transcrip
         const kind =
           result.kind === 'video' || args?.kind === 'video' || /\.(mp4|webm|mov)$/i.test(path) ? 'video' : 'image';
         const key = `media:${result.assetId}`;
+        const aspect = requestedAspect(args?.aspect);
         artifacts.set(key, {
           key,
           kind,
           assetId: result.assetId,
           path,
           name: path.split(/[\\/]/).pop() || result.assetId,
+          ...(aspect ? { aspect } : {}),
         });
-        const aspect = requestedAspect(args?.aspect);
-        if (aspect) artifacts.get(key)!.aspect = aspect;
       }
       if (category !== 'Office') continue;
       const outputs = Array.isArray(result.artifacts) ? result.artifacts : [];

@@ -13,7 +13,7 @@ export function rowIsStreaming(element: Element | undefined): boolean {
 /** A streaming reply reflows shorter for a moment (a table or list re-laying
  *  out mid-stream) and grows back a few chunks later. While the tail is
  *  followed, applying that dip pulled the whole transcript DOWN and then up
- *  again (user: 생성 중 위아래로 튄다). Such a row keeps its tallest MEASURED
+ *  again while a reply generated. Such a row keeps its tallest MEASURED
  *  slot; its latest real size is recorded and lands once the row stops
  *  streaming, the reader takes over, or the measurements are remembered.
  *

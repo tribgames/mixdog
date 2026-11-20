@@ -7,48 +7,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
-import { createRoot } from 'react-dom/client';
-import { JSDOM } from 'jsdom';
 
+import { installTestDom } from './test-support/test-dom.mjs';
 import { appendLiveTranscriptRows, projectSettledTranscriptRows } from './transcript-rows.ts';
 import { ToolActivityGroup } from './TranscriptView.tsx';
 
 function installDom() {
-  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
-    url: 'http://localhost/',
+  const { root, restore } = installTestDom(null, {
+    jsdom: { url: 'http://localhost/' },
+    expose: ['navigator'],
+    rootId: 'root',
   });
-  dom.window.Element.prototype.getAnimations = () => [];
-  dom.window.Document.prototype.getAnimations = () => [];
-  const previous = new Map(
-    [
-      'window',
-      'document',
-      'navigator',
-      'IS_REACT_ACT_ENVIRONMENT',
-      'requestAnimationFrame',
-      'cancelAnimationFrame',
-    ].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
-  );
-  Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
-  Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
-  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator });
-  Object.defineProperty(globalThis, 'requestAnimationFrame', {
-    configurable: true,
-    writable: true,
-    value: (callback) => setTimeout(() => callback(0), 0),
-  });
-  Object.defineProperty(globalThis, 'cancelAnimationFrame', { configurable: true, value: (id) => clearTimeout(id) });
-  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  return {
-    root: createRoot(dom.window.document.getElementById('root')),
-    close() {
-      dom.window.close();
-      for (const [key, descriptor] of previous) {
-        if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-        else delete globalThis[key];
-      }
-    },
-  };
+  return { root, close: restore };
 }
 
 // The render clock the readout test pins (`Date.now()` is what the group reads),
