@@ -672,14 +672,10 @@
       ],
       "requires": [
         {
-          "anyOf": [
-            "linux/root-fast/1of1#root"
-          ]
+          "anyOf": ["linux/root-fast/1of1#root"]
         },
         {
-          "anyOf": [
-            "macos/root-fast/1of1"
-          ]
+          "anyOf": ["macos/root-fast/1of1"]
         }
       ]
     },
@@ -687,14 +683,10 @@
       "name": "office-page",
       "family": "node",
       "owner": "release-engineering",
-      "include": [
-        "native/core/crates/mixdog-office-author/assets/page/*.test.mjs"
-      ],
+      "include": ["native/core/crates/mixdog-office-author/assets/page/*.test.mjs"],
       "requires": [
         {
-          "anyOf": [
-            "linux/root-fast/1of1#office-page"
-          ]
+          "anyOf": ["linux/root-fast/1of1#office-page"]
         }
       ]
     },
@@ -712,14 +704,10 @@
         "packages/**/*.slow.test.mjs",
         "benchmarks/terminal-bench-2.1/analysis/**/*.slow.test.mjs"
       ],
-      "exclude": [
-        "scripts/rust-core/**"
-      ],
+      "exclude": ["scripts/rust-core/**"],
       "requires": [
         {
-          "anyOf": [
-            "linux/root-slow/1of1"
-          ]
+          "anyOf": ["linux/root-slow/1of1"]
         }
       ]
     },
@@ -758,11 +746,7 @@
       ],
       "requires": [
         {
-          "anyOf": [
-            "linux/desktop-fast/1of3",
-            "linux/desktop-fast/2of3",
-            "linux/desktop-fast/3of3"
-          ]
+          "anyOf": ["linux/desktop-fast/1of3", "linux/desktop-fast/2of3", "linux/desktop-fast/3of3"]
         }
       ]
     },
@@ -770,9 +754,7 @@
       "name": "desktop-computer-fast",
       "family": "node",
       "owner": "release-engineering",
-      "include": [
-        "apps/desktop/src/main/computer/**/*.test.mjs"
-      ],
+      "include": ["apps/desktop/src/main/computer/**/*.test.mjs"],
       "exclude": [
         "apps/desktop/src/main/computer/**/*.slow.test.mjs",
         "apps/desktop/src/main/computer/**/*.live.test.mjs",
@@ -780,9 +762,7 @@
       ],
       "requires": [
         {
-          "anyOf": [
-            "windows/desktop-computer/1of1#computer-fast"
-          ]
+          "anyOf": ["windows/desktop-computer/1of1#computer-fast"]
         }
       ]
     },
@@ -799,9 +779,7 @@
       ],
       "requires": [
         {
-          "anyOf": [
-            "linux/desktop-slow/1of1#root"
-          ]
+          "anyOf": ["linux/desktop-slow/1of1#root"]
         }
       ]
     },
@@ -809,14 +787,10 @@
       "name": "desktop-computer-slow",
       "family": "node",
       "owner": "release-engineering",
-      "include": [
-        "apps/desktop/src/main/computer/**/*.slow.test.mjs"
-      ],
+      "include": ["apps/desktop/src/main/computer/**/*.slow.test.mjs"],
       "requires": [
         {
-          "anyOf": [
-            "windows/desktop-computer/1of1#computer-slow"
-          ]
+          "anyOf": ["windows/desktop-computer/1of1#computer-slow"]
         }
       ]
     },
@@ -824,14 +798,10 @@
       "name": "desktop-computer-compact-chrome",
       "family": "node",
       "owner": "release-engineering",
-      "include": [
-        "apps/desktop/src/renderer/compact-chrome-layout.slow.test.mjs"
-      ],
+      "include": ["apps/desktop/src/renderer/compact-chrome-layout.slow.test.mjs"],
       "requires": [
         {
-          "anyOf": [
-            "windows/desktop-computer/1of1#computer-compact-chrome"
-          ]
+          "anyOf": ["windows/desktop-computer/1of1#computer-compact-chrome"]
         }
       ]
     },
@@ -845,9 +815,7 @@
       ],
       "requires": [
         {
-          "anyOf": [
-            "windows/desktop-computer/1of1#computer-live-activity"
-          ]
+          "anyOf": ["windows/desktop-computer/1of1#computer-live-activity"]
         }
       ]
     },
@@ -864,9 +832,7 @@
       ],
       "requires": [
         {
-          "anyOf": [
-            "windows/desktop-computer/1of1#computer-electron"
-          ]
+          "anyOf": ["windows/desktop-computer/1of1#computer-electron"]
         }
       ]
     },
@@ -893,9 +859,7 @@
       ],
       "requires": [
         {
-          "anyOf": [
-            "linux/relay/1of1#root"
-          ]
+          "anyOf": ["linux/relay/1of1#root"]
         }
       ]
     },
@@ -903,14 +867,10 @@
       "name": "relay-release-transaction",
       "family": "shell",
       "owner": "release-engineering",
-      "include": [
-        "apps/relay/deploy/*.test.sh"
-      ],
+      "include": ["apps/relay/deploy/*.test.sh"],
       "requires": [
         {
-          "anyOf": [
-            "linux/relay/1of1#release-transaction"
-          ]
+          "anyOf": ["linux/relay/1of1#release-transaction"]
         }
       ]
     },
@@ -918,17 +878,11 @@
       "name": "mobile-unit",
       "family": "node",
       "owner": "release-engineering",
-      "include": [
-        "apps/mobile/src/**/*.test.ts"
-      ],
-      "exclude": [
-        "apps/mobile/src/**/*.slow.test.ts"
-      ],
+      "include": ["apps/mobile/src/**/*.test.ts"],
+      "exclude": ["apps/mobile/src/**/*.slow.test.ts"],
       "requires": [
         {
-          "anyOf": [
-            "linux/mobile/1of1#unit"
-          ]
+          "anyOf": ["linux/mobile/1of1#unit"]
         }
       ]
     },
@@ -936,14 +890,10 @@
       "name": "mobile-e2e",
       "family": "node",
       "owner": "release-engineering",
-      "include": [
-        "apps/mobile/src/**/*.slow.test.ts"
-      ],
+      "include": ["apps/mobile/src/**/*.slow.test.ts"],
       "requires": [
         {
-          "anyOf": [
-            "linux/mobile/1of1#e2e"
-          ]
+          "anyOf": ["linux/mobile/1of1#e2e"]
         }
       ]
     },
@@ -963,14 +913,10 @@
       ],
       "requires": [
         {
-          "anyOf": [
-            "linux/packages/1of1"
-          ]
+          "anyOf": ["linux/packages/1of1"]
         },
         {
-          "anyOf": [
-            "macos/root-fast/1of1"
-          ]
+          "anyOf": ["macos/root-fast/1of1"]
         }
       ]
     },
@@ -985,19 +931,13 @@
       ],
       "requires": [
         {
-          "anyOf": [
-            "linux/core-real/1of1#process-tree"
-          ]
+          "anyOf": ["linux/core-real/1of1#process-tree"]
         },
         {
-          "anyOf": [
-            "macos/core-real/1of1#process-tree"
-          ]
+          "anyOf": ["macos/core-real/1of1#process-tree"]
         },
         {
-          "anyOf": [
-            "windows/core-real/1of1#process-tree"
-          ]
+          "anyOf": ["windows/core-real/1of1#process-tree"]
         }
       ]
     },
@@ -1005,19 +945,13 @@
       "name": "core-real-measure-exec",
       "family": "node",
       "owner": "release-engineering",
-      "include": [
-        "benchmarks/token-lang/measure-exec.test.mjs"
-      ],
+      "include": ["benchmarks/token-lang/measure-exec.test.mjs"],
       "requires": [
         {
-          "anyOf": [
-            "linux/core-real/1of1#process-tree"
-          ]
+          "anyOf": ["linux/core-real/1of1#process-tree"]
         },
         {
-          "anyOf": [
-            "macos/core-real/1of1#process-tree"
-          ]
+          "anyOf": ["macos/core-real/1of1#process-tree"]
         }
       ]
     },
@@ -1031,19 +965,13 @@
       ],
       "requires": [
         {
-          "anyOf": [
-            "linux/core-real/1of1#harness"
-          ]
+          "anyOf": ["linux/core-real/1of1#harness"]
         },
         {
-          "anyOf": [
-            "macos/core-real/1of1#harness"
-          ]
+          "anyOf": ["macos/core-real/1of1#harness"]
         },
         {
-          "anyOf": [
-            "windows/core-real/1of1#harness"
-          ]
+          "anyOf": ["windows/core-real/1of1#harness"]
         }
       ]
     },
@@ -1051,20 +979,13 @@
       "name": "core-real-session",
       "family": "node",
       "owner": "release-engineering",
-      "include": [
-        "scripts/rust-core/core-session.test.mjs",
-        "scripts/rust-core/smoke-mixdogd.test.mjs"
-      ],
+      "include": ["scripts/rust-core/core-session.test.mjs", "scripts/rust-core/smoke-mixdogd.test.mjs"],
       "requires": [
         {
-          "anyOf": [
-            "linux/core-real/1of1#core-session"
-          ]
+          "anyOf": ["linux/core-real/1of1#core-session"]
         },
         {
-          "anyOf": [
-            "macos/core-real/1of1#core-session"
-          ]
+          "anyOf": ["macos/core-real/1of1#core-session"]
         }
       ]
     },
@@ -1072,14 +993,10 @@
       "name": "mobile-scripts",
       "family": "python",
       "owner": "release-engineering",
-      "include": [
-        "apps/mobile/scripts/test_*.py"
-      ],
+      "include": ["apps/mobile/scripts/test_*.py"],
       "requires": [
         {
-          "anyOf": [
-            "linux/mobile-scripts/1of1#root"
-          ]
+          "anyOf": ["linux/mobile-scripts/1of1#root"]
         }
       ]
     },
@@ -1087,15 +1004,10 @@
       "name": "windows-only",
       "family": "node",
       "owner": "release-engineering",
-      "include": [
-        "apps/desktop/scripts/direct-e2e-isolation.test.mjs",
-        "apps/desktop/src/main/secret-file.test.mjs"
-      ],
+      "include": ["apps/desktop/scripts/direct-e2e-isolation.test.mjs", "apps/desktop/src/main/secret-file.test.mjs"],
       "requires": [
         {
-          "anyOf": [
-            "windows/desktop-computer/1of1#windows-only"
-          ]
+          "anyOf": ["windows/desktop-computer/1of1#windows-only"]
         }
       ]
     },
@@ -1103,14 +1015,10 @@
       "name": "windows-only-slow",
       "family": "node",
       "owner": "release-engineering",
-      "include": [
-        "apps/desktop/src/main/crash-handler-watch.slow.test.mjs"
-      ],
+      "include": ["apps/desktop/src/main/crash-handler-watch.slow.test.mjs"],
       "requires": [
         {
-          "anyOf": [
-            "windows/desktop-computer/1of1#windows-only-slow"
-          ]
+          "anyOf": ["windows/desktop-computer/1of1#windows-only-slow"]
         }
       ]
     },
@@ -1118,14 +1026,10 @@
       "name": "windows-only-root",
       "family": "node",
       "owner": "release-engineering",
-      "include": [
-        "src/runtime/shared/file-permissions.test.mjs"
-      ],
+      "include": ["src/runtime/shared/file-permissions.test.mjs"],
       "requires": [
         {
-          "anyOf": [
-            "windows/desktop-computer/1of1#windows-only-root"
-          ]
+          "anyOf": ["windows/desktop-computer/1of1#windows-only-root"]
         }
       ]
     },
@@ -1141,9 +1045,7 @@
       ],
       "requires": [
         {
-          "anyOf": [
-            "linux/mobile-scripts/1of1#benchmark-harness"
-          ]
+          "anyOf": ["linux/mobile-scripts/1of1#benchmark-harness"]
         }
       ]
     }
@@ -1339,15 +1241,9 @@
           "linux/core-tests/4of4#ci"
         ],
         "profileLegs": {
-          "pg": [
-            "linux/core-pg/pg"
-          ],
-          "services-pg": [
-            "linux/core-pg/services-pg"
-          ],
-          "entry": [
-            "linux/core-tests/1of4#entry"
-          ]
+          "pg": ["linux/core-pg/pg"],
+          "services-pg": ["linux/core-pg/services-pg"],
+          "entry": ["linux/core-tests/1of4#entry"]
         }
       },
       {
@@ -1361,12 +1257,8 @@
           "macos/core-tests/4of4#ci"
         ],
         "profileLegs": {
-          "pg": [
-            "macos/core-pg/pg"
-          ],
-          "services-pg": [
-            "macos/core-pg/services-pg"
-          ]
+          "pg": ["macos/core-pg/pg"],
+          "services-pg": ["macos/core-pg/services-pg"]
         }
       },
       {
@@ -1387,19 +1279,13 @@
         "manifestDir": "native/mixdog-computer",
         "requires": [
           {
-            "anyOf": [
-              "linux/computer/1of1"
-            ]
+            "anyOf": ["linux/computer/1of1"]
           },
           {
-            "anyOf": [
-              "macos/computer/1of1"
-            ]
+            "anyOf": ["macos/computer/1of1"]
           },
           {
-            "anyOf": [
-              "windows/computer/1of1"
-            ]
+            "anyOf": ["windows/computer/1of1"]
           }
         ]
       },
@@ -1407,19 +1293,13 @@
         "manifestDir": "native/mixdog-spawn",
         "requires": [
           {
-            "anyOf": [
-              "linux/spawn/1of1"
-            ]
+            "anyOf": ["linux/spawn/1of1"]
           },
           {
-            "anyOf": [
-              "macos/spawn/1of1"
-            ]
+            "anyOf": ["macos/spawn/1of1"]
           },
           {
-            "anyOf": [
-              "windows/spawn/1of1"
-            ]
+            "anyOf": ["windows/spawn/1of1"]
           }
         ]
       },
@@ -1427,9 +1307,7 @@
         "manifestDir": "native/mixdog-patch",
         "requires": [
           {
-            "anyOf": [
-              "linux/patch/1of1"
-            ]
+            "anyOf": ["linux/patch/1of1"]
           }
         ]
       },
@@ -1437,9 +1315,7 @@
         "manifestDir": "native/mixdog-graph",
         "requires": [
           {
-            "anyOf": [
-              "linux/graph/1of1"
-            ]
+            "anyOf": ["linux/graph/1of1"]
           }
         ]
       },
@@ -1447,9 +1323,7 @@
         "manifestDir": "native/mixdog-browser-import",
         "requires": [
           {
-            "anyOf": [
-              "windows/browser-import/1of1"
-            ]
+            "anyOf": ["windows/browser-import/1of1"]
           }
         ]
       },
@@ -1457,9 +1331,7 @@
         "manifestDir": "native/mixdog-secure-desktop",
         "requires": [
           {
-            "anyOf": [
-              "windows/secure-desktop/1of1"
-            ]
+            "anyOf": ["windows/secure-desktop/1of1"]
           }
         ]
       },
@@ -1467,9 +1339,7 @@
         "manifestDir": "native/mixdog-window",
         "requires": [
           {
-            "anyOf": [
-              "windows/window/1of1"
-            ]
+            "anyOf": ["windows/window/1of1"]
           }
         ]
       },
@@ -1477,19 +1347,13 @@
         "manifestDir": "scripts/rust-core/tree-helper",
         "requires": [
           {
-            "anyOf": [
-              "linux/core-real/1of1#tree-helper-unit"
-            ]
+            "anyOf": ["linux/core-real/1of1#tree-helper-unit"]
           },
           {
-            "anyOf": [
-              "macos/core-real/1of1#tree-helper-unit"
-            ]
+            "anyOf": ["macos/core-real/1of1#tree-helper-unit"]
           },
           {
-            "anyOf": [
-              "windows/core-real/1of1#tree-helper-unit"
-            ]
+            "anyOf": ["windows/core-real/1of1#tree-helper-unit"]
           }
         ]
       }
@@ -1499,9 +1363,7 @@
         "manifestDir": "native/core/crates/mixdog-core-api",
         "requires": [
           {
-            "anyOf": [
-              "linux/core-tests/1of4#doc"
-            ]
+            "anyOf": ["linux/core-tests/1of4#doc"]
           }
         ]
       },
@@ -1509,9 +1371,7 @@
         "manifestDir": "native/core/crates/mixdog-image-egress",
         "requires": [
           {
-            "anyOf": [
-              "linux/core-tests/1of4#doc-image-egress"
-            ]
+            "anyOf": ["linux/core-tests/1of4#doc-image-egress"]
           }
         ]
       }
@@ -1528,15 +1388,8 @@
     "linux-native-tools.yml",
     "release.yml"
   ],
-  "dynamicMatrixJobs": [
-    "runtime",
-    "core-build",
-    "core-tests",
-    "core-pg"
-  ],
-  "gateCallIfAllowed": [
-    "deploy.yml#coverage-gate"
-  ],
+  "dynamicMatrixJobs": ["runtime", "core-build", "core-tests", "core-pg"],
+  "gateCallIfAllowed": ["deploy.yml#coverage-gate"],
   "sinks": [
     {
       "workflow": "release.yml",
@@ -1553,11 +1406,7 @@
       "gate": "coverage-gate",
       "owner": "release-engineering",
       "directGate": "coverage-gate",
-      "requiredNeeds": [
-        "coverage-gate",
-        "push-release-refs",
-        "prepared-runtime-join"
-      ]
+      "requiredNeeds": ["coverage-gate", "push-release-refs", "prepared-runtime-join"]
     },
     {
       "workflow": "release.yml",
@@ -1565,10 +1414,7 @@
       "kind": "public-release",
       "gate": "coverage-gate",
       "owner": "release-engineering",
-      "requiredNeeds": [
-        "coverage-gate",
-        "push-release-refs"
-      ],
+      "requiredNeeds": ["coverage-gate", "push-release-refs"],
       "if": "${{ inputs.mobile_version != '' }}"
     },
     {
@@ -1693,9 +1539,7 @@
     "verdictJobs": {
       "release-gate.yml#inventory": {
         "if": "needs.changes.outputs.full == 'true'",
-        "diagnostics": [
-          "Upload the inventory report"
-        ],
+        "diagnostics": ["Upload the inventory report"],
         "commands": [
           "node scripts/ci/coverage/cli.mjs inventory --root . --sha \"$EXPECTED_SHA\" --out \"$RUNNER_TEMP/coverage/manifest.json\" --report \"$RUNNER_TEMP/coverage/errors.json\""
         ],
@@ -1728,9 +1572,7 @@
       "release.yml": "ref"
     },
     "entryResolvers": {
-      "deploy.yml": [
-        "plan"
-      ]
+      "deploy.yml": ["plan"]
     },
     "pinnedJobs": {
       "deploy.yml#native-commit": "b88e509145b1dc4131dced14b7941b7b88d0541d89bbea8ed75ef79925be31ed",
@@ -1748,9 +1590,7 @@
         "apps/desktop/scripts/computer-native-package.test.mjs",
         "a prepared Windows runtime ships the helper for its architecture, which answers --version"
       ],
-      "gates": [
-        "release"
-      ],
+      "gates": ["release"],
       "reason": "tests the release package: it needs the prepared Windows runtime (npm run prepare:runtime) that only the release workflow's desktop package builds; the gates of deploy and the mirror build no package, so the case is not theirs, and the release gate checks its evidence at prepared-runtime-join",
       "owner": "release-engineering"
     }

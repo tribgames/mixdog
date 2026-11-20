@@ -60,7 +60,9 @@ test('the hovered archive button sits at one position on plain, working and unre
           id,
           archiveRight: rowBox.right - archive.right,
           archiveCenterInset: rowBox.right - (archive.left + archive.right) / 2,
-          titleGap: favorite.left - (copy.getBoundingClientRect().right - Number.parseFloat(getComputedStyle(copy).paddingRight)),
+          titleGap:
+            favorite.left -
+            (copy.getBoundingClientRect().right - Number.parseFloat(getComputedStyle(copy).paddingRight)),
           copyPadding: getComputedStyle(copy).paddingRight,
           trailingOpacity: trailing ? getComputedStyle(trailing).opacity : null,
         };

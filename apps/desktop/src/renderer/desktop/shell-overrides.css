@@ -295,7 +295,12 @@ html[data-mixdog-mobile-tabs]
    that hangs past the face. Growing the face made every settings action read
    one size larger than the PC. */
 html[data-mixdog-mobile-tabs]
-:is(.settings-action, .settings-form-controls button, .settings-provider-secret button, .provider-account-add-button) {
+  :is(
+    .settings-action,
+    .settings-form-controls button,
+    .settings-provider-secret button,
+    .provider-account-add-button
+  ) {
   position: relative;
 }
 html[data-mixdog-mobile-tabs]

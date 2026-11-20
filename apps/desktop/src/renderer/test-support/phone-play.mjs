@@ -42,16 +42,27 @@ export async function play(world, driver, ops) {
       offline: slice.some((e) => e.ev === 'state' && e.desktop === 'offline'),
       // One log in the order things happened: a ping and a request at the same virtual time keep the order they occurred in.
       log: slice
-        .filter((e) => e.ev === 'ping' || e.ev === 'close' || e.ev === 'socket' || e.ev === 'resync' || (e.ev === 'xcontrol' && e.kind !== 'ack') || (traceReads && (e.ev === 'request' || e.ev === 'settled')))
+        .filter(
+          (e) =>
+            e.ev === 'ping' ||
+            e.ev === 'close' ||
+            e.ev === 'socket' ||
+            e.ev === 'resync' ||
+            (e.ev === 'xcontrol' && e.kind !== 'ack') ||
+            (traceReads && (e.ev === 'request' || e.ev === 'settled'))
+        )
         .map((e) => {
           if (e.ev === 'request') return `request:${e.name}@${e.at - since}`;
-          if (e.ev === 'settled') return `settled:${e.as}:${e.ok ? `ok=${JSON.stringify(e.value)}` : `err(${e.code})`}@${e.at - since}`;
+          if (e.ev === 'settled')
+            return `settled:${e.as}:${e.ok ? `ok=${JSON.stringify(e.value)}` : `err(${e.code})`}@${e.at - since}`;
           return `${e.ev === 'xcontrol' ? `x:${e.kind}` : e.ev}${e.ev === 'close' ? `(${e.code},${e.reason})` : ''}@${e.at - since}`;
         }),
       pairingInvalid: slice.filter((e) => e.ev === 'pairing-invalid').map((e) => e.message),
       reconnected: slice.filter((e) => e.ev === 'reconnected').length,
       // The order of the two notices a page acts on when a connection is whole again: the indicator saying connected, and the reconnected event.
-      notices: slice.filter((e) => (e.ev === 'state' && e.state === 'connected') || e.ev === 'reconnected').map((e) => (e.ev === 'reconnected' ? 'reconnected' : 'connected')),
+      notices: slice
+        .filter((e) => (e.ev === 'state' && e.state === 'connected') || e.ev === 'reconnected')
+        .map((e) => (e.ev === 'reconnected' ? 'reconnected' : 'connected')),
       calls: calls.splice(0),
       core: world.core() ? effectiveCore(world.core()) : null,
       ...extra,
@@ -69,12 +80,19 @@ export async function play(world, driver, ops) {
         await driver.boot(world, op);
         break;
       case 'accept':
-        await world.waitFor((e, i) => e.ev === 'socket' && world.sockets[e.n - 1] && !world.accepted(world.sockets[e.n - 1]));
+        await world.waitFor(
+          (e, i) => e.ev === 'socket' && world.sockets[e.n - 1] && !world.accepted(world.sockets[e.n - 1])
+        );
         lastSocket = await world.accept(op.flags);
         awaitingConnected = true;
         break;
       case 'check': {
-        await world.until(() => world.core() !== null && deepMatch(effectiveCore(world.core()), op.expect) && (!awaitingConnected || world.events.slice(cursor).some((e) => e.ev === 'state' && e.state === 'connected')));
+        await world.until(
+          () =>
+            world.core() !== null &&
+            deepMatch(effectiveCore(world.core()), op.expect) &&
+            (!awaitingConnected || world.events.slice(cursor).some((e) => e.ev === 'state' && e.state === 'connected'))
+        );
         awaitingConnected = false;
         // What the product does in answer to the last thing it saw (its reply landing, the indicator following) happens before the checkpoint.
         await world.advance(0);
@@ -148,16 +166,22 @@ export async function play(world, driver, ops) {
         break;
       }
       case 'read':
-        driver.api()[op.name]().then(
-          (value) => world.log({ ev: 'settled', as: op.as, ok: true, value }),
-          (error) => world.log({ ev: 'settled', as: op.as, ok: false, code: error?.code })
-        );
+        driver
+          .api()
+          [op.name]()
+          .then(
+            (value) => world.log({ ev: 'settled', as: op.as, ok: true, value }),
+            (error) => world.log({ ev: 'settled', as: op.as, ok: false, code: error?.code })
+          );
         break;
       case 'oversize':
-        driver.api().deleteSession('x'.repeat(PAYLOAD_CEILING_CHARS + 1)).then(
-          (value) => world.log({ ev: 'settled', as: op.as, ok: true, value }),
-          (error) => world.log({ ev: 'settled', as: op.as, ok: false, code: error?.code })
-        );
+        driver
+          .api()
+          .deleteSession('x'.repeat(PAYLOAD_CEILING_CHARS + 1))
+          .then(
+            (value) => world.log({ ev: 'settled', as: op.as, ok: true, value }),
+            (error) => world.log({ ev: 'settled', as: op.as, ok: false, code: error?.code })
+          );
         await world.advance(0);
         break;
       case 'unhold':
@@ -183,19 +207,28 @@ export async function play(world, driver, ops) {
         world.window.dispatchEvent(new CustomEvent(driver.visualizePanelsEvent, { detail: op.ids }));
         break;
       case 'visible':
-        driver.api().setVisibleSessions(op.ids).then(
-          (value) => world.log({ ev: 'settled', as: op.as ?? 'visible', ok: true, value }),
-          (error) => world.log({ ev: 'settled', as: op.as ?? 'visible', ok: false, code: error?.code })
-        );
+        driver
+          .api()
+          .setVisibleSessions(op.ids)
+          .then(
+            (value) => world.log({ ev: 'settled', as: op.as ?? 'visible', ok: true, value }),
+            (error) => world.log({ ev: 'settled', as: op.as ?? 'visible', ok: false, code: error?.code })
+          );
         break;
       case 'lane':
         driver.api().subscribeTermData(() => {});
         break;
       case 'call':
-        driver.api().deleteSession('s1').then(
-          () => calls.push('resolved'),
-          (error) => calls.push(error?.code === 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED' ? 'interrupted' : `error: ${error?.message}`)
-        );
+        driver
+          .api()
+          .deleteSession('s1')
+          .then(
+            () => calls.push('resolved'),
+            (error) =>
+              calls.push(
+                error?.code === 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED' ? 'interrupted' : `error: ${error?.message}`
+              )
+          );
         await world.advance(0);
         break;
       case 'offline-redials': {

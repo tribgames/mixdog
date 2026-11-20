@@ -49,7 +49,10 @@ async function boot(t, replyAt, reply = failed) {
   );
   if (replyAt === 'after-open') sendReply();
   await log.flush();
-  return readFileSync(join(dir, 'd.jsonl'), 'utf8').split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  return readFileSync(join(dir, 'd.jsonl'), 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
 }
 
 for (const replyAt of ['before-open', 'after-open']) {

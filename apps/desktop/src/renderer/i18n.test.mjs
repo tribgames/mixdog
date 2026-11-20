@@ -156,7 +156,10 @@ test('every developer option string the core declares is translated in every sup
   const STRING = /^"((?:[^"\\]|\\.)*)"$/;
   // The strings of `const NAME: &str = "...";`, so a field may name one.
   const constants = Object.fromEntries(
-    [...source.matchAll(/^const (\w+): &str =\s*("(?:[^"\\]|\\.)*");/gm)].map((match) => [match[1], STRING.exec(match[2])[1]])
+    [...source.matchAll(/^const (\w+): &str =\s*("(?:[^"\\]|\\.)*");/gm)].map((match) => [
+      match[1],
+      STRING.exec(match[2])[1],
+    ])
   );
   /** Splits `text` at its top-level commas (outside strings and brackets). */
   const split = (text) => {

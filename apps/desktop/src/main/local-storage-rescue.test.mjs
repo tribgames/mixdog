@@ -15,7 +15,10 @@ function rescue() {
   });
   return { seen, rescue: made };
 }
-const VALUES = [['layout', '{"a":1}'], ['draft', '안녕']];
+const VALUES = [
+  ['layout', '{"a":1}'],
+  ['draft', '안녕'],
+];
 
 test('a_lost_page_ends_its_process_and_its_values_are_given_until_a_page_made_them_its_storage', () => {
   const { seen, rescue: made } = rescue();
@@ -36,7 +39,10 @@ test('a_later_loss_is_the_rescue_from_then_on_holding_what_that_page_reported', 
   made.lost(VALUES);
   made.restored();
   // The replacement lost its link in turn; its report is the whole of what it held, a deleted key left out.
-  const later = [['layout', '{"a":2}'], ['new', 'x']];
+  const later = [
+    ['layout', '{"a":2}'],
+    ['new', 'x'],
+  ];
   made.lost(later);
   assert.deepEqual(made.take(), later);
 });

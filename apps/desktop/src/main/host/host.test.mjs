@@ -498,7 +498,7 @@ test('a shown notification plays its sound and a click reports the thread', () =
   assert.deepEqual(wire.sent.notifications, [['host/notification/clicked', { threadId: 'th9' }]]);
 });
 
-test("the core asks whether this PC shows toasts and how long it has been idle", async () => {
+test('the core asks whether this PC shows toasts and how long it has been idle', async () => {
   const { wire } = build();
   assert.deepEqual(await wire.call('host/notification/status', {}), { supported: true, idleSeconds: 42 });
 });

@@ -186,19 +186,19 @@ button:focus-visible {
    every ring below. The frame is pure decoration, so it is forced off instead
    of fought for through per-surface specificity. */
 html[data-mx-input="pointer"]
-:is(
-  button,
-  a,
-  summary,
-  [role="button"],
-  [role="combobox"],
-  [role="option"],
-  [role="tab"],
-  [role="menuitem"],
-  [role="menuitemradio"],
-  [role="menuitemcheckbox"],
-  [role="switch"]
-):focus-visible {
+  :is(
+    button,
+    a,
+    summary,
+    [role="button"],
+    [role="combobox"],
+    [role="option"],
+    [role="tab"],
+    [role="menuitem"],
+    [role="menuitemradio"],
+    [role="menuitemcheckbox"],
+    [role="switch"]
+  ):focus-visible {
   outline: 0 !important;
 }
 /* Keyboard navigation is where the accent earns its place (user: 강조색도
@@ -206,21 +206,21 @@ html[data-mx-input="pointer"]
    fields keep the neutral one — a field clicked or typed in never turns blue
    (user: 입력 포커스 파란 하이라이트 제외). */
 html[data-mx-input="keyboard"]
-:is(
-  button,
-  a,
-  summary,
-  [role="button"],
-  [role="combobox"],
-  [role="option"],
-  [role="tab"],
-  [role="menuitem"],
-  [role="menuitemradio"],
-  [role="menuitemcheckbox"],
-  [role="switch"],
-  input[type="checkbox"],
-  input[type="radio"]
-) {
+  :is(
+    button,
+    a,
+    summary,
+    [role="button"],
+    [role="combobox"],
+    [role="option"],
+    [role="tab"],
+    [role="menuitem"],
+    [role="menuitemradio"],
+    [role="menuitemcheckbox"],
+    [role="switch"],
+    input[type="checkbox"],
+    input[type="radio"]
+  ) {
   --mx-focus: var(--mx-accent);
 }
 /* A checked box is an "on" state, the same as a switch that is on. */
@@ -229,7 +229,7 @@ input:is([type="checkbox"], [type="radio"]) {
 }
 /* The composer, route, and SCM controls draw that ring as a box-shadow. */
 html[data-mx-input="pointer"]
-:is(.composer-tool, .model-trigger, .mx-select-trigger, .send-button, .dock-scm-unpushed):focus-visible {
+  :is(.composer-tool, .model-trigger, .mx-select-trigger, .send-button, .dock-scm-unpushed):focus-visible {
   box-shadow: none !important;
 }
 /* The attach/mic tools also share the hover wash with :focus-visible. A REAL

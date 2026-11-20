@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  DESKTOP_CAPABILITIES,
-  DESKTOP_READ_CAPABILITIES,
-  DESKTOP_WORKTREE_CAPABILITIES,
-} from '../shared/contract.ts';
+import { DESKTOP_CAPABILITIES, DESKTOP_READ_CAPABILITIES, DESKTOP_WORKTREE_CAPABILITIES } from '../shared/contract.ts';
 import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-capability-request.ts';
 import { worktreeErrorWithCode } from './worktree-validation.ts';
 const request = (capability, ...args) => requiredDesktopCapabilityRequest({ capability, args });

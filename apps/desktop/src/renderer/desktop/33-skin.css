@@ -373,13 +373,13 @@ html[data-mixdog-skin]
    full column width. Rows already inside an
    assistant plate (its footer, tool cards) stay on that plate. */
 html[data-mixdog-skin]
-:is(
-  .tool-activity[data-surface="desktop"],
-  .live-activity-status,
-  .turn-status,
-  .compaction-divider,
-  .transcript-error-notice
-):not(.message.assistant *, .mx-chat-row *) {
+  :is(
+    .tool-activity[data-surface="desktop"],
+    .live-activity-status,
+    .turn-status,
+    .compaction-divider,
+    .transcript-error-notice
+  ):not(.message.assistant *, .mx-chat-row *) {
   box-sizing: border-box;
   width: fit-content;
   max-width: 100%;
@@ -398,10 +398,10 @@ html[data-mixdog-skin]
    touching the plate's top and bottom edge. The live band and the turn-end
    line share it, so swapping one for the other still cannot move the thread. */
 html[data-mixdog-skin]
-:is(.tool-activity[data-surface="desktop"], .live-activity-status, .turn-status, .compaction-divider):not(
-  .message.assistant *,
-  .mx-chat-row *
-) {
+  :is(.tool-activity[data-surface="desktop"], .live-activity-status, .turn-status, .compaction-divider):not(
+    .message.assistant *,
+    .mx-chat-row *
+  ) {
   padding-block: 6px;
 }
 /* The plates stay inside their row's box: every transcript row clips to its

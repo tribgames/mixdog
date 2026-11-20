@@ -55,8 +55,11 @@ const wrote = (state, tag) => {
   assert.equal(state.caches, `c-${tag}`);
 };
 
-test('off-screen renders and snapshots keep origin-scoped storage to themselves and reuse page-server connections', // Like the lane's other suites: the Linux CI lanes have no display server.
-{ timeout: 150_000, skip: process.platform !== 'win32' && 'Windows only' }, async () => {
+test('off-screen renders and snapshots keep origin-scoped storage to themselves and reuse page-server connections', {
+  // Like the lane's other suites: the Linux CI lanes have no display server.
+  timeout: 150_000,
+  skip: process.platform !== 'win32' && 'Windows only',
+}, async () => {
   const result = await runFixture();
   // The writes took: what follows is isolation, not storage that never worked.
   wrote(result.written, 'A');

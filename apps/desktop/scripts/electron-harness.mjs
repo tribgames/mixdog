@@ -16,7 +16,8 @@ export function electronProcessEnv(extra = {}) {
   const env = {
     ...process.env,
     CARGO_TARGET_DIR:
-      process.env.CARGO_TARGET_DIR ?? fileURLToPath(new URL('../../../native/mixdog-main-native/target', import.meta.url)),
+      process.env.CARGO_TARGET_DIR ??
+      fileURLToPath(new URL('../../../native/mixdog-main-native/target', import.meta.url)),
     MIXDOG_HARNESS_MODULES_FROM: fileURLToPath(new URL('../package.json', import.meta.url)),
     ...extra,
   };

@@ -223,8 +223,7 @@
   min-height: 0;
   flex: 1;
   overflow-y: auto;
-  padding: 16px calc(var(--pane-inset) - var(--mx-scrollbar-gutter))
-    var(--transcript-fade) var(--pane-inset);
+  padding: 16px calc(var(--pane-inset) - var(--mx-scrollbar-gutter)) var(--transcript-fade) var(--pane-inset);
   /* Same owned-gutter grammar as chat: one track, paid from right padding. */
   scrollbar-gutter: stable;
 }
@@ -1083,7 +1082,7 @@ html:not([data-mixdog-mobile-tabs]) .studio-dock {
    filter, so every style update walked each element's ancestors for it (the
    costliest selector in a phone's scroll trace). */
 .desktop-boot-gate.is-booting[data-ready="false"]:not(html[data-mixdog-skin] .desktop-boot-gate[data-leaving="true"])
-> .desktop-boot-gate-content,
+  > .desktop-boot-gate-content,
 .desktop-boot-gate.is-booting[data-ready="false"]:not(html[data-mixdog-skin] .desktop-boot-gate[data-leaving="true"])
   > .desktop-boot-gate-content
   * {
@@ -1150,7 +1149,7 @@ html[data-mixdog-skin] .desktop-boot-cover > .desktop-loading-surface {
   background: var(--mx-text);
   font: inherit;
   cursor: pointer;
-}/* The index rebuild's progress: a thin track 20px under the 40px mark (which stays where it is, bar or none), filled in the
+} /* The index rebuild's progress: a thin track 20px under the 40px mark (which stays where it is, bar or none), filled in the
    mark's own ink. No text; the bar's own label serves a screen reader. */
 .desktop-loading-progress {
   position: absolute;

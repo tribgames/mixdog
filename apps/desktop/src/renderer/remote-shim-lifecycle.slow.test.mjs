@@ -9,13 +9,21 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-const departures = JSON.parse(readFileSync(new URL('./remote-shim-lifecycle-departures.json', import.meta.url), 'utf8'));
+const departures = JSON.parse(
+  readFileSync(new URL('./remote-shim-lifecycle-departures.json', import.meta.url), 'utf8')
+);
 const runner = fileURLToPath(new URL('./remote-shim-lifecycle.scenario.mjs', import.meta.url));
 
 const run = (name) => {
-  const child = spawnSync(process.execPath, [...process.execArgv, runner, name], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const child = spawnSync(process.execPath, [...process.execArgv, runner, name], {
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
   const at = child.stdout.lastIndexOf('@@TRACE@@');
-  assert.ok(child.status === 0 && at >= 0, `scenario ${name} failed (${child.status}):\n${child.stdout.slice(-1500)}\n${child.stderr.slice(-3000)}`);
+  assert.ok(
+    child.status === 0 && at >= 0,
+    `scenario ${name} failed (${child.status}):\n${child.stdout.slice(-1500)}\n${child.stderr.slice(-3000)}`
+  );
   return JSON.parse(child.stdout.slice(at + '@@TRACE@@'.length));
 };
 

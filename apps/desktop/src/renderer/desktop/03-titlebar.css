@@ -63,7 +63,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .workbench-side-panel
    frame: 50% frame transmission × 6% = 3% native Mica, so it matches the
    opaque workspace with only a trace of the material. */
 html[data-window-material="mica"][data-mixdog-theme="light"]:not([data-mixdog-skin])
-.workbench-side-panel[data-side="left"] {
+  .workbench-side-panel[data-side="left"] {
   background: color-mix(in srgb, var(--mx-sheet-ink) 94%, transparent);
 }
 /* The parked conversation stays painted under a Studio/terminal/diff tab;

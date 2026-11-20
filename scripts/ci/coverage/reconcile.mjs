@@ -127,18 +127,7 @@ function observations(intact, fail) {
 }
 
 /** Step 3: the Rust targets the inventory expects, against the runners' own listings. Adds listed targets' clauses to `required`. */
-function rustListingProblems({
-  manifest,
-  plan,
-  rustLists,
-  byName,
-  listings,
-  expected,
-  required,
-  exempt,
-  at,
-  fail,
-}) {
+function rustListingProblems({ manifest, plan, rustLists, byName, listings, expected, required, exempt, at, fail }) {
   /** per build variant, and per leg slot for the listings of standalone runs: the targets the listing shows */
   const shown = new Map();
   /** a target the plan declares absent from a variant (a platform cfg), by rule and never by what a listing lacks */
@@ -379,7 +368,6 @@ function replacementProblems({ excepted, used, usedAt, passed, promised, plan, c
         `no replacement: ${key} is ignored in the ${variant} partitions and a profile leg is to run it, but ${targets.join(' or ')} reported no pass of it`
       );
 }
-
 
 /** The manifest is version 1, of this commit, intact, and routed by this plan. */
 function manifestProblems(manifest, plan, context, fail) {

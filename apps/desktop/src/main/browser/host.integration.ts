@@ -1467,13 +1467,18 @@ const suite: CoreHarnessSuite = async (harness) => {
     const metrics = await command({ action: 'performance', operation: 'metrics', tab: 'beta' });
     assert.match(metrics.text, /JSHeapUsedSize|TaskDuration/);
     // The same trace rendered from a fixed event list: the counts and the cumulative durations are the whole contract.
-    const restoreTracing = feedFixedTrace(webContents.getAllWebContents().filter((page) => !page.getURL().startsWith('data:')));
+    const restoreTracing = feedFixedTrace(
+      webContents.getAllWebContents().filter((page) => !page.getURL().startsWith('data:'))
+    );
     try {
       await command({ action: 'performance', operation: 'start', tab: 'beta' });
       const fixedTrace = await command({ action: 'performance', operation: 'stop', tab: 'beta' });
       assert.ok(fixedTrace.text.startsWith('Performance trace stopped.\n'), fixedTrace.text);
       for (const line of FIXED_TRACE_LINES) {
-        assert.ok(fixedTrace.text.includes(line), `the fixed trace was not rendered: missing ${line}\n${fixedTrace.text}`);
+        assert.ok(
+          fixedTrace.text.includes(line),
+          `the fixed trace was not rendered: missing ${line}\n${fixedTrace.text}`
+        );
       }
     } finally {
       restoreTracing();

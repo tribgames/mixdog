@@ -30,7 +30,8 @@ function connectorApi(state, servers, tools) {
   });
   const overridden = ({ connector, tool }) => state.policy?.tools?.[connector]?.[tool];
   return {
-    getAgentConnectors: async () => servers.map(({ name }) => ({ id: name, enabled: !state.policy?.off?.includes(name) })),
+    getAgentConnectors: async () =>
+      servers.map(({ name }) => ({ id: name, enabled: !state.policy?.off?.includes(name) })),
     getAgentConnectorTools: async () =>
       parsed.map((entry) => ({
         ...entry,

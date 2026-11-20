@@ -40,7 +40,8 @@ function harness(context, Component = UsageStatsBody) {
   });
   return async (props) => act(async () => root.render(React.createElement(Component, props)));
 }
-const snapshot = (view = 'hour', tokens = 1200, anchor, dates = {}) => usageSnapshot(view, tokens, { anchor, ...dates });
+const snapshot = (view = 'hour', tokens = 1200, anchor, dates = {}) =>
+  usageSnapshot(view, tokens, { anchor, ...dates });
 function button(label) {
   return [...document.querySelectorAll('button')].find((node) => node.textContent === t(label));
 }

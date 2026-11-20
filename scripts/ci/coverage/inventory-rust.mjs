@@ -141,7 +141,6 @@ function matching(tokens, at) {
   throw new Error(`unbalanced ${open} at line ${tokens[at].line}`);
 }
 
-
 function readAttribute(tokens, at) {
   // tokens[at] is '#'
   let i = at + 1;

@@ -256,4 +256,3 @@ test('a subscription not renewed for 4s lapses, and a disconnected client is dro
   assert.equal(f.sent.length, 0);
   assert.deepEqual(f.requests.at(-1), ['s', null]);
 });
-

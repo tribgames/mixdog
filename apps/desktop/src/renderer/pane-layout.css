@@ -1252,11 +1252,12 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
      `.main-panel:has(.pane-side-dock[data-open="true"]:not(…):not(…))` it
      replaces, so the cascade is unchanged. */
   :root:not([data-mixdog-mobile-tabs]):not(
-    :has(
-      .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
-      .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      :has(
+        .session-terminal-surface-container[data-parked="false"][data-expanded="true"],
+        .session-browser-surface-container[data-parked="false"][data-expanded="true"]
+      )
     )
-  ) .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock] {
+    .main-panel[data-inline-dock="true"][data-inline-dock][data-inline-dock][data-inline-dock] {
     --frame: 1;
     border-color: transparent;
     border-radius: 0;
@@ -1426,7 +1427,7 @@ html[data-window-material="mica"][data-mixdog-theme="light"] {
   /* Under Mica the left sheet keeps the panel plate it had before the sheet
      framing (03-titlebar.css), so only a faint trace of the material shows. */
   html:is([data-window-material="mica"], [data-mixdog-skin]):not([data-mixdog-mobile-tabs])
-  .workbench-side-panel[data-side="left"] {
+    .workbench-side-panel[data-side="left"] {
     background: var(--mx-mica-panel-solid);
   }
   html[data-window-material="mica"][data-mixdog-theme="light"]:not([data-mixdog-mobile-tabs], [data-mixdog-skin])

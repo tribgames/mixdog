@@ -6,17 +6,9 @@
       "d3b4a7926c9484833fe8ddba70260f9d",
       "fa56b363b9eeb07cb194dcd66dc4159b"
     ],
-    "debugger": [
-      "88c946270760ecbae86df65b9ce262f1"
-    ],
-    "explore": [
-      "baf26f0b3bd3abb0fb5a276febc8c4bc",
-      "d4fa3ff93ace1dfac0b92792f42b9cbf"
-    ],
-    "front-worker": [
-      "40fc5c27b89061096ccba4cd27224fae",
-      "ac167e68d1207bcccd13e570bb2ca63d"
-    ],
+    "debugger": ["88c946270760ecbae86df65b9ce262f1"],
+    "explore": ["baf26f0b3bd3abb0fb5a276febc8c4bc", "d4fa3ff93ace1dfac0b92792f42b9cbf"],
+    "front-worker": ["40fc5c27b89061096ccba4cd27224fae", "ac167e68d1207bcccd13e570bb2ca63d"],
     "heavy-worker": [
       "14f33dc065b29bcdf236326c8f8c2e43",
       "3f380914f50e2fa744cd2061013910a5",
@@ -40,17 +32,13 @@
       "a61cb4557def4e7ed647d4bdacbb72e4",
       "de860d4111b61985f3b59eb1011fa421"
     ],
-    "scheduler-task": [
-      "4e91fa34b4bdf3e0ab4dc2f2dfcad4d6"
-    ],
+    "scheduler-task": ["4e91fa34b4bdf3e0ab4dc2f2dfcad4d6"],
     "security": [
       "50d9fd43dab8deff3b90c5b1096167e3",
       "54de597d001d4965c4b846f90960ebf2",
       "b8ef431ca17f35e48837f8942eab7e4e"
     ],
-    "webhook-handler": [
-      "bd6765c2188681ff5a8114edcb3a21be"
-    ],
+    "webhook-handler": ["bd6765c2188681ff5a8114edcb3a21be"],
     "worker": [
       "40e47556c3edf39ebc6145eb57e43692",
       "d02510cc6567fb4650b9da06f5b703d9",
@@ -105,10 +93,7 @@
       "e9ba21757439ada80be3ec4abc947f8b",
       "ec8ab1f9f14132cf06c96ff190ead470"
     ],
-    "solo-bench": [
-      "550a841e4902bac95ad182f093ba2921",
-      "ef5066ec9b6233f1f18223b5ef7e2034"
-    ]
+    "solo-bench": ["550a841e4902bac95ad182f093ba2921", "ef5066ec9b6233f1f18223b5ef7e2034"]
   },
   "outputStyles": {
     "common.md": [
@@ -180,21 +165,10 @@
     ]
   },
   "orchestration": {
-    "balanced.md": [
-      "a1948d55527805e121fee8e8fb213d1a",
-      "ad1683ff1626ebabd4e027abe03fe29a"
-    ],
-    "focused.md": [
-      "14ac6ec765b8c728dc040758e8e819d2",
-      "e73b0d71f544900611b2d06f963472d4"
-    ],
-    "none.md": [
-      "9be4bf61f9ba91c4caf53296adff2e8a"
-    ],
-    "swarm.md": [
-      "11b243083ccd9a071daca556d244c107",
-      "7fa3e68e0c53d16203384f5ca645765d"
-    ]
+    "balanced.md": ["a1948d55527805e121fee8e8fb213d1a", "ad1683ff1626ebabd4e027abe03fe29a"],
+    "focused.md": ["14ac6ec765b8c728dc040758e8e819d2", "e73b0d71f544900611b2d06f963472d4"],
+    "none.md": ["9be4bf61f9ba91c4caf53296adff2e8a"],
+    "swarm.md": ["11b243083ccd9a071daca556d244c107", "7fa3e68e0c53d16203384f5ca645765d"]
   },
   "skills": {
     "browser-use": [
@@ -312,9 +286,7 @@
       "d66f20b9de295ae2373e7261b6c7d3f4",
       "f405cb92e4c1f5ff64a674b6d1897389"
     ],
-    "history-recall": [
-      "1211daeb2c4ae770b1af23c5967baa20"
-    ],
+    "history-recall": ["1211daeb2c4ae770b1af23c5967baa20"],
     "image": [
       "2052d09860dfa293f239952d6e91d051",
       "26b6574dffea7efefb8062b6be75bd8c",
@@ -337,9 +309,7 @@
       "e975b09facc24fd6f1ca84cc07f98b27",
       "f5548508cc8e05ceae4fdb6d5d4096b8"
     ],
-    "media": [
-      "bdf26b0f2ac9f3126bfa74ced15a7d73"
-    ],
+    "media": ["bdf26b0f2ac9f3126bfa74ced15a7d73"],
     "memory-management": [
       "101eb6b953fa795b6785de2d4bfd2336",
       "1533630b81ebace2bc9ece6fda02bb11",

@@ -10,13 +10,7 @@ import { scopeClient } from '../../../mobile/src/phone-send-scope.ts';
 import { DIRECT_KEYS } from '../shared/desktop-api-split.ts';
 
 // The API the desktop names as source control (DIRECT_KEYS.scm), plus the GitHub star and LibreOffice calls the phone answers beside it.
-const SCM_CALLS = [
-  ...DIRECT_KEYS.scm,
-  'githubStarStatus',
-  'installLibreOffice',
-  'libreOfficeStatus',
-  'starGithub',
-];
+const SCM_CALLS = [...DIRECT_KEYS.scm, 'githubStarStatus', 'installLibreOffice', 'libreOfficeStatus', 'starGithub'];
 
 test('the adapter answers exactly the 62 source-control calls, each as a function', () => {
   assert.equal(adapter.group, 'scm');

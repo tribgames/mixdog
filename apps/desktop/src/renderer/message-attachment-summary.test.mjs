@@ -32,7 +32,16 @@ test('a reference-backed pasted text restores its chip with the text', () => {
   const text = 'check [Pasted text #1 +50 lines]';
   const record = {
     text,
-    pastedTexts: { 1: { id: 1, source: 'paste', attachmentRef: 'c'.repeat(64), sizeBytes: 600, filename: 'Pasted text #1', text: body } },
+    pastedTexts: {
+      1: {
+        id: 1,
+        source: 'paste',
+        attachmentRef: 'c'.repeat(64),
+        sizeBytes: 600,
+        filename: 'Pasted text #1',
+        text: body,
+      },
+    },
   };
   const restored = chipsOf(record, record.text);
   assert.equal(restored.attachments.length, 1);
@@ -45,7 +54,9 @@ test('image, text file and paste come back from a rewound message', () => {
   const text = 'see [Image #3: shot.png] [File #1: notes.md] [Pasted text #2 +3 lines]';
   const record = {
     text,
-    pastedImages: { 3: { id: 3, type: 'image', mediaType: 'image/png', filename: 'shot.png', content: b64('png bytes') } },
+    pastedImages: {
+      3: { id: 3, type: 'image', mediaType: 'image/png', filename: 'shot.png', content: b64('png bytes') },
+    },
     pastedTexts: {
       1: { id: 1, text: body, source: 'file', filename: 'notes.md', mimeType: 'text/markdown' },
       2: { id: 2, text: 'one\ntwo\nthree\n'.repeat(80), source: 'paste', filename: 'Pasted text #2' },
