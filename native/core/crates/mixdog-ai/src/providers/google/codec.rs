@@ -332,6 +332,15 @@ impl GoogleCodec {
         vertex_model(model).ok().filter(|m| m.wire == Wire::Maas)
     }
 
+    /// Whether a send of `model` at the standard tier would be accepted before it leaves: its route and the location
+    /// this account would send it to (`serving_problem`), as the send path chooses them.
+    pub(super) fn standard_send_accepted(&self, model: &str) -> bool {
+        let Target::Vertex { place } = &self.target else { return false };
+        let Ok(model) = vertex_model(model) else { return false };
+        let route = model.route();
+        self.vertex_place_for(place, &route).choose(&route, Tier::Standard).is_ok()
+    }
+
     /// The Claude model `model` names on Vertex AI, when it names one (`vertexRoute(model).wire === 'claude'`).
     pub fn claude_model(&self, model: &str) -> Option<VertexModel> {
         if !matches!(self.target, Target::Vertex { .. }) {

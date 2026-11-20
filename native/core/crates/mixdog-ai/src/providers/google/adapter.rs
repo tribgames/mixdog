@@ -54,6 +54,7 @@ use super::cache::policy::CacheRequest;
 use super::codec::Attach;
 use super::codec::GoogleCodec;
 use super::codec::Target;
+use super::serving::VertexAccount;
 use super::decode::GeminiDecoder;
 use super::maas::VertexModel;
 use super::models;
@@ -116,7 +117,12 @@ pub struct GoogleAdapter {
     first_byte: FirstByteSettings,
     /// The resizer of a Claude request's images ([`crate::providers::anthropic::images`]).
     images: Option<crate::providers::anthropic::images::ImageFitter>,
+    /// Vertex AI's last complete publisher listing, by publisher: what a listing that could not finish shows in its place.
+    discovered: Mutex<HashMap<String, Vec<Value>>>,
 }
+
+/// The whole of one Vertex discovery attempt, inside the catalog's listing deadline with room to answer.
+const VERTEX_DISCOVERY_BUDGET: std::time::Duration = crate::catalog::LIST_DEADLINE.saturating_sub(std::time::Duration::from_secs(1));
 
 impl GoogleAdapter {
     pub fn new(
@@ -154,6 +160,7 @@ impl GoogleAdapter {
             carried: Mutex::default(),
             first_byte: FirstByteSettings::process(),
             images: None,
+            discovered: Mutex::default(),
         }
     }
 
@@ -438,14 +445,94 @@ impl GoogleAdapter {
         }
         Ok(read.body)
     }
+
+    /// Every `publisherModels[]` row of one publisher, following `nextPageToken`.
+    #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
+    async fn publisher_models(&self, publisher: &str) -> Result<Vec<Value>, ProviderError> {
+        let mut items = Vec::new();
+        let mut token: Option<String> = None;
+        loop {
+            let body = self.fetch_listing(&models::publisher_request(publisher, token.as_deref())).await?;
+            let page = models::publisher_page(&body)?;
+            items.extend(page.models);
+            match page.next {
+                Some(next) if token.as_deref() != Some(next.as_str()) => token = Some(next),
+                _ => return Ok(items),
+            }
+        }
+    }
+}
+
+impl GoogleAdapter {
+    /// Vertex AI's roster: the fixed table, then the models the publisher listings add that the send path accepts and
+    /// the catalog's sanitizer keeps. The attempt is bounded by [`VERTEX_DISCOVERY_BUDGET`]; the flag is whether every
+    /// publisher answered. A listing is an answer, and so is the refusal of an account that may not list the
+    /// publisher: it adds nothing. A publisher that did not answer (a fault, a spent quota, the deadline) shows what
+    /// its last listing found, nothing before one, so an attempt that did not finish never lists less than the table
+    /// nor drops what was already discovered.
+    async fn vertex_listing(&self, place: &super::serving::VertexPlace) -> (Vec<ModelRecord>, bool) {
+        // An express API key serves Gemini models only.
+        let publishers: &[&'static str] = if place.account == VertexAccount::Express { &["google"] } else { &["google", "anthropic"] };
+        let results = futures::future::join_all(publishers.iter().map(|&publisher| async move {
+            let listed = crate::transport::deadlines::bounded(VERTEX_DISCOVERY_BUDGET, self.publisher_models(publisher)).await;
+            let answer = match listed {
+                Some(Ok(items)) => Some(items),
+                Some(Err(error)) if error.kind == ErrorKind::Permission => Some(Vec::new()),
+                Some(Err(_)) | None => None,
+            };
+            (publisher, answer)
+        }))
+        .await;
+        let complete = results.iter().all(|(_, answer)| answer.is_some());
+        let mut found: Vec<(&str, Value)> = Vec::new();
+        {
+            let mut kept = self.discovered.lock().unwrap_or_else(|e| e.into_inner());
+            for (publisher, answer) in results {
+                match answer {
+                    Some(items) => {
+                        kept.insert(publisher.to_owned(), items.clone());
+                        found.extend(items.into_iter().map(|item| (publisher, item)));
+                    }
+                    None => found.extend(kept.get(publisher).into_iter().flatten().map(|item| (publisher, item.clone()))),
+                }
+            }
+        }
+        found.retain(|(publisher, item)| models::discovered_id(publisher, item).is_some_and(|id| self.codec.standard_send_accepted(id)));
+        let table = models::vertex_table();
+        let mut added = self.lookup.enrich_listed("vertex-ai", models::vertex_discovered(&found, &table));
+        for record in &mut added {
+            record.display_name.get_or_insert_with(|| record.id.clone());
+        }
+        // Dated snapshots, stale and non-chat rows go by the sanitizer's rules, judged beside the table's rows, which stay.
+        let judged = self.lookup.sanitize_listed("vertex-ai", table.iter().chain(&added).cloned().collect());
+        added.retain(|record| judged.iter().any(|kept| kept.id == record.id));
+        let mut rows = table;
+        rows.extend(added);
+        (rows, complete)
+    }
 }
 
 #[async_trait]
 impl ModelListing for GoogleAdapter {
+    async fn list_roster(&self) -> Result<mixdog_core_api::domain::provider::ListedRoster, ProviderError> {
+        use mixdog_core_api::domain::provider::ListedRoster;
+        use mixdog_core_api::domain::provider::Provenance;
+        let (rows, provenance) = match self.codec.target() {
+            // The table with what was found stands in for a discovery a publisher did not answer: the catalog shows
+            // it stale and asks again when its backoff passes.
+            Target::Vertex { place } => match self.vertex_listing(place).await {
+                (rows, true) => (rows, Provenance::Fetched),
+                (rows, false) => (rows, Provenance::Seed),
+            },
+            _ => (self.list_models().await?, Provenance::Fetched),
+        };
+        Ok(ListedRoster { rows, provenance, identity: Default::default() })
+    }
+
     async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
         match self.codec.target() {
-            // Vertex AI has no listing endpoint: its own list, with no credential.
-            Target::Vertex { .. } => Ok(models::vertex_records()),
+            // The fixed table plus what the Model Garden publisher listings add: the table at the least.
+            Target::Vertex { place } => Ok(self.vertex_listing(place).await.0),
             Target::Gemini { origin } => {
                 let mut items = Vec::new();
                 let mut token: Option<String> = None;

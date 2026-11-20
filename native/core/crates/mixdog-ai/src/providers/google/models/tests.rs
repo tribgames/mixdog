@@ -17,6 +17,7 @@ use mixdog_core_api::domain::provider::Role;
 #[cfg(node_twin)]
 use mixdog_core_api::domain::provider::ModelRecord;
 use mixdog_core_api::domain::provider::ProviderAdapter;
+use mixdog_core_api::domain::provider::Provenance;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::provider::WireRequest;
@@ -358,21 +359,24 @@ async fn a_rejected_gemini_listing_is_a_typed_error_with_no_list() {
 }
 #[cfg(node_twin)]
 #[tokio::test]
-async fn vertex_lists_its_static_table_without_any_request() {
-    let http = Scripted::new(vec![]);
+async fn vertex_lists_its_table_when_the_listing_is_refused() {
+    let http = Scripted::new(vec![(403, "{}".into())]);
     let adapter = GoogleAdapter::new(
         GoogleCodec::vertex(VertexPlace::express(), traits()),
         policy::gemini(),
         http.clone(),
-        Arc::new(ApiKeyAuth::new("")),
+        Arc::new(ApiKeyAuth::new("k")),
         String::new(),
     );
     let records = adapter.models().expect("lists models").list_models().await.expect("listed");
-    assert_eq!(raws(&records), *golden()["vertex"]["listed"].as_array().unwrap());
-    for (record, row) in records.iter().zip(golden()["vertex"]["listed"].as_array().unwrap()) {
+    // Node's table, and gemini-4-carbon (added after it was recorded) beside gemini-4-argon.
+    let mut table = golden()["vertex"]["listed"].as_array().unwrap().clone();
+    table.insert(1, json!({"id": "gemini-4-carbon", "name": "Gemini 4 Carbon", "contextWindow": 1_048_576, "provider": "vertex-ai"}));
+    assert_eq!(raws(&records), table);
+    for (record, row) in records.iter().zip(&table) {
         crate::providers::listing_row::testing::assert_row_facts(record, row, &format!("vertex {}", record.id));
     }
-    assert!(http.sent().is_empty());
+    assert_eq!(http.sent().len(), 1);
     let argon = &records[0];
     assert_eq!(argon.supports_reasoning, Some(true));
     assert_eq!(argon.picker.reasoning_options[0].values, ["low", "medium", "high"]);
@@ -383,6 +387,140 @@ async fn vertex_lists_its_static_table_without_any_request() {
     assert_eq!(grok.raw.as_ref().unwrap()["locations"], json!(["global", "us"]));
     assert!(grok.picker.model_parameter_options.is_empty());
 }
+fn vertex_adapter(http: Arc<Scripted>, place: super::super::serving::VertexPlace, auth: Arc<dyn RequestAuth>) -> GoogleAdapter {
+    GoogleAdapter::new(GoogleCodec::vertex(place, traits()), policy::gemini(), http, auth, String::new())
+}
+
+#[tokio::test]
+async fn vertex_express_adds_discovered_gemini_models_to_the_table() {
+    use super::super::serving::VertexPlace;
+    let page1 = json!({
+        "publisherModels": [
+            {"name": "publishers/google/models/gemini-4-argon", "versionId": "009", "launchStage": "GA"},
+            {"name": "publishers/google/models/gemini-9-neon", "versionId": "001", "launchStage": "GA"},
+            {"name": "publishers/google/models/gemini-9-neon-20260101", "launchStage": "GA"},
+            {"name": "publishers/google/models/gemini-2.5-flash-preview-tts", "launchStage": "GA"},
+            {"name": "publishers/google/models/gemini-live-2.5-flash", "launchStage": "GA"},
+            {"name": "publishers/google/models/gemini-embedding-001", "launchStage": "GA"},
+            {"name": "publishers/google/models/gemma-3", "launchStage": "GA"}
+        ],
+        "nextPageToken": "t2"
+    });
+    let page2 = json!({"publisherModels": [{"name": "publishers/google/models/gemini-9-neon-lite", "launchStage": "PRIVATE_PREVIEW"}]});
+    let http = Scripted::new(vec![(200, page1.to_string()), (200, page2.to_string())]);
+    let adapter = vertex_adapter(http.clone(), VertexPlace::express(), Arc::new(ApiKeyAuth::new("k")));
+    let records = adapter.models().expect("lists models").list_models().await.expect("listed");
+    let ids: Vec<&str> = records.iter().map(|r| r.id.as_str()).collect();
+    // A model absent from the table is discovered; no launch stage hides one.
+    assert_eq!(&ids[ids.len() - 2..], ["gemini-9-neon", "gemini-9-neon-lite"]);
+    assert_eq!(ids.len(), 54);
+    // Non-chat models and a dated snapshot beside its alias are the sanitizer's to drop.
+    for gone in ["gemini-2.5-flash-preview-tts", "gemini-live-2.5-flash", "gemini-9-neon-20260101", "gemini-embedding-001", "gemma-3"] {
+        assert!(!ids.contains(&gone), "{gone}");
+    }
+    // A collision keeps the table's hand-written facts.
+    let argon = records.iter().find(|r| r.id == "gemini-4-argon").unwrap();
+    assert_eq!((argon.name.as_deref(), argon.context_window), (Some("Gemini 4 Argon"), Some(1_048_576)));
+    assert_eq!(argon.picker.reasoning_options[0].values, ["low", "medium", "high"]);
+    assert!(argon.raw.as_ref().unwrap().get("versionId").is_none());
+    let neon = records.iter().find(|r| r.id == "gemini-9-neon").unwrap();
+    assert!(neon.picker.model_parameter_options.is_empty() && neon.picker.reasoning_options.is_empty());
+    assert_eq!(neon.raw.as_ref().unwrap()["launchStage"], "GA");
+    // Express: one publisher, paged by token.
+    let sent = http.sent();
+    assert_eq!(sent.len(), 2);
+    assert!(sent[0].url.starts_with("https://aiplatform.googleapis.com/v1beta1/publishers/google/models?pageSize=1000"));
+    assert!(sent[1].url.ends_with("pageToken=t2"));
+    // A table row keeps its hand-written facts.
+    assert!(records.iter().any(|r| r.id == "xai/grok-4.7"));
+}
+
+#[tokio::test]
+async fn vertex_project_lists_anthropic_too_and_a_failed_listing_leaves_the_table() {
+    use super::super::serving::VertexPlace;
+    let google = json!({"publisherModels": []});
+    let claude = json!({"publisherModels": [
+        {"name": "publishers/anthropic/models/claude-opus-9", "launchStage": "GA"},
+        {"name": "publishers/anthropic/models/claude-opus-4-5", "launchStage": "GA"}
+    ]});
+    let http = Scripted::new(vec![(200, google.to_string()), (200, claude.to_string())]);
+    let adapter = vertex_adapter(http.clone(), VertexPlace::project("p", None, None), Arc::new(Bearer));
+    let records = adapter.models().unwrap().list_models().await.unwrap();
+    let added = records.last().unwrap();
+    assert_eq!(added.id, "claude-opus-9");
+    assert_eq!(added.raw.as_ref().unwrap()["family"], "opus");
+    assert!(http.sent()[1].url.contains("/publishers/anthropic/models"));
+
+    // A refusal is an answer: the roster is the table, whole, and nothing asks again before the roster is next due.
+    let http = Scripted::new(vec![(403, "{}".into()), (403, "{}".into())]);
+    let adapter = vertex_adapter(http, VertexPlace::project("p", None, None), Arc::new(Bearer));
+    let refused = adapter.models().unwrap().list_roster().await.unwrap();
+    assert_eq!((refused.rows.len(), refused.provenance), (52, Provenance::Fetched));
+    // One publisher refused beside one that lists: what the other found, and still whole.
+    let found = json!({"publisherModels": [{"name": "publishers/google/models/gemini-9-neon"}]}).to_string();
+    let http = Scripted::new(vec![(200, found.clone()), (403, "{}".into())]);
+    let adapter = vertex_adapter(http, VertexPlace::project("p", None, None), Arc::new(Bearer));
+    let partly = adapter.models().unwrap().list_roster().await.unwrap();
+    assert_eq!((partly.rows.len(), partly.provenance), (53, Provenance::Fetched));
+
+    // A listing that fails is no answer: the roster is shown stale (asked again later) with what was found before.
+    // Neither is a spent daily quota, which resets.
+    let spent = json!({"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "details": [{
+        "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+        "violations": [{"quotaId": "ListPublisherModelsRequestsPerDayPerProject"}]
+    }]}})
+    .to_string();
+    let http = Scripted::new(vec![(200, found), (200, claude.to_string()), (500, "{}".into()), (500, "{}".into()), (429, spent), (200, claude.to_string())]);
+    let adapter = vertex_adapter(http, VertexPlace::project("p", None, None), Arc::new(Bearer));
+    let first = adapter.models().unwrap().list_roster().await.unwrap();
+    assert_eq!((first.rows.len(), first.provenance), (54, Provenance::Fetched));
+    for _ in ["a fault", "a spent quota"] {
+        let later = adapter.models().unwrap().list_roster().await.unwrap();
+        assert_eq!((later.rows.len(), later.provenance), (54, Provenance::Seed));
+    }
+}
+
+#[tokio::test]
+async fn a_discovered_claude_the_configured_location_does_not_serve_is_not_listed() {
+    use super::super::serving::VertexPlace;
+    let google = json!({"publisherModels": []}).to_string();
+    let claude = json!({"publisherModels": [
+        {"name": "publishers/anthropic/models/claude-sonnet-4"},
+        {"name": "publishers/anthropic/models/claude-opus-9"}
+    ]})
+    .to_string();
+    for (location, listed) in [("global", false), ("us-east5", true)] {
+        let http = Scripted::new(vec![(200, google.clone()), (200, claude.clone())]);
+        let adapter = vertex_adapter(http, VertexPlace::project("p", Some(location), None), Arc::new(Bearer));
+        let records = adapter.models().unwrap().list_models().await.unwrap();
+        assert_eq!(records.iter().any(|r| r.id == "claude-sonnet-4"), listed, "{location}");
+    }
+}
+
+#[tokio::test]
+async fn a_slow_publisher_listing_answers_the_table_inside_the_catalog_budget() {
+    use super::super::serving::VertexPlace;
+    struct Hang;
+    #[async_trait]
+    impl HttpSend for Hang {
+        async fn send(&self, _: WireRequest, _: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+            std::future::pending().await
+        }
+    }
+    tokio::time::pause();
+    let adapter = GoogleAdapter::new(
+        GoogleCodec::vertex(VertexPlace::express(), traits()),
+        policy::gemini(),
+        Arc::new(Hang),
+        Arc::new(ApiKeyAuth::new("k")),
+        String::new(),
+    );
+    let began = tokio::time::Instant::now();
+    let listed = adapter.models().unwrap().list_roster().await.unwrap();
+    assert_eq!((listed.rows.len(), listed.provenance), (52, Provenance::Seed));
+    assert!(began.elapsed() < crate::catalog::LIST_DEADLINE, "answered after {:?}", began.elapsed());
+}
+
 #[cfg(node_twin)]
 #[tokio::test]
 async fn antigravity_posts_the_catalog_request_and_collapses_tiers_as_node_does() {

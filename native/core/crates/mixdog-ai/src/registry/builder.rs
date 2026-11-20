@@ -1306,7 +1306,9 @@ impl DefaultProviderBuilder {
             if key.trim().is_empty() {
                 return Err("[vertex-ai] the Vertex AI API key is not configured".into());
             }
-            return Ok(adapter(google::vertex_express_at(key.trim(), text(cfg, "location"), http, traits)));
+            return Ok(adapter(
+                google::vertex_express_at(key.trim(), text(cfg, "location"), http, traits).with_listing_lookup(self.env.listing.clone()),
+            ));
         }
         let credential = if mode == Some("adc") {
             match self.adc_text().await? {
@@ -1376,6 +1378,7 @@ impl DefaultProviderBuilder {
     fn project_vertex(&self, place: VertexPlace, auth: Arc<dyn RequestAuth>, identity: String) -> Arc<dyn ProviderAdapter> {
         adapter(google::vertex(place, auth, identity, self.env.http.clone(), self.env.google_traits.clone(), self.env.anthropic_caps.clone())
             .with_vertex_environment(self.env.env.clone())
+            .with_listing_lookup(self.env.listing.clone())
             .with_images(self.fitter()))
     }
 
