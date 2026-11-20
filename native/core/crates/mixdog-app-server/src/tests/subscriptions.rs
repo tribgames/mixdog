@@ -151,6 +151,45 @@ async fn subscribing_again_replaces_the_subscription_of_that_feed() {
 }
 
 #[tokio::test]
+async fn asking_again_for_a_followed_feed_keeps_its_subscription_and_sends_nothing_twice() {
+    let rig = Rig::new();
+    let app = rig.core.mock.app();
+    app.publish(&[event(1)], None).unwrap();
+    let client = rig.ready(1, json!({}));
+    client.request(1, "app/subscribe", json!({}));
+    app.publish(&[event(2), event(3)], None).unwrap();
+    let first = client.drain();
+    assert_eq!(lanes(&first), ["response", "snapshot@1", "evt@2", "evt@3"]);
+    let held = first[0].body["result"]["subscription"]["id"].clone();
+
+    // The client's state is at 1; frames 2 and 3 are already on the wire.
+    let resume = json!({ "resumeFrom": { "epoch": app_epoch(), "seq": 1 } });
+    client.request(2, "app/subscribe", resume.clone());
+    let again = client.drain();
+    assert_eq!(lanes(&again), ["response"], "frames 2 and 3 are not sent a second time");
+    let subscription = &again[0].body["result"]["subscription"];
+    assert_eq!(subscription["id"], held, "the subscription it holds");
+    assert_eq!(subscription["mode"], json!("replay"));
+    assert_eq!(subscription["startSeq"], json!(2));
+    assert_eq!(subscription["liveSeq"], json!(4));
+    app.publish(&[event(4)], None).unwrap();
+    assert_eq!(lanes(&client.drain()), ["evt@4"], "its lane delivers on");
+
+    // Another connection resuming from that position holds nothing: it is attached and replayed.
+    let other = rig.ready(2, json!({}));
+    other.request(1, "app/subscribe", resume.clone());
+    assert_eq!(lanes(&other.drain()), ["response", "evt@2", "evt@3", "evt@4"]);
+
+    // Once unsubscribed, the first connection holds nothing either.
+    client.request(3, "feed/unsubscribe", json!({ "feedId": "app" }));
+    client.drain();
+    client.request(4, "app/subscribe", resume);
+    let anew = client.drain();
+    assert_eq!(lanes(&anew), ["response", "evt@2", "evt@3", "evt@4"]);
+    assert_ne!(anew[0].body["result"]["subscription"]["id"], held);
+}
+
+#[tokio::test]
 async fn closing_the_connection_detaches_its_subscriptions() {
     let rig = Rig::new();
     let app = rig.core.mock.app();

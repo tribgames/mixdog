@@ -345,6 +345,10 @@ impl FeedSource for MockThread {
         self.feed.attach(req)
     }
 
+    fn carries(&self, sub: &SubscriptionId, window: &crate::feed::Window, resume: &crate::feed::ResumeFrom) -> Option<AttachDecision> {
+        self.feed.carries(sub, window, resume)
+    }
+
     fn detach(&self, sub: SubscriptionId) {
         self.feed.detach(sub)
     }

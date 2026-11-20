@@ -1035,6 +1035,10 @@ impl FeedSource for SessionHandle {
         self.subscriptions.attach(req)
     }
 
+    fn carries(&self, sub: &SubscriptionId, window: &Window, resume: &ResumeFrom) -> Option<AttachDecision> {
+        self.subscriptions.carries(sub, window, resume)
+    }
+
     fn detach(&self, sub: SubscriptionId) {
         self.subscriptions.detach(sub);
     }
@@ -1105,6 +1109,11 @@ impl FeedSource for AdmittedFeed {
         self.feed.attach(req)
     }
 
+    /// A reply answered by the subscription its connection holds is never attached: its admission goes back when it is dropped.
+    fn carries(&self, sub: &SubscriptionId, window: &Window, resume: &ResumeFrom) -> Option<AttachDecision> {
+        self.feed.carries(sub, window, resume)
+    }
+
     fn detach(&self, sub: SubscriptionId) {
         self.feed.detach(sub);
     }
@@ -1140,6 +1149,10 @@ impl FeedSource for CountedFeed {
             return Err(CoreError::ThreadClosing { thread_id: self.cell.thread.clone() });
         }
         self.attach_admitted(req)
+    }
+
+    fn carries(&self, sub: &SubscriptionId, window: &Window, resume: &ResumeFrom) -> Option<AttachDecision> {
+        self.feed.carries(sub, window, resume)
     }
 
     fn detach(&self, sub: SubscriptionId) {

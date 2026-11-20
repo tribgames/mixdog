@@ -1497,6 +1497,10 @@ impl FeedSource for RecFeed {
         self.inner.attach(req)
     }
 
+    fn carries(&self, sub: &SubscriptionId, window: &mixdog_core_api::feed::Window, resume: &mixdog_core_api::feed::ResumeFrom) -> Option<AttachDecision> {
+        self.inner.carries(sub, window, resume)
+    }
+
     fn detach(&self, sub: SubscriptionId) {
         self.inner.detach(sub)
     }

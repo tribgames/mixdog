@@ -25,6 +25,7 @@ use mixdog_core_api::feed::FeedFrame;
 use mixdog_core_api::feed::FeedPosition;
 use mixdog_core_api::feed::FeedSource;
 use mixdog_core_api::feed::FeedView;
+use mixdog_core_api::feed::ResumeFrom;
 use mixdog_core_api::feed::ScopedFeed;
 use mixdog_core_api::feed::ScopedFeeds;
 use mixdog_core_api::feed::Window;
@@ -307,6 +308,10 @@ impl FeedSource for Gate {
             Arc::clone(&self.feeds).start_pump(Arc::clone(&self.entry));
         }
         Ok(decision)
+    }
+
+    fn carries(&self, sub: &SubscriptionId, window: &Window, resume: &ResumeFrom) -> Option<AttachDecision> {
+        self.entry.publisher.source().carries(sub, window, resume)
     }
 
     fn detach(&self, sub: SubscriptionId) {

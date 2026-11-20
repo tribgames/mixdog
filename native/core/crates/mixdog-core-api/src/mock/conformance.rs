@@ -72,6 +72,7 @@ pub fn run_all(make: &FeedFactory) {
     lag_then_recover(make);
     lagged_at_attach(make);
     detach_stops_delivery(make);
+    held_subscription_carries_on(make);
     concurrent_attach_is_gapless(make);
 }
 
@@ -396,6 +397,56 @@ pub fn detach_stops_delivery(make: &FeedFactory) {
     publish(feed.as_ref(), 2..=2);
     assert_eq!(conn.drain_text(), ["control:resp"]);
     assert_eq!(conn.event_free(), limits.event_budget_bytes());
+}
+
+/// A subscription the feed holds carries what a new one for its window would, resumed from a position of this epoch
+/// that its lane delivers on from: nothing is attached, and its lane delivers each frame once. Another window, a state
+/// built for another window, another epoch, a position beyond the head or before the one the lane was attached at, and
+/// a subscription the feed does not hold are attached anew.
+pub fn held_subscription_carries_on(make: &FeedFactory) {
+    let limits = MockLimits::default();
+    let feed = make(limits);
+    publish(feed.as_ref(), 1..=2);
+    let conn = MockConnection::new(ConnectionId(1), limits);
+    let attached = attach(&feed, &conn, "a", Window::LastItems(50), None);
+    respond(&conn, attached, "resp");
+    publish(feed.as_ref(), 3..=4);
+    let epoch = epoch_of(feed.as_ref());
+    let resume = |epoch: &FeedEpoch, seq: u64, window: Window| ResumeFrom {
+        position: FeedPosition { epoch: epoch.clone(), seq },
+        window,
+    };
+    let fifty = Window::LastItems(50);
+    let carried = feed
+        .carries(&sub("a"), &fifty, &resume(&epoch, 2, fifty.clone()))
+        .expect("the held subscription carries on");
+    assert_eq!((carried.mode, carried.start_seq, carried.live_seq), (AttachMode::Replay, 3, 5));
+    assert_eq!(carried.epoch, epoch);
+    publish(feed.as_ref(), 5..=5);
+    assert_eq!(
+        conn.drain_text(),
+        ["control:resp", "a:snapshot@2", "a:evt@3", "a:evt@4", "a:evt@5"],
+        "each frame once"
+    );
+
+    let hundred = Window::LastItems(100);
+    let other = FeedEpoch::from(format!("{epoch}x"));
+    assert_eq!(feed.carries(&sub("a"), &hundred, &resume(&epoch, 2, hundred.clone())), None, "another window");
+    assert_eq!(feed.carries(&sub("a"), &fifty, &resume(&epoch, 2, hundred)), None, "a state of another window");
+    assert_eq!(feed.carries(&sub("a"), &fifty, &resume(&other, 2, fifty.clone())), None, "another epoch");
+    assert_eq!(feed.carries(&sub("a"), &fifty, &resume(&epoch, 6, fifty.clone())), None, "beyond the head");
+    assert_eq!(feed.carries(&sub("a"), &fifty, &resume(&epoch, 1, fifty.clone())), None, "before its snapshot");
+    assert_eq!(feed.carries(&sub("b"), &fifty, &resume(&epoch, 2, fifty.clone())), None, "not held");
+    feed.detach(sub("a"));
+    assert_eq!(feed.carries(&sub("a"), &fifty, &resume(&epoch, 2, fifty.clone())), None, "detached");
+
+    // A lane attached by a replay carries the frames after the position it replayed from, and none before it.
+    let attached = attach(&feed, &conn, "c", fifty.clone(), Some((epoch.clone(), 4, fifty.clone())));
+    assert_eq!(attached.decision.mode, AttachMode::Replay);
+    respond(&conn, attached, "resp-c");
+    assert!(feed.carries(&sub("c"), &fifty, &resume(&epoch, 4, fifty.clone())).is_some());
+    assert!(feed.carries(&sub("c"), &fifty, &resume(&epoch, 5, fifty.clone())).is_some());
+    assert_eq!(feed.carries(&sub("c"), &fifty, &resume(&epoch, 3, fifty.clone())), None, "frame 4 never reached it");
 }
 
 /// Attaches racing a publishing producer each receive exactly the snapshot at their `S` and
