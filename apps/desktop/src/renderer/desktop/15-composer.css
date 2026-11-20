@@ -1776,7 +1776,7 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
   max-height: 180px;
   overflow-y: auto;
   /* Past five lines the field scrolls (wheel, caret, keys) without painting
-     a bar inside the typing card (user: 대화창 확장시 스크롤바 생기는게 이상해). */
+     a bar inside the typing card. */
   scrollbar-width: none;
   padding: 6px var(--composer-text-inset) 2px;
   color: var(--mx-text);
@@ -2069,8 +2069,8 @@ html:not([data-mixdog-mobile-tabs]) form.composer.composer[data-card] .composer-
   margin-right: 8px;
 }
 /* The live signal moved into the overlay below, so the mic stays a plain
-   disc: the old expanding ring painted OUTSIDE the border box and read as a
-   circle larger than the send disc beside it (user-flagged, desktop + phone).
+   disc: a ring outside the border box would read as a circle larger than
+   the send disc beside it (desktop + phone).
    Hover/focus must not repaint the recording fill. */
 .composer-mic.is-recording,
 .composer-mic.is-recording:hover,
@@ -2080,7 +2080,7 @@ html:not([data-mixdog-mobile-tabs]) form.composer.composer[data-card] .composer-
      with background-clip: content-box, and the `background` shorthand resets
      that clip. A tap leaves :hover stuck on touch, which let the shorthand win
      on specificity, spill the fill across the padding, and draw the recording
-     disc larger than the send disc beside it (user-flagged, phone). */
+     disc larger than the send disc beside it on the phone. */
   background-color: var(--mx-accent-bg);
 }
 .composer-mic.is-transcribing {

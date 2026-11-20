@@ -59,8 +59,8 @@
 }
 
 /* The page's own alert/confirm/prompt: the app's opaque dialog card, centred
-   at the top of the page as an ordinary browser places it (the old
-   translucent plate let page text show through the message). */
+   at the top of the page as an ordinary browser places it (opaque, so
+   page text cannot show through the message). */
 .browser-page-prompt.mx-dialog {
   position: absolute;
   z-index: 2;

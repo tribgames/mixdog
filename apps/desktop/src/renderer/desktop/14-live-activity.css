@@ -218,10 +218,9 @@
 .live-activity-meta {
   min-width: 0;
   color: var(--mx-text-muted);
-  /* Explicit 400: the band around it now runs at 600, and the readout was
-     inheriting that — which made the running clock bolder than the settled
-     one. The gauge is read, not emphasised, and it has to match the settled
-     row's timestamp exactly. */
+  /* Explicit 400: the band around it runs at 600, and inheriting that would
+     make the running clock bolder than the settled one. The gauge is read,
+     not emphasised, and has to match the settled row's timestamp exactly. */
   font-weight: var(--mx-weight-regular);
   /* Same size and line box as the verb beside it (and as the settled row's
      clock): a smaller face centred in the same row cannot share the verb's
@@ -397,16 +396,15 @@ html[data-pet-over-transcript] .live-activity-tokens {
   align-self: center;
   display: block;
   transform: translateY(-1px);
-  /* Milestone marks carry more ink than row glyphs; in real pixels the old
-     2.25 24-grid value was 1.5. */
+  /* Milestone marks carry more ink than row glyphs; 1.5px in real pixels
+     is the 2.25 stroke of the 24-unit grid. */
   stroke-width: 1.5px;
 }
 .turn-status.complete small,
 .turn-status.success small {
   /* The clock is the settled twin of the live band's `4m 36s · 12.7k tokens`
      readout, so it takes that exact spec — 12px muted behind a quiet middot —
-     instead of floating at the phrase's own size with no separator
-. */
+     instead of floating at the phrase's own size with no separator. */
   color: var(--mx-text-muted);
   /* One size and one 20px line box for every text on the settled row (phrase,
      detail, clock): a smaller face centred in the same row carries its own
@@ -446,10 +444,8 @@ html[data-pet-over-transcript] .live-activity-tokens {
 .compaction-divider::after {
   content: "";
   min-width: 24px;
-  /* 2px on a solid hairline ink: the old 1px of
-     48%-accent-tinted border was both thinner and paler than the seams around
-     it, so the rule that is supposed to SPLIT the thread was the faintest
-     line on screen. Neutral, because compaction is a timeline event that
+  /* 2px on a solid hairline ink: a thinner or paler rule would be fainter
+     than the seams around it, yet it is supposed to SPLIT the thread. Neutral, because compaction is a timeline event that
      needs no action — the colour budget stays with running work, failures
      and approvals. */
   height: 2px;
@@ -563,10 +559,11 @@ html[data-pet-over-transcript] .live-activity-tokens {
 }
 /* A transcript diff is the same class of object as a fenced code card, so it
    wears that card's chrome: the muted hairline and the shared card surface.
-   --mx-border plus a --mx-bg-layer-1 header band made it the brightest box in
-   the tool body while every neighbour was a flat tint. The header also carried NO padding — its icon, file name
-   and stat chip sat flush against the frame — and its border-bottom-color
-   never painted, because no border-style was ever set. */
+   --mx-border plus a --mx-bg-layer-1 header band would make it the brightest
+   box in the tool body while every neighbour is a flat tint. The header
+   carries padding (without it the icon, file name and stat chip touch the
+   frame) and sets a border-style with the colour, since a colour alone
+   paints no separator; both are in `.diff-file > header` below. */
 .code-diff {
   border-radius: var(--mx-radius-lg);
   background: transparent;
@@ -581,7 +578,7 @@ html[data-pet-over-transcript] .live-activity-tokens {
   background: var(--mx-surface-plate);
   font-size: var(--mx-font-meta);
 }
-/* Multi-file patches: the removed band used to separate stacked files. */
+/* Multi-file patches: a top rule separates stacked files. */
 .diff-file + .diff-file > header {
   border-top: var(--mx-hairline) solid var(--mx-border-muted);
 }

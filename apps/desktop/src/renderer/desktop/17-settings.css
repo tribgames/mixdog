@@ -5,8 +5,7 @@
 .mixdog-settings-layer {
   /* Air above and below a panel dialog, roomier on a taller window: panels
      grow with the window down to it instead of stopping at a fixed height
-     and leaving the rest empty (user: 상하로 범위 늘어나면 더 늘릴 순 없나
-     가변으로 / 상하여백은 넉넉하게 줘 답답하지 않게). */
+     and leaving the rest empty. */
   --settings-layer-margin: clamp(16px, 6vh, 72px);
   --settings-layer-safe-top: calc(env(titlebar-area-height, 0px) + var(--settings-layer-margin));
   --settings-layer-safe-bottom: var(--settings-layer-margin);
@@ -22,12 +21,10 @@
   padding: var(--settings-layer-safe-top) 16px var(--settings-layer-safe-bottom);
   box-sizing: border-box;
   /* The dialog system's scrim, blur included (30-dialogs.css): Settings was
-     the one modal whose backdrop stayed sharp behind it (user: 팝업들
-     스타일 중구난방). */
+     the one modal whose backdrop stayed sharp behind it. */
   background: var(--mx-scrim);
   backdrop-filter: blur(2px);
-  /* The dialog system's entrance too: Settings was the one modal that
-     appeared in a single frame. The layer leaves display:none to open, which
+  /* The dialog system's entrance too. The layer leaves display:none to open, which
      restarts both animations on every open. */
   animation: mx-scrim-in var(--mx-motion-chrome);
 }
@@ -82,8 +79,7 @@
   min-height: 48px;
   flex: 0 0 48px;
   padding: 0 12px 0 16px;
-  /* No seam under the title: the page runs on one plate (user: 프레임리스로
-     최대한). */
+  /* No seam under the title: the page runs on one plate. */
   border-bottom: 0;
   background: var(--mx-bg-base);
 }
@@ -102,8 +98,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   /* Page title: Settings and the large command dialogs are pages, one step
-     over the 16px panel/editor-card titles (user: 헤더 폰트 사이즈 너무 작은
-     거 아니냐 · 폰트 위계도 조사해 봐). */
+     over the 16px panel/editor-card titles. */
   font-size: var(--mx-font-page-title);
   font-weight: var(--mx-weight-semibold);
   line-height: var(--mx-line-page-title);
@@ -164,9 +159,9 @@
   color: var(--mx-text);
   font-size: var(--mx-font-body);
   font-weight: var(--mx-weight-semibold);
-  /* The UI line box every other heading and label sits on. At 1 the box was
-     exactly the glyph height: Hangul and descenders had no room, and the
-     heading was the one title in the app off the 20px rhythm. */
+  /* The UI line box every other heading and label sits on. A line-height of 1
+     is exactly the glyph height, leaving Hangul and descenders no room and
+     breaking the 20px rhythm. */
   line-height: var(--mx-line-ui);
 }
 .settings-group > header p {
@@ -298,7 +293,7 @@
 }
 /* Healthy is the resting state: a neutral pill whose dot alone carries the
    green — one green pill per account made the providers page read as a wall
-   of badges (user: 색감 점검). Warning and danger keep their full tint because
+   of badges. Warning and danger keep their full tint because
    they ask for action. */
 .settings-status--positive i {
   background: var(--mx-success);
@@ -323,8 +318,7 @@
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-label);
   /* line-height:1 clipped the text box to the em square, so the label rode
-     HIGH against a centered row (user: settings label is not vertically
-     centered). A 20px box balances the half-leading. */
+     HIGH against a centered row. A 20px box balances the half-leading. */
   line-height: var(--mx-line-ui);
   letter-spacing: 0;
 }
@@ -614,7 +608,7 @@
   background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-action-bg);
 }
 /* Destructive actions rest neutral and turn red on intent: a red label on
-   every account row put five alarms on one page (user: 색감 점검). The
+   every account row put five alarms on one page. The
    confirmation dialog still states the danger in full. */
 .settings-action.danger:hover:not(:disabled),
 .settings-action.danger:focus-visible {
@@ -670,7 +664,7 @@
   gap: 8px;
 }
 /* Edit/Delete and Save/Cancel share one column width so entering edit mode
-   never shifts the action column (user-flagged). */
+   never shifts the action column. */
 .core-memory-actions button {
   min-width: 64px;
 }
@@ -760,8 +754,8 @@
   box-shadow: var(--mx-raised);
 }
 /* Full-surface loading (Settings/Command/Onboarding lazy chunks): a REAL
-   dim that owns the whole window — the old inset card let the app peek out
-   around a floating frame (user: 딤드할 거면 확실하게 영역 잡아라). */
+   dim that owns the whole window; an inset card would let the app peek out
+   around a floating frame. */
 .desktop-loading-surface--overlay {
   position: fixed;
   z-index: 79;

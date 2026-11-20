@@ -1,4 +1,4 @@
-/* The ONE error surface (user: 에러는 다 통일): panes, forms, settings rows and
+/* The ONE error surface: panes, forms, settings rows and
    toasts all paint the same unboxed line — red mark, one or two lines of copy,
    quiet text actions aligned under the copy. No card, no fill, no border. */
 .error-notice {

@@ -31,8 +31,9 @@
 @import "./desktop/19-studio.css";
 @import "./desktop/20-automation.css";
 /* Layer 21 is imported by the lazy OnboardingWizard module. Its selectors are
-   wizard-scoped, and Vite loads the chunk stylesheet before rendering it. The
-   shell rules that used to trail it live in shell-overrides.css below. */
+   wizard-scoped, and Vite loads the chunk stylesheet before rendering it.
+   Shell rules that must apply without opening the wizard live in
+   shell-overrides.css below. */
 @import "./desktop/22-markdown.css";
 @import "./desktop/23-route-editor.css";
 @import "./desktop/24-context-dock.css";

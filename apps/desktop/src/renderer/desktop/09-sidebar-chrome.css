@@ -1,7 +1,7 @@
 /* Desktop layer 09 — Rail usage toggle, sidebar shell, resize handle.
    Loaded in fixed order from ../desktop.css; the cascade depends on that
    order, so rules must never move between layers or be re-sorted. */
-/* Pinned usage (user: 핀모드): the rail button trades the pie glyph for a
+/* Pinned usage: the rail button trades the pie glyph for a
    per-brand stack — one icon with its worst-window percentage beneath. */
 .activity-rail > .sidebar-usage-toggle.is-pinned {
   height: auto;
@@ -12,7 +12,7 @@
   overflow: hidden;
   padding: 9px 0 8px;
   /* A monitoring readout must stay readable at rest — never the rail's 40%
-     inactive ghost ink (user: 색상이 애매). */
+     inactive ghost ink. */
   color: var(--mx-text-soft);
 }
 .rail-usage-pin-stack {
@@ -27,9 +27,8 @@
   justify-items: center;
   width: 100%;
 }
-/* One optical box per brand mark, dead-centered in the 47px cell (user:
-   아이콘 크기가 안 맞아 보임 — the glyphs ink the 40-unit viewBox very
-   differently, so inline sizing read ragged). */
+/* One optical box per brand mark, dead-centered in the 47px cell: the glyphs
+   ink the 40-unit viewBox very differently, so inline sizing reads ragged. */
 .rail-usage-pin-brand svg {
   display: block;
   width: 16px;
@@ -45,7 +44,7 @@
   /* Drawn larger, laid out at the row's 16px (rail-usage-pin-room.ts budgets 16). */
   margin-block: calc((16px - var(--mx-icon-lg)) / 2);
 }
-/* Miniature of the flyout meter (user: 프로그래스라도 중간에): a 3px track
+/* Miniature of the flyout meter: a 3px track
    between icon and number, filled in accent ink until the tone escalates. */
 .rail-usage-pin-brand > i {
   position: relative;
@@ -60,7 +59,7 @@
   position: absolute;
   inset: 0 auto 0 0;
   border-radius: inherit;
-  /* Calm resting fill (user: 파란색 너무 눈에 띔): quiet ink until the
+  /* Calm resting fill (a blue fill at rest is too eye-catching): quiet ink until the
      warning/danger tones below take over. */
   background: var(--mx-meter-fill);
 }
@@ -79,8 +78,8 @@
   text-align: left;
   font-size: var(--mx-font-micro);
   /* A gauge readout, not a heading: regular weight keeps the figures
-     legible without out-weighing the rail icons (user: % 가 좀 굵다 →
-     레일 % 폰트 굵기 조정; 500 still read bold under the 22px glyphs). */
+     legible without out-weighing the rail icons; 500 still reads bold
+     under the 22px glyphs. */
   font-weight: var(--mx-weight-regular);
   line-height: 11px;
   letter-spacing: 0;
@@ -104,7 +103,7 @@
 }
 .rail-usage-pin-mark > sup {
   position: absolute;
-  /* Above the meter that follows it in the slot (user: 배지가 프로그래스바보다 앞으로). */
+  /* Above the meter that follows it in the slot. */
   z-index: 1;
   right: -6px;
   bottom: -3px;
@@ -161,8 +160,7 @@
 }
 /* ONE hairline per seam: the sidebar already draws its right edge and the
    activity rail its own — the main panel adding a second left hairline
-   doubled the divider to 2px whenever the sidebar was open (user: 테두리
-   굵기 중구난방/겹침). */
+   doubled the divider to 2px whenever the sidebar was open. */
 .workspace {
   position: relative;
   margin: 0;
@@ -185,7 +183,7 @@
      scroll region absorbs this space, so Settings never sinks into the
      clipped bottom edge even when the session list is full. No TOP inset:
      the panel header forms the same 36px band as the workspace tab strip
-     next to it (user: 타이틀이 탭보다 아래에 있어 어색). */
+     next to it. */
   padding: 0 8px 8px;
   border: 0;
   /* Structure line: the session rail separates from the main
@@ -206,21 +204,19 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  /* Roomy title band shared with every rail page title (user: 상하 헤더
-     패딩이 여유가 없게 느껴져). */
+  /* Roomy title band shared with every rail page title. */
   height: var(--mx-rail-panel-band);
   padding: 0 4px 0 6px;
   color: var(--mx-text);
   font-size: var(--mx-rail-panel-title);
   /* The 16px size already ranks the title over the 14px labels; 600 on top
-     of it read heavy (user: 헤더랑 카테고리 굵기 넘 굵은 거 아니냐). */
+     of it read heavy. */
   font-weight: var(--mx-weight-medium);
   line-height: var(--mx-line-emphasis);
   letter-spacing: 0;
   user-select: none;
 }
-/* ONE vertical rhythm for every rail page (user: 상단·하단 패딩이 안
-   맞는다 + 서치박스 위쪽 패딩): content opens --mx-rail-panel-content-top
+/* ONE vertical rhythm for every rail page: content opens --mx-rail-panel-content-top
    under the title band and closes 12px before the panel bottom. In-page
    gaps stay 8. */
 .sidebar.session-sidebar > .session-sidebar-scroll,
@@ -285,8 +281,8 @@
 /* Desktop rail: mirror the dock's fixed-edge clip. The inner layout holds
    the rail's OPEN width (not just the 232px floor), anchored to the fixed
    left edge, so collapse/expand is a pure right-edge clip with zero rewrap
-   between the open width and the floor (user: 좌측이 우측이랑 다르게 튀는
-   느낌). The ≤760px drawer keeps the floor-based minimum above because its
+   between the open width and the floor (a rewrap makes the left edge jump
+   unlike the right). The ≤760px drawer keeps the floor-based minimum above because its
    width is viewport-capped below the resizable open width. */
 @media (min-width: 761px) {
   .sidebar.session-sidebar > .session-panel-header,

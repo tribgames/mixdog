@@ -36,7 +36,7 @@
 }
 /* A pane entering a session carries the same mark at the New Task
    watermark's scale and ink, so the hand-off from New Task never shrinks the
-   logo to a dot (user: 세션 진입 시 40px 로딩이 너무 작다). The arcs keep
+   logo to a dot. The arcs keep
    their sweep; the box opacity sets the watermark's quiet weight. */
 .pane-surface-cover .window-loading-mark {
   width: 200px;

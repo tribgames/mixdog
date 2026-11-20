@@ -14,14 +14,13 @@
   position: fixed;
   /* The scrim covers the window band too, so the DOM titlebar dims with the
      native caption band (titlebar-dim.ts composites the same scrim onto the
-     WCO). Only the CARD keeps clear of the min/max/close controls
-     (user: 팝업이 위에 - ㅁ x 를 가린다). */
+     WCO). Only the CARD keeps clear of the min/max/close controls. */
   inset: 0;
   z-index: var(--mx-dialog-z-index);
   display: grid;
   place-items: center;
   /* SYMMETRIC block padding: the one-sided caption reserve pushed every
-     card 12-13px below true center (user: 가운데 정렬 안 맞는다). Mirroring
+     card 12-13px below true center. Mirroring
      the reserve keeps cards clear of min/max/close AND dead-centered; tall
      editors give up ~25px of height for the balance. */
   padding: calc(var(--titlebar-height) + 14px) clamp(12px, 3vw, 24px);
@@ -29,7 +28,8 @@
   backdrop-filter: blur(2px);
   animation: mx-scrim-in var(--mx-motion-chrome);
 }
-/* Pane-scoped scrim (user: 골 설정 뜨는 게 PANE 중앙에 뜨는 게 낫지 않을까):
+/* Pane-scoped scrim, so a dialog raised from a pane centres on that pane
+   rather than the window:
    the same skin, but it fills only the `.pane-cell` that raised the dialog —
    sibling panes stay clear and interactive, and the caption band is not in
    play, so no titlebar reserve is needed. Sits above the pane's dock overlay
@@ -70,14 +70,13 @@
   box-sizing: border-box;
   min-width: 0;
   max-width: 100%;
-  /* Each family caps its card through --mx-dialog-max-height (user: 팝업
-     상하 최대 크기 팝업마다 다르게); the layer's own height still wins on a
-     short window. Unset keeps the old fill-the-layer behavior. */
+  /* Each family caps its card through --mx-dialog-max-height; the
+     layer's own height still wins on a short window. Unset fills the layer. */
   max-height: min(var(--mx-dialog-max-height, 100%), 100%);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  /* The popup skin (user: 팝업 디자인 공통 규격, 컨텍스트 창 톤): base plate,
+  /* The popup skin: base plate,
      one strong hairline, floating elevation. Cards take the larger radius. */
   border: var(--mx-popup-border);
   border-radius: var(--mx-popup-radius-card);
@@ -375,8 +374,7 @@
   color: var(--mx-icon);
   background: var(--mx-hover);
 }
-/* Footer joins the card body: no hairline, no separate plate (user: 확인/취소
-   구역이 분리돼 보이는 게 별로다) — the button row alone closes the card.
+/* Footer joins the card body: no hairline, no separate plate — the button row alone closes the card.
    The schedules family keeps its own sticky geometry in its layer. */
 .settings-confirm-dialog > footer,
 .settings-oauth-dialog > footer,
@@ -562,8 +560,7 @@
   outline: 1px solid var(--mx-focus);
   outline-offset: 0;
 }
-/* ONE control skin for every dialog form field (user: 테두리 스타일이
-   중구난방): 32px, 8px radius, hairline at rest, and the canonical keyboard
+/* ONE control skin for every dialog form field: 32px, 8px radius, hairline at rest, and the canonical keyboard
    ring tucked one pixel off the field instead of floating around it. The
    guided-setup fields declare the same skin in their own layer. */
 .schedules-dialog input:where(:not([type="checkbox"], [type="radio"])),
@@ -591,7 +588,7 @@
 .schedules-dialog input:where(:not([type="checkbox"], [type="radio"])):focus,
 .settings-oauth-dialog input:where(:not([type="checkbox"], [type="radio"])):focus,
 .mx-dialog input:where(:not([type="checkbox"], [type="radio"])):focus {
-  /* Quiet focus (user: 호버나 선택 시 강조 최소화): a single hairline ring
+  /* Quiet focus: a single hairline ring
      tight to the field instead of a thick detached halo. */
   outline: 1px solid var(--mx-focus);
   outline-offset: 0;
@@ -607,14 +604,12 @@
    in :root and White folded into the light theme, so the palette no longer
    depends on a desktop-only attribute that the web shell never set. */
 /* Alpha ink dropped labels a full contrast step below their neighbours
-   (measured 0.55α tab labels vs 15:1 body text — user: 일부 폰트가 너무
-   흐리다). Labels move to SOLID ink; alpha stays for decoration.
+   (measured 0.55α tab labels vs 15:1 body text). Labels move to SOLID ink; alpha stays for decoration.
    An inactive tab is not a disabled tab: it is a document you can read the
    name of, and its glyph inherits the same currentColor, so muted dimmed the
-   title AND the icon together (user: 선택하지 않은 pane 라벨이 너무 연하다).
+   title AND the icon together.
    The resting label takes the strip's idle ink (--mx-tab-idle-ink): soft
-   (85%) and then 78% both read as the selection's own color (user: 탭
-   선택하나 안 하나 색감 같아 보인다). */
+   (85%) and then 78% both read as the selection's own color. */
 .workspace-tab {
   color: var(--mx-tab-idle-ink);
 }
@@ -631,8 +626,7 @@
   color: var(--mx-row-meta-ink);
 }
 /* ── Rail gutter ───────────────────────────────────────────────────────────
-   ONE token drives every left/right inset in both rails (user: 공통값으로
-   한 번에 적용되게). Panel title, category heads, section heads, session rows
+   ONE token drives every left/right inset in both rails. Panel title, category heads, section heads, session rows
    and panel cards all start on the same axis, and their trailing actions land
    in the same right column. Nested groups add NO second inset — the group
    header already says they are nested. */
@@ -649,15 +643,13 @@
 /* Desktop left rail: the trailing glyph CENTER sits on the card's inner text
    line (12px in from the box line), the axis the Agents dock's "…" already
    uses — its 24px trigger closes flush on the 12px gutter. The 20px line put
-   every "+", "…", chevron, dot and spinner 8px further inboard than the dock
-   (user: 에이전트탭처럼 맞춰줘 — + 버튼, > 버튼 같은 것들). Phone boxes are
+   every "+", "…", chevron, dot and spinner 8px further inboard than the dock. Phone boxes are
    44px and cannot center that close to the 8px rail inset, so they keep 20. */
 html:not([data-mixdog-mobile-tabs]) :is(.session-sidebar, .session-sidebar-panels) {
   --mx-rail-trailing-center: 12px;
 }
 /* ── Left-rail BOX LINE ──────────────────────────────────────────────────
-   ONE 12px inset from the panel edge is THE line (user: 아이템까지의
-   패딩을 고려하고 카테고리나 헤더는 그 선에 맞추고 똑같이): every item
+   ONE 12px inset from the panel edge is THE line: every item
    box — cards, session pills, the search field, the filter tags — opens on
    it, and header/category TEXT sits on the same line instead of a deeper
    text gutter. Item text keeps its own 14px inside its box. The sidebar
@@ -673,8 +665,7 @@ html:not([data-mixdog-mobile-tabs]) :is(.session-sidebar, .session-sidebar-panel
   padding-inline: 4px;
 }
 /* Desktop moves the box line to 16px: at 12px the titles and rows sat
-   against the panel edge (user: 패딩이 좀 빡빡한가 — 사이드레일 패널 헤더
-   왼쪽). Header and lists step together, so the trailing controls keep their
+   against the panel edge. Header and lists step together, so the trailing controls keep their
    shared axis. The phone drawer keeps 12px. */
 html:not([data-mixdog-mobile-tabs])
   :is(
@@ -923,7 +914,7 @@ html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .uti
    Shared left/right/bottom ladder: panel title 16/600 > item and tab 14/400
    > supporting line 13. Every group label above a list wears the
    --mx-rail-label-* tokens (01-tokens.css), so the hierarchy no longer flips
-   as the panel changes (user: 텍스트 위계 정리, 규칙 정리). Text walks the
+   as the panel changes. Text walks the
    12px gutter; trailing actions land on the shared right column. */
 .session-sidebar .sidebar-recent-heading {
   padding-inline: 0;
@@ -943,13 +934,12 @@ html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .uti
 }
 
 /* ── Color roles ───────────────────────────────────────────────────────────
-   Four roles, one meaning each (user decision): indigo = INTERACTION (focus,
+   Four roles, one meaning each: indigo = INTERACTION (focus,
    selection, links, primary), amber = NEEDS YOU (approvals, attention),
    green/red = terminal OUTCOME, and work in progress stays neutral ink with
    motion. Routine turn milestones were painted with the interaction accent,
    which made the brand color ordinary and left nothing to notice. */
-/* The running band is the ONE place the interaction accent belongs (user:
-   스피너는 강조색): it is the live, in-progress state of the surface you are
+/* The running band is the ONE place the interaction accent belongs: it is the live, in-progress state of the surface you are
    looking at. Muted made the rhombus and its phrase the same washed grey, so
    the band read as disabled and the shimmer had nothing to peak against —
    the accent restores both. The band keeps the accent to itself; settled
@@ -958,9 +948,8 @@ html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .uti
    is declared here anymore. */
 /* A settled turn stays NEUTRAL — hue is reserved for the running band and for
    tool outcomes that actually differ (red / amber) — but it is not switched
-   off either. These three used to sit on --mx-text-faint, our weakest ink;
-   the phrase and ◈ now rest one step under full ink and the clock takes the
-   muted tier under them. Completed rows stay static across focus changes. */
+   off either. The phrase and ◈ rest one step under full ink and the clock
+   takes the muted tier under them (never --mx-text-faint, the weakest ink). Completed rows stay static across focus changes. */
 .turn-status.complete,
 .turn-status.success {
   color: var(--mx-text-muted);
@@ -978,8 +967,8 @@ html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .uti
   color: var(--mx-danger);
 }
 /* An interruption is INFORMATION, not an error and not a task: it dropped to
-   neutral ink so the warm tones stay reserved (user: 빨간색을 둘 다 쓰냐 —
-   실패와 사용량 경고에만 남긴다). */
+   neutral ink so the warm tones stay reserved (red stays only for failures
+   and usage warnings). */
 .turn-status.interrupted {
   color: var(--mx-text-muted);
 }
@@ -995,7 +984,7 @@ html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .uti
 /* ── Route menu drill-down (narrow surfaces) ────────────────────────────────
    A phone has no room for a second column beside the sheet, and the stacked
    fallback left the submenu pinned against the viewport top, detached from
-   the pill (user: 서브 창이 공간이 부족해서 위에 붙어 뜬다). Below that
+   the pill. Below that
    width the pane REPLACES the sheet inside the same footprint — the edge
    facing the pill stays put, the root steps aside, and a back header walks
    one level up, exactly like a phone settings screen. */

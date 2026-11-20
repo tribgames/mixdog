@@ -8,8 +8,7 @@
 }
 /* ONE pane inset ladder. Every surface inside a pane — header, transcript,
    composer, watermark, Studio topbar/results/dock — spends the SAME inset and
-   the SAME centered column, so no two edges drift apart at any pane width
-. Scrollers get their own
+   the SAME centered column, so no two edges drift apart at any pane width. Scrollers get their own
    column token: the reserved scrollbar track is paid out of the RIGHT inset
    instead of stealing a second column from the reading frame. */
 .workspace > .session-header,
@@ -423,7 +422,7 @@ html:is([data-mixdog-skin], [data-mixdog-user-theme]) .welcome-logo {
   gap: 8px;
   margin-top: 42px;
   font-size: var(--mx-font-ui);
-  /* Description-foreground-class ink — faint was illegible. */
+  /* Description-foreground-class ink; faint is illegible here. */
   color: var(--mx-text-muted);
 }
 .welcome-shortcuts > div {
@@ -588,10 +587,10 @@ html:is([data-mixdog-skin], [data-mixdog-user-theme]) .welcome-logo {
 .response-footer {
   min-height: 24px;
   display: flex;
-  /* Centre — and every text in this row now runs at ONE size (see
+  /* Centre — and every text in this row runs at ONE size (see
      .message-time). Two different type sizes can share a row either by their
      boxes or by their baselines, never by both, and the leftover fraction
-     snapped the clock a whole device pixel off at 125%/150% scaling. Same size = same box = same baseline. */
+     snaps the clock a whole device pixel off at 125%/150% scaling. Same size = same box = same baseline. */
   align-items: center;
   /* Same 7px the status rows and the live band use, so the copy control sits
      on the row's own rhythm instead of a footer-only one. */
@@ -599,7 +598,7 @@ html:is([data-mixdog-skin], [data-mixdog-user-theme]) .welcome-logo {
   margin-top: 6px;
   color: var(--mx-text-faint);
 }
-/* Uniform 20px rhythm: a response footer now exists ONLY on a settled
+/* Uniform 20px rhythm: a response footer exists ONLY on a settled
    turn (turn-status / compaction divider), so it always carries visible
    content and stays in flow — the 20px gap starts under it. Mid-turn parts
    render no footer at all, so nothing floats over the next row. */
@@ -805,7 +804,7 @@ html:is([data-mixdog-skin], [data-mixdog-user-theme]) .welcome-logo {
   color: var(--mx-icon-muted);
   opacity: 0.7;
 }
-/* Phone: the text takes the touch tier; Send now a 44px tap target. */
+/* Phone: the text takes the touch tier; "Send now" is a 44px tap target. */
 html[data-mixdog-mobile-tabs] .message.user .message-steer {
   font-size: 13px;
 }
@@ -822,8 +821,8 @@ html[data-mixdog-mobile-tabs] .message.user .message-steer {
 }
 .message.user .message-body {
   width: fit-content;
-  /* The user bubble measure caps at 64ch — full-width lines were a
-     major readability drag for long prompts. */
+  /* The user bubble measure caps at 64ch; full-width lines drag readability
+     for long prompts. */
   max-width: min(100%, 64ch);
   padding: 9px 16px;
   /* A borderless plate in the prompt card's family: the same 16px round and,

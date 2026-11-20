@@ -404,14 +404,11 @@
 }
 .approval-edit textarea {
   min-height: 56px;
-  max-height: 112px;
+  /* Inside the preview, which scrolls on its own: the body field stays short so
+     the card shows a whole email without two nested scrollbars. */
+  max-height: 72px;
   resize: vertical;
   field-sizing: content;
-}
-/* Inside the preview, which scrolls on its own: the body field stays short so
-   the card shows a whole email without two nested scrollbars. */
-.approval-edit textarea {
-  max-height: 72px;
 }
 :is(.approval-edit textarea, .approval-secret):focus-visible {
   outline: 2px solid var(--mx-accent);

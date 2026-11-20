@@ -6,7 +6,7 @@
 /* The layer (scrim, centring, caption reserve) and the card skin (plate,
    hairline, elevation, entry motion, fixed 720 height) are the dialog
    system's (30-dialogs.css); this layer owns only the wizard's own width,
-   inner gutter and type. Fixed height (user decision): the card must not
+   inner gutter and type. Fixed height: the card must not
    resize between steps; sparse steps fill it with taller portrait cards. */
 .onboarding-dialog {
   /* Height follows the step (short steps no longer leave a dead band under
@@ -149,8 +149,7 @@
   flex-direction: column;
 }
 /* Step entry fades only: a translateY pushed the incoming step past the
-   scroll box for a few frames, so a scrollbar flashed on every step change
-   (user: 진입할 때 스크롤바가 잠시 생겼다 사라진다). The 20px gap is the
+   scroll box for a few frames, so a scrollbar flashed on every step change. The 20px gap is the
    wizard's section rhythm at the default install size (1200×800). */
 .onboarding-step-view {
   flex: 1;
@@ -276,8 +275,7 @@
   box-shadow: var(--mx-popup-action-ring-hover);
 }
 /* Secondary actions (Forget/Disable/Cancel/Download) go ghost so each row
-   keeps ONE plated action. A hairline still reads as a BUTTON (user: 포갓엔
-   버튼이 없고) — the quiet twin differs by ink, not by losing its frame. */
+   keeps ONE plated action. A hairline still reads as a BUTTON — the quiet twin differs by ink, not by losing its frame. */
 .onboarding-provider-list button.ghost,
 .onboarding-card-actions button.ghost {
   color: var(--mx-text-muted);
@@ -291,8 +289,7 @@
   box-shadow: none;
 }
 /* Separated row cards instead of one tall sheet: the stack keeps an even
-   rhythm and no half-cut hairline at the fold. The rows are FLAT (user:
-   아이템 프레임이 블록처럼 느껴진다) — a hairline ring on the card's own
+   rhythm and no half-cut hairline at the fold. The rows are FLAT — a hairline ring on the card's own
    plate, a hover wash, no lift gradient and no drop shadow. */
 .onboarding-provider-list {
   display: grid;
@@ -332,7 +329,7 @@
 .onboarding-provider-row > .onboarding-provider-action > button {
   width: 100%;
 }
-/* Shared control columns (user: 정렬): title | get-key link | input 240 |
+/* Shared control columns: title | get-key link | input 240 |
    Forget | main action. The list owns the tracks and every row subgrids
    them, so inputs and buttons line up across rows, the main action always
    ends on the list's right edge, and an unused Forget slot collapses. */
@@ -391,7 +388,7 @@
   text-transform: uppercase;
 }
 /* The trailing hairline makes each category read as a divider, not a stray
-   label (user: 카테고리 구분 잘 안 보임). */
+   label. */
 .onboarding-model-section > h3::after {
   content: "";
   flex: 1;
@@ -421,8 +418,7 @@
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-meta);
 }
-/* ONE control skin for every wizard field, identical to the dialog system's
-   (user: 테두리 스타일이 중구난방): 32px, 8px radius, hairline at rest, the
+/* ONE control skin for every wizard field, identical to the dialog system's: 32px, 8px radius, hairline at rest, the
    keyboard ring tucked one pixel off the field. */
 .onboarding-provider-list input,
 .onboarding-profile-fields input,
@@ -678,7 +674,7 @@
   justify-content: space-between;
   gap: 12px;
   /* No hairline: like every other card, the button row alone closes the
-     card (user: 확인/취소 구역이 분리돼 보이는 게 별로다). */
+     card. */
   padding-top: 12px;
 }
 /* margin-left keeps Back/Next right-aligned on the last step, where Skip

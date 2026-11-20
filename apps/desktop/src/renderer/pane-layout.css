@@ -158,8 +158,7 @@
   color: var(--mx-text);
   background: var(--mx-window-band);
 }
-/* Inline (wide) open is instant — same one-frame commit as the left sidebar
-. Only the ≤940px sheet below keeps
+/* Inline (wide) open is instant — same one-frame commit as the left sidebar. Only the ≤940px sheet below keeps
    its slide-in motion. */
 /* Floor-overlap state: the panel rides OVER the pane bottom once the pane is
    at its floor — lift it above the workspace and read as a covering sheet. */
@@ -186,9 +185,8 @@
   .bottom-panel:not([data-settled="true"]) {
     animation: bottom-sheet-in var(--mx-sheet-motion);
   }
-  /* Exit mirrors the entry. The panel used to
-     unmount on close, so CSS never had an element left to animate; it is now
-     held for the sheet clock with data-state="closed" and slides back out. */
+  /* Exit mirrors the entry. The panel is held for the sheet clock with
+     data-state="closed" so CSS has an element left to slide back out. */
   .bottom-panel {
     transition: transform var(--mx-sheet-motion);
   }
@@ -922,7 +920,7 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .pane-side-dock-heade
 /* Narrow pane: even the minimum unit would crush the conversation below its
    360px floor, so the WHOLE unit — header, panel, browser, diff pair — floats
    over the pane instead. The dock host MEASURES its own
-   cell, so this replaces the old fixed 720px/940px band rules. */
+   cell, so no fixed viewport-width bands are needed. */
 .pane-side-dock[data-overlay="true"] {
   position: absolute;
   z-index: 30;

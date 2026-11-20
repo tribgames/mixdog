@@ -172,8 +172,7 @@ html[data-mixdog-mobile-tabs] .session-sidebar-panels .schedules-page > .sidebar
    rhythm. A second line that is only prose (a workflow's description, a
    project's path) leaves the row for its tooltip; one that carries data (an
    agent's model, a schedule's cadence) stays on one ellipsized line, held
-   2px under its title so a row binds tighter than its neighbours
-. */
+   2px under its title so a row binds tighter than its neighbours. */
 .session-sidebar-panels .schedules-pane .schedules-list {
   gap: 4px;
 }
@@ -411,8 +410,7 @@ html[data-mixdog-mobile-tabs] .session-sidebar-panels .schedules-page > .sidebar
   border: 0;
   font: inherit;
 }
-/* A disabled entry only dims its icon so the list still reads as one column
-. */
+/* A disabled entry only dims its icon so the list still reads as one column. */
 .session-sidebar-panels .sidebar-resource-row[data-enabled="false"] .sidebar-resource-icon {
   opacity: var(--mx-op-disabled);
 }
@@ -1250,8 +1248,8 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
 .session-sidebar .session-row {
   --session-row-action-surface: var(--mx-window-band);
   position: relative;
-  /* Grok-web rail rhythm: 36px rows breathe like grok.com's nav; the old
-     32px row density read packed next to it. */
+  /* Grok-web rail rhythm: 36px rows breathe like grok.com's nav; a 32px
+     row density reads packed next to it. */
   height: 36px;
   min-height: 36px;
   gap: 8px;
@@ -1470,9 +1468,8 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
 .session-sidebar .session-row:has(.session-row-main:focus-visible) {
   box-shadow: var(--mx-list-focus-ring);
 }
-/* Rows and list surfaces keep the user's "no blue Tab outline" decision, but
-   the sweep must not swallow real controls — keyboard users could not see
-   where focus was. Narrowed to non-control focus targets: every control that
+/* Rows and list surfaces show no blue Tab outline, but the sweep must not
+   swallow real controls — keyboard users need to see where focus is. Narrowed to non-control focus targets: every control that
    wants no ring (rail buttons, menu items, composer ghost triggers, the SCM
    commit button…) still opts out locally, and the canonical
    `button:focus-visible` ring at the top of this sheet covers the rest. */
@@ -1646,8 +1643,8 @@ html[data-mixdog-mobile-tabs]
 .studio-panel > .sidebar-recent:has(> .session-list) + .sidebar-recent {
   margin-top: 12px;
 }
-/* The Sessions surface: the scroller owns the 12px top inset the header's
-   creation action used to leave to the launcher block. */
+/* The Sessions surface: the scroller owns the 12px top inset below the
+   header's creation action. */
 .session-sidebar-sessions {
   display: flex;
   flex-direction: column;

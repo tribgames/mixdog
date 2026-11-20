@@ -1,7 +1,7 @@
 /* Skill and MCP editors inside the Extensions card: the trigger textarea,
    the Markdown instructions field, the MCP transport switch and the
    argument / environment / header list editors. Fields flow flat on the
-   card's 16px rhythm (user: 팝업 문법 통일) — no inner cards. */
+   card's 16px rhythm — no inner cards. */
 
 /* Standard skill editor: the trigger is prose, while instructions retain the
    shared Markdown editor grammar used by workflows and agents. */
