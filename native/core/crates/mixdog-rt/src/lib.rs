@@ -232,6 +232,20 @@ pub(crate) fn backend() -> &'static dyn Backend {
     }
 }
 
+/// `work` under `value` of the task-local `key`, when the caller's task had one ([`carry_task_locals`]).
+pub async fn within_local<T: 'static, F: Future>(key: &'static tokio::task::LocalKey<T>, value: Option<T>, work: F) -> F::Output {
+    match value {
+        Some(value) => key.scope(value, work).await,
+        None => work.await,
+    }
+}
+
+/// `work`, for a task the caller spawns to do part of its own work, under this crate's task-locals as the caller's task has
+/// them now: the tool call it runs ([`in_tool_call`]) and the provider work it traces ([`node_log::provider_work`]).
+pub fn carry_task_locals<F: Future>(work: F) -> impl Future<Output = F::Output> {
+    node_log::carry(lanes::carry(work))
+}
+
 /// Spawns `fut` on the executor of `class`, instrumented under `name` (RL §13).
 pub fn spawn<F>(name: &'static str, class: TaskClass, fut: F) -> tokio::task::JoinHandle<F::Output>
 where

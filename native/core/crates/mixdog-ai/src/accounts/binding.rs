@@ -30,6 +30,11 @@ pub async fn with_provider_account<F: Future>(provider: &str, id: &str, run: F) 
     SCOPED.scope(scope, run).await
 }
 
+/// `work` under the account scope of the task that calls this ([`crate::task_context::carry`]).
+pub(crate) fn carry<F: Future>(work: F) -> impl Future<Output = F::Output> {
+    mixdog_rt::within_local(&SCOPED, SCOPED.try_with(Clone::clone).ok(), work)
+}
+
 /// `replaceProviderAuthBindings(next)`: returns the restore step (once only).
 pub fn replace_provider_auth_bindings(next: HashMap<String, String>) -> impl FnOnce() {
     let previous = BINDINGS.write().unwrap_or_else(PoisonError::into_inner).replace(Arc::new(next));

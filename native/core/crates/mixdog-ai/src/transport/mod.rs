@@ -26,8 +26,7 @@ mod wsio;
 #[cfg(feature = "replay-bytes")]
 pub mod replay_bytes;
 #[cfg(any(test, feature = "test-support"))]
-pub mod loopback;
-#[cfg(any(test, feature = "test-support"))]
+pub mod loopback;#[cfg(any(test, feature = "test-support"))]
 pub mod manifest;
 /// The provider recorders' network redirect: requests and WebSocket dials to a scripted loopback endpoint.
 #[cfg(any(test, feature = "test-support"))]

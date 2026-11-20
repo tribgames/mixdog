@@ -63,6 +63,12 @@ tokio::task_local! {
     static REFUSAL: Arc<Mutex<Option<Refusal>>>;
 }
 
+/// `work` under the send headers and the refusal slot of the task that calls this ([`crate::task_context::carry`]).
+pub(crate) fn carry<F: std::future::Future>(work: F) -> impl std::future::Future<Output = F::Output> {
+    let work = mixdog_rt::within_local(&SEND_HEADERS, SEND_HEADERS.try_with(Clone::clone).ok(), work);
+    mixdog_rt::within_local(&REFUSAL, REFUSAL.try_with(Arc::clone).ok(), work)
+}
+
 /// An HTTP refusal as it arrived.
 #[derive(Clone)]
 struct Refusal {
