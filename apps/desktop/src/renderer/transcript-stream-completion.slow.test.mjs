@@ -195,7 +195,8 @@ async function streamOnce(browser, assets, stream, completeAfter) {
   try {
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
-    await page.setViewport({ width: 900, height: 560 });
+    // Tall enough that the whole reply stays within the parking reach: the frames count the characters in the DOM.
+    await page.setViewport({ width: 900, height: 2400 });
     await page.setContent('<!doctype html><html><head></head><body><div id="root"></div></body></html>');
     await page.evaluate(VIRTUAL_CLOCK);
     await page.addStyleTag({ content: assets.css });
