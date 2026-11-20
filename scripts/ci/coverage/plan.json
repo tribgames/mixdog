@@ -131,11 +131,6 @@
         {
           "id": "root",
           "producer": "node"
-        },
-        {
-          "id": "child:apps/desktop/src/main/web-push.test.mjs",
-          "producer": "node",
-          "parent": "root"
         }
       ]
     },
@@ -876,21 +871,6 @@
       ]
     },
     {
-      "name": "desktop-web-push-child",
-      "family": "node",
-      "owner": "release-engineering",
-      "include": [
-        "apps/desktop/src/main/web-push.test.mjs"
-      ],
-      "requires": [
-        {
-          "anyOf": [
-            "linux/desktop-slow/1of1#child:apps/desktop/src/main/web-push.test.mjs"
-          ]
-        }
-      ]
-    },
-    {
       "name": "relay",
       "family": "node",
       "owner": "release-engineering",
@@ -1339,12 +1319,6 @@
       "owner": "release-engineering"
     },
     {
-      "glob": "apps/desktop/src/shared/test-recorded/record/record-defaults-separation.mjs",
-      "class": "helper",
-      "reason": "one-off recorder of Node's boot lines (needs the Node repository); it registers no test",
-      "owner": "release-engineering"
-    },
-    {
       "glob": "benchmarks/terminal-bench-2.1/harness/tests/test_graph_exec_override.py",
       "class": "not-run-by-decision",
       "reason": "not run by decision: `harbor` (the Terminal-Bench package) could be installed on a hosted runner, and no leg installs it",
@@ -1366,30 +1340,6 @@
       "glob": "benchmarks/terminal-bench-2.1/harness/tests/test_graph_runtime.py",
       "class": "not-run-by-decision",
       "reason": "not run by decision: one case builds the native graph through a Docker daemon (src_overlay._run_docker); a hosted Linux runner has Docker, and the gate's Python leg does not use it",
-      "owner": "release-engineering"
-    },
-    {
-      "glob": "packages/protocol-client/test/node-oracle/agent-room-rows.test.ts",
-      "class": "not-run-by-decision",
-      "reason": "manual room-row replay that compares local Rust replay outputs with native/core/fixtures/agent-room-cases/golden.json; the gate does not provision those inputs",
-      "owner": "release-engineering"
-    },
-    {
-      "glob": "packages/protocol-client/test/node-oracle/session-state-parity.test.ts",
-      "class": "not-run-by-decision",
-      "reason": "manual session-state replay whose frames and field list come from the local-only native/core/fixtures/session-state recordings",
-      "owner": "release-engineering"
-    },
-    {
-      "glob": "src/tui/app/node-oracle/slash-commands-replay.test.mjs",
-      "class": "not-run-by-decision",
-      "reason": "manual slash-command replay that compares results with the local-only native/core/fixtures/slash-commands-cases/golden.json",
-      "owner": "release-engineering"
-    },
-    {
-      "glob": "src/tui/node-oracle/quiet-progress-replay.test.mjs",
-      "class": "not-run-by-decision",
-      "reason": "manual quiet-progress replay that compares a local Rust replay output with native/core/fixtures/quiet-progress-cases/golden.json; the gate does not provision those inputs",
       "owner": "release-engineering"
     },
     {
