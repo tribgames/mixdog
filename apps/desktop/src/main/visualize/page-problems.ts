@@ -66,13 +66,28 @@ export function classifyConsole(
   // A failed resource load is reported by the network layer (host.ts), with
   // its status; Chromium does not log it to the page console.
   if (/^Failed to load resource/.test(message)) return null;
-  // A ResizeObserver whose callback resizes what it observes (a fit-to-width
-  // mockup) defers the rest to the next frame; Chromium logs that as an error
-  // whenever the panel resizes the frame. Nothing is broken, and the
-  // off-screen render never resizes, so it would show only in the panel.
-  if (/^ResizeObserver loop (?:completed with undelivered notifications|limit exceeded)/.test(message)) return null;
+  // A fit-to-width mockup resizes what it observes whenever the panel resizes
+  // the frame; the off-screen render never resizes, so the notice would show
+  // only in the panel.
+  if (isResizeObserverDeferral(message)) return null;
   return { kind: report.level === 'error' ? 'console-error' : 'console-warn', message };
 }
+
+/**
+ * Chromium's console line for a ResizeObserver whose callback resized what it
+ * observes: the rest of its notifications are delivered on the next frame.
+ * It is logged at error level, and nothing is broken.
+ */
+export function isResizeObserverDeferral(message: string): boolean {
+  return RESIZE_OBSERVER_DEFERRALS.has(message.trim());
+}
+
+// The whole line, in Chromium's current wording and its earlier one: an error
+// of a page's own that begins the same way is still an error.
+const RESIZE_OBSERVER_DEFERRALS = new Set([
+  'ResizeObserver loop completed with undelivered notifications.',
+  'ResizeObserver loop limit exceeded',
+]);
 
 const clip = (value: string, max: number) => (value.length > max ? `${value.slice(0, max - 1)}…` : value);
 

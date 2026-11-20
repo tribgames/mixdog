@@ -3,6 +3,7 @@ import { existsSync, watch as watchDirectory } from 'node:fs';
 import * as nodeModule from 'node:module';
 import { constants as osConstants, freemem, hostname, setPriority, totalmem } from 'node:os';
 import { join, resolve } from 'node:path';
+import { installRendererConsoleErrorTail } from './renderer-console-error-tail';
 import { inlineBootScriptHash, withInlineBootScript } from './renderer-csp';
 import { pathToFileURL } from 'node:url';
 
@@ -2005,42 +2006,6 @@ function rendererDiagnosticListener(
   };
 }
 
-// Renderer console errors had no sink outside the screenshot window, so a
-// caught-and-logged failure left no evidence at all. Keep a bounded,
-// de-duplicated tail: enough to explain a boot, never a growth path.
-function installRendererConsoleErrorTail(window: BrowserWindow, startupStartedAt: number): void {
-  const consoleErrorSeenAt = new Map<string, number>();
-  let consoleErrorsWritten = 0;
-  window.webContents.on('console-message', (event) => {
-    const details = event as unknown as {
-      level?: string;
-      message?: string;
-      lineNumber?: number;
-      sourceId?: string;
-    };
-    if (details.level !== 'error' || consoleErrorsWritten >= 100) return;
-    const message = String(details.message || '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 500);
-    if (!message) return;
-    const now = Date.now();
-    if (now - (consoleErrorSeenAt.get(message) ?? 0) < 10_000) return;
-    if (consoleErrorSeenAt.size > 200) consoleErrorSeenAt.clear();
-    consoleErrorSeenAt.set(message, now);
-    consoleErrorsWritten += 1;
-    diagnostics?.write('renderer-console-error', {
-      message,
-      source:
-        String(details.sourceId || '')
-          .split(/[\\/]/)
-          .at(-1)
-          ?.slice(0, 120) || '',
-      line: Number(details.lineNumber) || 0,
-      totalMs: now - startupStartedAt,
-    });
-  });
-}
 
 /** What a dead renderer costs: a silent reload while the failures are rare, a
  *  single prompt once they are not, and nothing at all while quitting. The
@@ -2694,7 +2659,9 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
     totalMs: Date.now() - startupStartedAt,
   });
 
-  installRendererConsoleErrorTail(window, startupStartedAt);
+  installRendererConsoleErrorTail(window.webContents, startupStartedAt, (fields) =>
+    diagnostics?.write('renderer-console-error', fields)
+  );
   installDefaultContextMenu(window.webContents);
 
   installRendererLoadDiagnostics(window, local, startupStartedAt, () => presentation);
