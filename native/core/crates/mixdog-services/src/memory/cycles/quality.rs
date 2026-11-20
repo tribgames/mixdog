@@ -82,12 +82,31 @@ pub fn chunk_source_text(rows: &[Row]) -> String {
     lines.join("\n")
 }
 
+/// Headroom between the source limit and the input limit the call enforces.
+const PROMPT_RESERVE: f64 = 2048.0;
+
+/// Tokens of the prompt actually sent for `rows` in the given wording.
+pub fn prompt_tokens(rows: &[Row], rewrite: bool) -> u64 {
+    estimate_tokens(&build_cycle1_chunk_prompt(rows, rewrite))
+}
+
+/// `rows` go out as one prompt: the source within `source_budget`, and the prompt itself within
+/// the input limit that `Packets::call` refuses above.
+fn fits(rows: &[Row], source_budget: f64, rewrite: bool) -> bool {
+    estimate_tokens(&chunk_source_text(rows)) as f64 <= source_budget && prompt_tokens(rows, rewrite) as f64 <= source_budget + PROMPT_RESERVE
+}
+
+/// A window this small is never sent to the model.
+pub fn is_below_min_source(rows: &[Row]) -> bool {
+    source_tokens(rows) < CYCLE1_MIN_SOURCE_TOKENS
+}
+
 /// `cycle1SourceBudget`.
 pub fn cycle1_source_budget(input_token_budget: f64) -> Result<f64> {
     if !input_token_budget.is_finite() || input_token_budget < 4096.0 {
         return Err(MemoryError::Runtime("cycle1 input_token_budget must be at least 4096".into()));
     }
-    Ok((input_token_budget - 2048.0).floor())
+    Ok((input_token_budget - PROMPT_RESERVE).floor())
 }
 
 pub fn build_cycle1_chunk_prompt(rows: &[Row], rewrite: bool) -> String {
@@ -102,7 +121,7 @@ pub fn partition_cycle1_rows(rows: &[Row], source_budget: f64, max_rows: usize) 
         if !packet.is_empty() && (packet.len() >= max_rows || {
             let mut with = packet.clone();
             with.push(row.clone());
-            estimate_tokens(&chunk_source_text(&with)) as f64 > source_budget
+            !fits(&with, source_budget, false)
         }) {
             packets.push(std::mem::take(&mut packet));
         }
@@ -339,7 +358,7 @@ pub fn split_cycle1_row(row: &Row, source_budget: f64) -> std::result::Result<Ve
         while low <= high {
             let mid = (low + high) / 2;
             let probe = Row { content: slice(offset, offset + mid), ..row.clone() };
-            if estimate_tokens(&chunk_source_text(&[probe])) as f64 <= source_budget {
+            if fits(&[probe], source_budget, false) {
                 length = mid;
                 low = mid + 1;
             } else {
@@ -466,16 +485,21 @@ impl Packets<'_, '_> {
     }
 
     /// A grouping longer than its rows gets one rewrite of just those rows; a rewrite that is
-    /// still longer leaves them raw.
+    /// still longer, or that is itself over the limit of one prompt, leaves them raw.
     async fn with_rewrite(&mut self, packet: &[Row]) -> Step<Vec<Parsed>> {
         let (chunks, expanded) = self.packet(packet, false).await?;
         if expanded.is_empty() {
             return Ok(chunks);
         }
-        self.stats.retries += 1;
         let mut positions: Vec<i64> = expanded.iter().flat_map(|c| c.idx_list.iter().copied()).collect();
         positions.sort_unstable();
         let subset: Vec<Row> = positions.iter().map(|&n| packet[n as usize - 1].clone()).collect();
+        // The rows of a packet that fit one prompt can be priced higher without the rest of it: the summaries that
+        // compressed are kept, and no call is made only to be refused.
+        if prompt_tokens(&subset, true) as f64 > self.ctx.input_token_budget {
+            return Ok(chunks);
+        }
+        self.stats.retries += 1;
         let (rewritten, _) = self.packet(&subset, true).await?;
         let mut all = chunks;
         all.extend(rewritten.into_iter().map(|c| Parsed { idx_list: c.idx_list.iter().map(|&n| positions[n as usize - 1]).collect(), ..c }));
@@ -491,12 +515,12 @@ pub fn generate_cycle1_chunks<'a>(rows: &'a [Row], ctx: &'a Generation<'a>) -> B
         let mut failures = Vec::new();
         let source_budget = cycle1_source_budget(ctx.input_token_budget)?;
         let finish = |candidates: Vec<Parsed>, stats: Stats, failures: Vec<InvalidChunk>| project(candidates, rows, failures, stats, started, ctx.now);
-        if rows.is_empty() || source_tokens(rows) < CYCLE1_MIN_SOURCE_TOKENS {
+        if rows.is_empty() || is_below_min_source(rows) {
             return Ok(finish(Vec::new(), stats, failures));
         }
         let step: Step<Vec<Parsed>> = async {
             let mut chunks = Vec::new();
-            if estimate_tokens(&chunk_source_text(rows)) as f64 > source_budget {
+            if !fits(rows, source_budget, false) {
                 if rows.len() != 1 {
                     let indexes: HashMap<i64, i64> = rows.iter().enumerate().map(|(i, r)| (r.id, i as i64 + 1)).collect();
                     for packet in partition_cycle1_rows(rows, source_budget, 50) {

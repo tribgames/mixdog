@@ -115,3 +115,130 @@ fn no_reply_at_all_is_not_a_valid_grouping() {
     assert!(!verdict.valid);
     assert_eq!(verdict.omitted, [1]);
 }
+
+// ---- prompt measure and the minimum window ----
+
+fn big_row(content: String) -> Row {
+    Row { content, ..row(1, "s") }
+}
+
+struct Script {
+    calls: std::sync::Mutex<Vec<String>>,
+    reply: fn(&str) -> String,
+}
+
+#[async_trait::async_trait]
+impl mixdog_services::memory::cycles::Cycle1Llm for Script {
+    async fn call(&self, _: &mixdog_services::memory::cycles::Cycle1Request, _: &tokio_util::sync::CancellationToken, prompt: &str) -> Result<String, String> {
+        self.calls.lock().unwrap().push(prompt.to_owned());
+        Ok((self.reply)(prompt))
+    }
+}
+
+async fn generate(rows: &[Row], input_budget: f64, reply: fn(&str) -> String) -> (mixdog_services::memory::cycles::quality::Generated, Vec<String>) {
+    use mixdog_services::memory::cycles::Cycle1Request;
+    use mixdog_services::memory::cycles::quality::{Generation, generate_cycle1_chunks};
+    let llm = Script { calls: Default::default(), reply };
+    let request = Cycle1Request { preset: None, timeout_ms: 1000.0 };
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let now = || 0i64;
+    let ctx = Generation { llm: &llm, request: &request, cancel: &cancel, input_token_budget: input_budget, now: &now };
+    let generated = generate_cycle1_chunks(rows, &ctx).await.unwrap();
+    let calls = llm.calls.lock().unwrap().clone();
+    (generated, calls)
+}
+
+fn source_tokens_of(rows: &[Row]) -> f64 {
+    mixdog_js::token_estimate::estimate_tokens(&mixdog_services::memory::cycles::quality::chunk_source_text(rows)) as f64
+}
+
+#[test]
+fn splitting_and_packing_budget_the_prompt_that_is_sent() {
+    use mixdog_services::memory::cycles::quality::{partition_cycle1_rows, prompt_tokens, split_cycle1_row};
+    let (budget, limit) = (5000.0, 7048.0);
+    let one = big_row("a, ".repeat(6400));
+    assert!(source_tokens_of(std::slice::from_ref(&one)) <= budget && prompt_tokens(std::slice::from_ref(&one), false) as f64 > limit);
+    let fragments = split_cycle1_row(&one, budget).unwrap();
+    assert!(fragments.len() > 1);
+    assert!(fragments.iter().all(|f| prompt_tokens(std::slice::from_ref(f), false) as f64 <= limit));
+    let rows: Vec<Row> = (1..=12).map(|i| Row { content: "a, ".repeat(1000), ..row(i, "s") }).collect();
+    let packets = partition_cycle1_rows(&rows, budget, 50);
+    assert!(packets.len() > 1);
+    assert!(packets.iter().all(|p| prompt_tokens(p, false) as f64 <= limit));
+}
+
+#[tokio::test]
+async fn a_row_whose_source_fits_is_not_refused_at_the_call() {
+    let rows = [big_row("a, ".repeat(6400))];
+    let (generated, calls) = generate(&rows, 7048.0, |_| "1 | Topic | fact | short".into()).await;
+    assert!(generated.invalid_chunks.iter().all(|c| c.reason != "llm_error"), "{:?}", generated.invalid_chunks);
+    assert!(calls.len() > 1, "a prompt over the input limit is split");
+}
+
+#[tokio::test]
+async fn a_row_that_fits_the_call_is_not_fragmented_for_the_reserve() {
+    use mixdog_services::memory::cycles::quality::prompt_tokens;
+    let rows = [big_row("a, ".repeat(10500))];
+    // Fits the source limit (12,000) and the call (14,048) although its prompt is above 12,000.
+    assert!(source_tokens_of(&rows) <= 12_000.0 && prompt_tokens(&rows, false) as f64 > 12_000.0 && prompt_tokens(&rows, false) as f64 <= 14_048.0);
+    let (generated, calls) = generate(&rows, 14_048.0, |_| "1 | Topic | fact | short".into()).await;
+    assert_eq!(calls.len(), 1);
+    assert_eq!(generated.chunks.len(), 1);
+}
+
+#[tokio::test]
+async fn a_rewrite_that_cannot_be_sent_leaves_its_row_raw_and_keeps_the_other_summary() {
+    let rows = [big_row("a,bcdef ".repeat(3900)), Row { content: "word ".repeat(2000), ..row(2, "s") }];
+    {
+        use mixdog_services::memory::cycles::quality::prompt_tokens;
+        assert!(source_tokens_of(&rows) <= 12_000.0 && prompt_tokens(&rows, false) as f64 <= 14_048.0);
+        assert!(prompt_tokens(&rows[..1], true) as f64 > 14_048.0, "a rewrite of the first row alone is over the input limit");
+    }
+    let (generated, calls) = generate(&rows, 14_048.0, |prompt| {
+        if prompt.contains("Rewrite:") {
+            "1 | Topic | fact | short".into()
+        } else {
+            format!("1 | Topic | fact | {}\n2 | Topic | fact | short", "x ".repeat(20_000))
+        }
+    })
+    .await;
+    assert!(generated.invalid_chunks.iter().all(|c| c.reason != "llm_error"), "{:?}", generated.invalid_chunks);
+    assert_eq!(generated.chunks.len(), 1);
+    assert_eq!(generated.chunks[0].members.iter().map(|m| m.id).collect::<Vec<_>>(), [2]);
+    assert_eq!(generated.raw_row_ids, [1]);
+    assert_eq!(calls.len(), 1, "the oversize rewrite is not sent: {:?}", calls.iter().map(|c| (c.len(), c.lines().next().unwrap().to_owned())).collect::<Vec<_>>());
+}
+
+#[tokio::test]
+async fn a_rewrite_that_fits_is_sent_once_for_all_the_rows_that_need_it() {
+    use mixdog_services::memory::cycles::quality::prompt_tokens;
+    let rows = [
+        big_row("a,bcdef ".repeat(3900)),
+        Row { content: "word ".repeat(1600), ..row(2, "s") },
+        Row { content: "word ".repeat(10), ..row(3, "s") },
+        Row { content: "word ".repeat(1600), ..row(4, "s") },
+    ];
+    // Rows 1, 3 and 4 make one rewrite prompt, though rows 1 and 3 without the fourth are priced over the limit.
+    let rewritten = [rows[0].clone(), rows[2].clone(), rows[3].clone()];
+    assert!(prompt_tokens(&rewritten, true) as f64 <= 14_048.0 && prompt_tokens(&rewritten[..2], true) as f64 > 14_048.0);
+    let (generated, calls) = generate(&rows, 14_048.0, |prompt| {
+        if prompt.contains("Rewrite:") {
+            "1 | First | fact | short\n2 | Third | fact | short\n3 | Fourth | fact | short".into()
+        } else {
+            format!("1 | First | fact | {long}\n2 | Second | fact | short\n3 | Third | fact | {long}\n4 | Fourth | fact | {long}", long = "x ".repeat(40_000))
+        }
+    })
+    .await;
+    assert_eq!(calls.len(), 2, "the first call, then one rewrite of rows 1, 3 and 4");
+    assert!(calls[1].contains("Rewrite:") && calls[1].contains("@3 ") && !calls[1].contains("@4 "), "the rewrite numbers its three rows");
+    let mut members: Vec<(String, Vec<i64>)> = generated.chunks.iter().map(|c| (c.element.clone(), c.members.iter().map(|m| m.id).collect())).collect();
+    members.sort();
+    assert_eq!(members, [("First".to_owned(), vec![1]), ("Fourth".to_owned(), vec![4]), ("Second".to_owned(), vec![2]), ("Third".to_owned(), vec![3])]);
+}
+
+#[test]
+fn a_window_below_the_minimum_is_recognised_as_never_sent() {
+    use mixdog_services::memory::cycles::quality::is_below_min_source;
+    assert!(is_below_min_source(&[row(1, "s")]));
+    assert!(!is_below_min_source(&[big_row("word ".repeat(100))]));
+}
