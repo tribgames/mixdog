@@ -219,6 +219,8 @@ export const DESKTOP_IPC = {
   acknowledgeWhatsNew: 'mixdog:acknowledge-whats-new',
   readPaneLayoutFile: 'mixdog:read-pane-layout-file',
   writePaneLayoutFile: 'mixdog:write-pane-layout-file',
+  readRendererCache: 'mixdog:read-renderer-cache',
+  writeRendererCache: 'mixdog:write-renderer-cache',
   localStorageLost: 'mixdog:local-storage-lost',
   takeLocalStorageRescue: 'mixdog:take-local-storage-rescue',
   localStorageRestored: 'mixdog:local-storage-restored',

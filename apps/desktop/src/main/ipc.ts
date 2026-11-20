@@ -25,6 +25,7 @@ import type { ProtocolConnection } from './protocol/connection';
 import { registerComputerIpc, type ComputerIpcHost } from './ipc-computer';
 import { registerFileDialogIpc } from './ipc-file-dialogs';
 import { registerPaneLayoutIpc } from './ipc-pane-layout';
+import { registerRendererCacheIpc, type RendererCaches } from './ipc-renderer-cache';
 import { type LocalStorageRescue, registerLocalStorageRescueIpc } from './local-storage-rescue';
 import type { PaneLayoutFile } from './pane-layout-file';
 import { registerProjectIpc } from './ipc-projects';
@@ -130,6 +131,8 @@ interface DesktopIpcDependencies {
   pcHost?: PcQuotaHost;
   /** This window's pane layout file in the profile (see pane-layout-file.ts). */
   paneLayoutFile?: PaneLayoutFile;
+  /** This window's large caches (see ipc-renderer-cache.ts). */
+  rendererCaches?: RendererCaches;
   /** This window's Local Storage rescue (see local-storage-rescue.ts). */
   localStorageRescue?: LocalStorageRescue;
   /** The connection's protocol link: pushed sections and detail calls for the renderer. */
@@ -163,6 +166,7 @@ export function registerDesktopIpc(
     serverId,
     pcHost,
     paneLayoutFile,
+    rendererCaches,
     localStorageRescue,
     protocol,
     pcCore,
@@ -344,6 +348,7 @@ export function registerDesktopIpc(
   // What this window paints, for the completion-notification rule.
   const disposeScreenSessions = registerScreenSessions(window, ipcMain);
   const disposePaneLayoutIpc = registerPaneLayoutIpc({ window, ipcMain, file: paneLayoutFile });
+  const disposeRendererCacheIpc = registerRendererCacheIpc({ window, ipcMain, caches: rendererCaches });
   const disposeLocalStorageRescueIpc = registerLocalStorageRescueIpc({ window, ipcMain, rescue: localStorageRescue });
   registerSourceControlIpc({
     app,
@@ -368,6 +373,8 @@ export function registerDesktopIpc(
     DESKTOP_IPC.rendererDiagnostic,
     DESKTOP_IPC.readPaneLayoutFile,
     DESKTOP_IPC.writePaneLayoutFile,
+    DESKTOP_IPC.readRendererCache,
+    DESKTOP_IPC.writeRendererCache,
     DESKTOP_IPC.localStorageLost,
     DESKTOP_IPC.takeLocalStorageRescue,
     DESKTOP_IPC.localStorageRestored,
@@ -399,6 +406,7 @@ export function registerDesktopIpc(
     disposeRendererProbe();
     disposeScreenSessions();
     disposePaneLayoutIpc();
+    disposeRendererCacheIpc();
     disposeLocalStorageRescueIpc();
     for (const channel of channels) ipcMain.removeHandler(channel);
     if (corePort) {

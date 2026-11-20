@@ -142,8 +142,10 @@ function _runAdaptiveFileIo(run) {
 
 const RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY', 'EEXIST']);
 
+// `opts.backoffs`: the wait before each further attempt. An empty list is one
+// attempt and no wait, for a caller that must not block on a held destination.
 function renameBackoffs(opts) {
-  return Array.isArray(opts.backoffs) && opts.backoffs.length > 0 ? opts.backoffs : DEFAULT_BACKOFFS_MS;
+  return Array.isArray(opts.backoffs) ? opts.backoffs : DEFAULT_BACKOFFS_MS;
 }
 
 // Windows answers EPERM/EACCES both for a sharing violation (AV/indexer holds

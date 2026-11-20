@@ -3,6 +3,7 @@ import type { DesktopAgentRoomSummary, DesktopSessionSummary } from '../shared/c
 import { cleanIncomingTail } from '../shared/incoming-tail';
 import { catalogStorageKey, catalogStorageScope } from './catalog-storage-scope';
 import { deleteSessionImagePreviews } from './image-preview-store';
+import { profileCacheStorage } from './profile-cache-storage';
 import { contentLocalStorage } from './remote-conversation-privacy';
 
 const SESSION_CATALOG_STORAGE_KEY = 'mixdog.desktop-session-catalog.v1';
@@ -120,9 +121,12 @@ function normalizeCachedSessionCatalog(value: unknown): CachedSessionCatalog {
   };
 }
 
+/** The desktop's profile file; the phone and browser surfaces keep the catalog as they keep content. */
+const catalogStorage = () => profileCacheStorage('session-catalog') ?? contentLocalStorage();
+
 export function readCachedSessionCatalog(): DesktopSessionSummary[] {
   try {
-    const stored = JSON.parse(contentLocalStorage().getItem(catalogStorageKey(SESSION_CATALOG_STORAGE_KEY)) || 'null');
+    const stored = JSON.parse(catalogStorage().getItem(catalogStorageKey(SESSION_CATALOG_STORAGE_KEY)) || 'null');
     return normalizeCachedSessionCatalog(stored).rows;
   } catch {
     return [];
@@ -136,7 +140,7 @@ export function writeCachedSessionCatalog(rows: DesktopSessionSummary[], scope =
     rows,
   });
   try {
-    contentLocalStorage().setItem(catalogStorageKey(SESSION_CATALOG_STORAGE_KEY, scope), JSON.stringify(catalog));
+    catalogStorage().setItem(catalogStorageKey(SESSION_CATALOG_STORAGE_KEY, scope), JSON.stringify(catalog));
   } catch {
     // The authoritative live catalog remains usable when storage is unavailable.
   }
@@ -162,7 +166,7 @@ let pendingCatalogRows: { rows: DesktopSessionSummary[]; scope: string } | null 
 let pendingCatalogTimer: number | undefined;
 
 /** Keep live sidebar publication immediate while coalescing the synchronous
- * JSON/localStorage persistence that is only used for the next app startup. */
+ * JSON persistence that is only used for the next app startup. */
 export function scheduleCachedSessionCatalogWrite(rows: DesktopSessionSummary[]): void {
   pendingCatalogRows = { rows, scope: catalogStorageScope() };
   if (pendingCatalogTimer !== undefined) return;

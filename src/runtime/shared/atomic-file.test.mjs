@@ -642,6 +642,21 @@ test('a rename over a read-only file fails at once with its own error instead of
   );
 });
 
+test('with no backoffs a sharing violation fails at once: one attempt, no wait, the old file and no temp file left', (t) => {
+  const { path } = fixture(t);
+  writeFileSync(path, '{"keep":true}\n');
+  const calls = mockRenameFailures(t, 1, 'EPERM');
+  const wait = t.mock.method(Atomics, 'wait', () => 'timed-out');
+  assert.throws(() => writeJsonAtomicSync(path, { keep: false }, { backoffs: [] }), { code: 'EPERM' });
+  assert.equal(calls(), 1);
+  assert.equal(wait.mock.callCount(), 0);
+  assert.equal(readFileSync(path, 'utf8'), '{"keep":true}\n');
+  assert.deepEqual(
+    readdirSync(join(path, '..')).filter((name) => name.includes('mixdog-tmp')),
+    []
+  );
+});
+
 test('a transient sharing violation on a writable file is still retried until the rename lands', (t) => {
   const { path } = fixture(t);
   writeFileSync(path, '{"keep":true}\n');

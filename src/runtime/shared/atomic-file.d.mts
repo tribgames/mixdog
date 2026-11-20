@@ -11,6 +11,8 @@ export interface AtomicFileOptions {
   backup?: boolean;
   /** With `backup`: whether the replaced content may become the backup. */
   backupAccepts?: (content: Buffer) => boolean;
+  /** Wait (ms) before each further attempt to replace a held destination. Empty: one attempt, no wait. */
+  backoffs?: number[];
 }
 
 export function writeFileAtomicAsync(
