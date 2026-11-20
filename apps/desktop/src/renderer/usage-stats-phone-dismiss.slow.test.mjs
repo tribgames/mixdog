@@ -5,7 +5,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
-import { resolveUsageStatsPeriod, USAGE_STATS_FIXTURE_NOW } from './test-support/usage-stats-period.recorded.mjs';
+import { usageSnapshot } from './test-support/usage-stats-fixture.mjs';
 
 // The usage dialog ("모델 통계") on an iPhone: it covers the screen and shell
 // behind it is inert, so the dialog MUST always carry its own way out. This
@@ -47,7 +47,7 @@ test('the usage dialog closes by its button and by an outside tap on a phone', a
           import { createRoot } from "react-dom/client";
           import { CommandSurface } from "./CommandSurface";
 
-          const period = ${JSON.stringify(resolveUsageStatsPeriod({ view: 'hour', now: USAGE_STATS_FIXTURE_NOW }))};
+          const period = ${JSON.stringify(usageSnapshot('hour').period)};
           const route = {
             turns: 3, sessions: 1, input: 1000, output: 200, tokens: 1200, cacheRead: 0, cacheWrite: 0,
             cacheTokens: 0, costUsd: 0, costCoverage: 1, share: 1,

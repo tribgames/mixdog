@@ -29,8 +29,6 @@ import { goalCompletedTimeLabel } from './session-goal-presentation';
 import { uiCurrency } from './ui-format';
 import { memoryCacheStorage } from './sw-test-harness.mjs';
 import { UI_LANGUAGE_ENTRY, APP_STATE_CACHE_NAME } from './push-notification-bridge';
-import { parseMarkdownFrontmatter } from '../shared/test-recorded/i18n.test.0.recorded.mjs';
-import { DEVELOPER_SECTIONS } from '../shared/test-recorded/i18n.test.1.recorded.mjs';
 
 const catalogs = new Map(
   SUPPORTED_UI_LANGUAGES.filter(({ value }) => value !== 'en').map(({ value }) => [
@@ -124,9 +122,10 @@ test('a disambiguated key never shows its "Island:" context in any language', ()
 });
 
 test('the bundled workflow description is translated in every supported UI language', async () => {
-  const { name, description } = parseMarkdownFrontmatter(
-    readFileSync(new URL('../../../../src/workflows/default/WORKFLOW.md', import.meta.url), 'utf8')
-  );
+  const source = readFileSync(new URL('../../../../src/workflows/default/WORKFLOW.md', import.meta.url), 'utf8');
+  const header = /^---\r?\n([\s\S]*?)\r?\n---/.exec(source)[1];
+  const front = (key) => new RegExp(`^${key}:\\s*"?(.*?)"?\\s*$`, 'm').exec(header)[1];
+  const [name, description] = [front('name'), front('description')];
   assert.equal(name, 'Default');
   assert.equal(description, 'Handle tasks as requested.');
   const previousLanguage = i18n.language;
@@ -149,14 +148,72 @@ test('the bundled workflow description is translated in every supported UI langu
   }
 });
 
-test('every developer option string in the runtime registry is translated in every supported UI language', () => {
-  const strings = new Set();
-  for (const section of DEVELOPER_SECTIONS) {
-    for (const entry of [section, ...section.options]) {
-      for (const field of ['label', 'description', 'warning']) if (entry[field]) strings.add(entry[field]);
+test('every developer option string the core declares is translated in every supported UI language', () => {
+  const source = readFileSync(
+    new URL('../../../../native/core/crates/mixdog-core-config/src/config/settings.rs', import.meta.url),
+    'utf8'
+  );
+  const STRING = /^"((?:[^"\\]|\\.)*)"$/;
+  // The strings of `const NAME: &str = "...";`, so a field may name one.
+  const constants = Object.fromEntries(
+    [...source.matchAll(/^const (\w+): &str =\s*("(?:[^"\\]|\\.)*");/gm)].map((match) => [match[1], STRING.exec(match[2])[1]])
+  );
+  /** Splits `text` at its top-level commas (outside strings and brackets). */
+  const split = (text) => {
+    const parts = [];
+    let depth = 0;
+    let quoted = false;
+    let start = 0;
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i];
+      if (quoted) {
+        if (char === '\\') i += 1;
+        else if (char === '"') quoted = false;
+      } else if (char === '"') quoted = true;
+      else if ('([{'.includes(char)) depth += 1;
+      else if (')]}'.includes(char)) depth -= 1;
+      else if (char === ',' && depth === 0) {
+        parts.push(text.slice(start, i).trim());
+        start = i + 1;
+      }
     }
+    const last = text.slice(start).trim();
+    return last ? [...parts, last] : parts;
+  };
+  /** A displayed field: a string literal, a constant's name, or `Some` of either; `None` is nothing shown. Anything else fails. */
+  const shown = (field) => {
+    if (field === 'None') return null;
+    const inner = /^Some\((.*)\)$/s.exec(field)?.[1] ?? field;
+    const text = STRING.exec(inner)?.[1] ?? constants[inner];
+    assert.equal(typeof text, 'string', `a developer setting field this test cannot account for: ${field}`);
+    return text;
+  };
+  const strings = new Set();
+  const add = (field) => {
+    const text = shown(field);
+    if (text !== null) strings.add(text);
+  };
+  // Options: (section id, option id, label, description, warning, provider); the ids and the provider are not shown.
+  const table = /const DEVELOPER_OPTIONS:[^=]*=\s*\[([\s\S]*?)\n\];/.exec(source)[1];
+  const options = split(table).map((row) => split(/^\(([\s\S]*)\)$/.exec(row)[1]));
+  assert.equal(options.length, 5);
+  for (const fields of options) {
+    assert.equal(fields.length, 6, `an option row of ${fields.length} fields`);
+    assert.notEqual(shown(fields[2]), null);
+    assert.notEqual(shown(fields[3]), null);
+    for (const index of [2, 3, 4]) add(fields[index]);
+    assert.match(fields[5], /^(None|Some\("[a-z-]+"\))$/, 'the provider is an id, not shown');
+  }
+  // Sections: section(id, label, description).
+  const calls = [...source.matchAll(/section\("([a-z]+)", ([^,]+), (None|Some\(\w+\))\)/g)];
+  assert.equal(calls.length, 2);
+  for (const [, , label, description] of calls) {
+    assert.notEqual(shown(label), null);
+    add(label);
+    add(description);
   }
   assert.ok(strings.has('Show Devin OAuth in Providers and the model picker.'));
+  assert.ok(strings.has('Providers') && strings.has('Approvals') && strings.has(constants.OAUTH_RISK_WARNING));
   for (const [language, catalog] of catalogs) {
     for (const key of strings) {
       assert.equal(typeof catalog[key], 'string', `${language}: missing developer option text "${key}"`);
@@ -164,7 +221,6 @@ test('every developer option string in the runtime registry is translated in eve
     }
   }
 });
-
 test('selected language and regional aliases also resolve for native UI', async () => {
   const close = browser();
   try {

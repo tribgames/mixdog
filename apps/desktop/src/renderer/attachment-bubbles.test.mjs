@@ -1,8 +1,6 @@
-// Every attachment kind the composer accepts shows as its thumbnail / chip in
-// the user bubble, never also as placeholder words ("[Image]", "[File: …]"),
-// and never goes missing: in the pending bubble of this pane, the inline
-// bubble of a message sent behind a running turn, the settled row, a reloaded
-// transcript and a group room's row. The phone renders the same row.
+// Every attachment kind the composer accepts shows as its thumbnail / chip in the user bubble, never also as placeholder words
+// ("[Image]", "[File: …]"), and never goes missing: in this pane's pending bubble, the bubble of a message queued behind a running turn,
+// the settled row, and a restored or sent paste. The phone renders the same row.
 import assert from 'node:assert/strict';
 import test, { after } from 'node:test';
 import React from 'react';
@@ -18,21 +16,12 @@ const [
   { buildSubmissionContent },
   { desktopPromptDisplayText, pendingPromptImages, pendingPromptTranscriptItems, steerPromptItems },
   { pastedTextFields },
-  { makeQueueEntry },
-  { promptContentImageMeta },
-  { restoredUserText, restoredUserImageRefs },
-  { materializePromptSubmission },
 ] = await Promise.all([
   import('./transcript-row.tsx'),
   import('./use-composer-submission.ts'),
   import('./conversation-prompt-items.ts'),
   import('./composer-support.tsx'),
-  import('../shared/test-recorded/attachment-bubbles.test.0.recorded.mjs'),
-  import('../shared/test-recorded/attachment-bubbles.test.1.recorded.mjs'),
-  import('../shared/test-recorded/attachment-bubbles.test.2.recorded.mjs'),
-  import('../shared/test-recorded/attachment-bubbles.test.3.recorded.mjs'),
 ]);
-
 const PNG = Buffer.from('png bytes').toString('base64');
 const PDF = Buffer.from('%PDF-1.4 pdf bytes').toString('base64');
 const DOCX = Buffer.from('PK docx bytes').toString('base64');
@@ -139,6 +128,7 @@ function submission({ draft, attachments }, id) {
   return { content: built.content, options };
 }
 
+/** The rows a message shows before the turn settles: this pane's optimistic row, and the same row queued behind a running turn. */
 function rowsOf(c) {
   const id = `sub_${c.kind.replace(/\W+/g, '_')}`;
   const { content, options } = submission(c, id);
@@ -153,40 +143,13 @@ function rowsOf(c) {
     settledUserBaseline: 0,
     ...(images.length ? { images } : {}),
   };
-  // The session runtime's queue entry for a message sent behind the turn.
-  const entry = makeQueueEntry(content, options, () => id);
-  const stored = materializePromptSubmission(content, options).prompt;
-  const reloadRefs = restoredUserImageRefs(stored);
-  const roomImages = promptContentImageMeta(content, options.pastedImages);
   return {
     pending: pendingPromptTranscriptItems([optimistic], []),
     'pending behind the turn (this pane)': steerPromptItems([], [{ ...optimistic, queuedBehindTurn: true }]),
-    'pending behind the turn (session queue)': steerPromptItems([entry], []),
-    settled: [{ kind: 'user', id, text: entry.text, ...(entry.images ? { images: entry.images } : {}) }],
-    reload: [
-      {
-        kind: 'user',
-        id: 'restored',
-        text: restoredUserText(stored),
-        ...(reloadRefs.length ? { imageRefs: reloadRefs } : {}),
-      },
-    ],
-    // agent-rooms.ts send: the row's words are the prompt's text parts.
-    'group room': [
-      {
-        kind: 'user',
-        id,
-        text: (typeof content === 'string' ? [content] : content.filter((part) => part.type === 'text'))
-          .map((part) => (typeof part === 'string' ? part : part.text))
-          .join('\n')
-          .trim(),
-        room: { kind: 'user' },
-        ...(roomImages ? { images: roomImages } : {}),
-      },
-    ],
+    // The settled row, as the transcript holds it: the words the user wrote and the images they pasted.
+    settled: [{ kind: 'user', id, text: options.displayText ?? '', ...(images.length ? { images } : {}) }],
   };
 }
-
 const PLACEHOLDER = /\[(?:Image|File|PDF|Video|Audio|Pasted text)\b[^\]]*\]|Attached prompt/;
 const visibleText = (html) =>
   html

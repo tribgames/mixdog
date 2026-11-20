@@ -1,7 +1,7 @@
-// The phone's world, for recording Node and replaying the protocol client: a virtual timer queue (due time, then registration order, one
+// The phone's world, for replaying the protocol client: a virtual timer queue (due time, then registration order, one
 // callback at a time, microtasks drained between callbacks), a browser surface (window, document, localStorage, WebSocket, fetch), and the
-// desktop's end of the relay socket with a REAL E2EE handshake. The same scenario script drives either product; only the desktop's
-// dialect differs (Node call frames, or JSON-RPC), and each dialect reduces what it received to the same "what the core knows" record.
+// desktop's end of the relay socket with a REAL E2EE handshake. The desktop's dialect (JSON-RPC) reduces what it received to a
+// "what the core knows" record.
 //
 // Nothing waits on wall-clock time: the product's timers run when the script advances the virtual clock, and every wait is on an event
 // the product itself produces (a socket created, a state change, a frame reduced).
@@ -513,62 +513,6 @@ export const effectiveCore = (core) => ({
   lanes: [...core.lanes].sort(),
   resyncs: core.resyncs,
 });
-
-/** Node's desktop: call frames `{id?, method, params}`; `synchronizeViews` is answered, and the report calls set what the core knows. */
-export const nodeDialect = {
-  readyFields: {
-    viewSync: 1,
-    hostName: 'Test PC',
-    remoteOpenAccess: 1,
-    uplinkCapacityBytes: 8_000_000,
-    uplinkBinaryCeilingBytes: 4_000_000,
-    uplinkTextCeilingBytes: 4_000_000,
-  },
-  /** Calls the script leaves unanswered, to see how a lost connection fails them. */
-  unanswered: new Set(['deleteSession']),
-  /** A reply to nothing the phone asked: traffic that proves a leg is delivering, whatever it carries. */
-  stray: { id: 424242, ok: true, value: null },
-  onFrame(leg, frame, log) {
-    const [a] = frame.params ?? [];
-    const name = frame.id !== undefined ? frame.method : null;
-    // Node publishes its lane set on every connect, an empty one too; the replay names that request as Node-only (remote-shim-lifecycle.slow.test.mjs).
-    leg.requested(name === 'setRemoteLanes' && a.length === 0 ? 'setRemoteLanes(empty)' : name);
-    if (frame.method === 'setForeground') {
-      leg.core.foreground = a;
-      leg.core.browserId = frame.params[1];
-    } else if (frame.method === 'setScreenSessions') leg.core.screen = a;
-    else if (frame.method === 'setVisualizePanels') leg.core.panels = a;
-    else if (frame.method === 'setRemoteLanes') leg.core.lanes = a;
-    else if (frame.method === 'setVisibleSessions') leg.core.view = a;
-    else if (frame.method === 'synchronizeViews') {
-      // Synchronizing the view that is already held is a resync request (view-sync peers resync by synchronizing again); a different set is the page changing its view.
-      const again = leg.core.synced && JSON.stringify([...a].sort()) === JSON.stringify([...leg.core.view].sort());
-      if (leg.world.refuseSyncs > 0) {
-        leg.world.refuseSyncs -= 1;
-        return void leg.toPhone({ id: frame.id, ok: false, error: 'view sync refused' });
-      }
-      if (again) {
-        leg.core.resyncs += 1;
-        log({ ev: 'resync' });
-      }
-      leg.core.synced = true;
-      leg.core.view = a;
-      if (again && leg.world.failViewSync > 0) {
-        leg.world.failViewSync -= 1;
-        return void leg.toPhone({ id: frame.id, ok: false, error: 'view sync refused' });
-      }
-    }
-    else if (frame.method === 'stateResync') {
-      leg.core.resyncs += 1;
-      log({ ev: 'resync' });
-    }
-    if (frame.id !== undefined && !this.unanswered.has(frame.method)) {
-      leg.answer(name, (ok, value) =>
-        ok ? { id: frame.id, ok: true, value: value ?? (frame.method === 'synchronizeViews' ? {} : null) } : { id: frame.id, ok: false, error: 'refused' }
-      );
-    }
-  },
-};
 
 /** The protocol core's end for the phone client. */
 export function protocolDialect(initializeResult) {

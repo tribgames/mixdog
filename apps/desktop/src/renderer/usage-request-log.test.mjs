@@ -5,8 +5,6 @@ import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
 import { CommandSurface } from './CommandSurface.tsx';
 import { t } from './i18n.ts';
-import { UsageLedger, makeUsageRecord } from '../shared/test-recorded/usage-request-log.test.0.recorded.mjs';
-import { createUsageStatsApi } from '../shared/test-recorded/usage-request-log.test.1.recorded.mjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -48,87 +46,91 @@ function harness(context) {
   };
 }
 
-function requestApi(context, count) {
-  const ledger = new UsageLedger(':memory:');
-  context.after(() => ledger.close());
-  const now = Date.now();
-  const rows = [];
-  for (let index = 0; index < count; index += 1) {
-    rows.push(
-      makeUsageRecord({
-        ts: now - (index + 1) * 60_000,
-        provider: index === 1 ? 'openai-oauth' : 'openai',
-        model: index === 1 ? 'gpt-5.6-luna' : 'gpt-5.6',
-        ...(index === 3 ? { requestedModel: 'gpt-6-astra' } : {}),
-        // A fallback hop to another provider that serves the same model name.
-        ...(index === 4 ? { requestedProvider: 'anthropic' } : {}),
-        sessionId: index === 0 ? 'agent' : 'lead',
-        sourceType: 'lead',
-        inputTokens: 1000,
-        outputTokens: 500,
-        costUsd: 0.04,
-        durationMs: 6000,
-        ttftMs: 1000,
-        status: index === 2 ? 'failed' : index === 3 || index === 4 ? 'substituted' : 'completed',
-      })
-    );
-  }
-  ledger.record(rows);
-  const usage = createUsageStatsApi({
-    ledger: () => ledger,
-    importHistory: async () => {},
-    sessionMetadata: async (id) =>
-      ({ lead: { title: 'Dev session' }, agent: { agent: 'reviewer', ownerSessionId: 'lead' } })[id] ?? null,
-  });
+const SESSIONS = {
+  lead: { sessionTitle: 'Dev session' },
+  agent: { sessionTitle: 'Dev session', agent: true, agentRole: 'reviewer' },
+};
+
+/** The request log as the core answers it: newest first, `limit` rows a page behind an offset cursor, the status and model filters
+ *  applied, and the models of the whole period for the filter menu. */
+function pagedLog(rows) {
+  const generatedAt = Date.now();
   const asked = [];
   const control = { failFirstPage: false };
+  const answer = (question) => {
+    asked.push(question);
+    if (control.failFirstPage && !question.cursor) throw new Error('first page failed');
+    const matching = rows.filter(
+      (row) => (!question.status || row.status === question.status) && (!question.model || row.model === question.model)
+    );
+    const from = question.cursor ? Number(question.cursor) : 0;
+    const page = matching.slice(from, from + question.limit);
+    return {
+      requests: page,
+      generatedAt,
+      period: {},
+      models: [...new Set(rows.map((row) => row.model))].sort(),
+      ...(from + question.limit < matching.length ? { nextCursor: String(from + question.limit) } : {}),
+    };
+  };
   return {
     asked,
     control,
     api: {
-      invokeCapability: async ({ capability, args = [] }) => {
-        if (capability !== 'getUsageRequests') return { value: { totals: {}, providers: [], period: {} } };
-        asked.push(args[0]);
-        if (control.failFirstPage && !args[0].cursor) throw new Error('first page failed');
-        return { value: await usage.getUsageRequests(args[0]) };
-      },
+      invokeCapability: async ({ capability, args = [] }) =>
+        capability === 'getUsageRequests'
+          ? { value: answer(args[0]) }
+          : { value: { totals: {}, providers: [], period: {} } },
     },
   };
 }
 
-// One request per session kind; `metadata` is what the session store still holds.
-function sessionKindsApi(context, kinds, metadata) {
-  const ledger = new UsageLedger(':memory:');
-  context.after(() => ledger.close());
+function requestApi(_context, count) {
   const now = Date.now();
-  ledger.record(
-    kinds.map(([sessionId, sourceType], index) =>
-      makeUsageRecord({
-        ts: now - (index + 1) * 60_000,
-        provider: 'openai',
-        model: 'gpt-5.6',
-        sessionId,
-        sourceType,
-        inputTokens: 10,
-        outputTokens: 10,
-      })
-    )
-  );
-  const usage = createUsageStatsApi({
-    ledger: () => ledger,
-    importHistory: async () => {},
-    sessionMetadata: async (id) => metadata[id] ?? null,
-  });
-  return {
-    invokeCapability: async ({ capability, args = [] }) => ({
-      value:
-        capability === 'getUsageRequests'
-          ? await usage.getUsageRequests(args[0])
-          : { totals: {}, providers: [], period: {} },
-    }),
-  };
+  const rows = [];
+  for (let index = 0; index < count; index += 1) {
+    const status = index === 2 ? 'failed' : index === 3 || index === 4 ? 'substituted' : 'completed';
+    rows.push({
+      id: `request-${index}`,
+      ts: now - (index + 1) * 60_000,
+      provider: index === 1 ? 'openai-oauth' : 'openai',
+      model: index === 1 ? 'gpt-5.6-luna' : 'gpt-5.6',
+      ...(index === 3 ? { requestedModel: 'gpt-6-astra' } : {}),
+      // A fallback hop to another provider that serves the same model name.
+      ...(index === 4 ? { requestedProvider: 'anthropic', requestedModel: 'gpt-5.6' } : {}),
+      ...(index === 0 ? SESSIONS.agent : SESSIONS.lead),
+      input: 1000,
+      cacheRead: 0,
+      cacheWrite: 0,
+      output: 500,
+      tokens: 1500,
+      costUsd: index === 1 ? null : 0.04,
+      durationMs: 6000,
+      status,
+    });
+  }
+  const { api, asked, control } = pagedLog(rows);
+  return { api, asked, control };
 }
 
+// One request per session kind; `kinds` is [sessionId, sourceType, what the core says of it].
+function sessionKindsApi(_context, kinds) {
+  const now = Date.now();
+  return pagedLog(
+    kinds.map(([sessionId, , fields], index) => ({
+      id: `kind-${index}`,
+      ts: now - (index + 1) * 60_000,
+      provider: 'openai',
+      model: 'gpt-5.6',
+      sessionId,
+      input: 10,
+      output: 10,
+      tokens: 20,
+      status: 'completed',
+      ...fields,
+    }))
+  ).api;
+}
 const tab = (label) => [...document.querySelectorAll('[role="tab"]')].find((node) => node.textContent === t(label));
 const bodyRows = () => [...document.querySelectorAll('.request-log-table tbody tr:not(.request-log-more)')];
 // Under `table-layout: fixed` a row that spans more or fewer columns than the
@@ -310,25 +312,17 @@ test('an empty period shows one line', async (context) => {
 test('a request of an internal session shows its kind and an Internal tag, a session the user can open does not', async (context) => {
   const { render } = harness(context);
   window.localStorage.setItem('mixdog.desktop.usage-surface-mode.v1', 'requests');
-  const api = sessionKindsApi(
-    context,
-    [
-      ['memory', 'memory-cycle'],
-      ['web', 'native-web-search'],
-      ['warm', 'cache-warm'],
-      ['run', 'exec'],
-      ['plugin-run', 'some-new-runner'],
-      ['gone-schedule', 'schedule'],
-      ['dev', 'lead'],
-      ['dev', 'cache-warm'],
-    ],
-    {
-      // The summarising dispatch's "title" is the first line of its prompt.
-      memory: { title: 'Length target: about 2000 characters', sourceType: 'memory-cycle' },
-      dev: { title: 'Dev session', sourceType: 'lead' },
-    }
-  );
-  await render({ surface: 'stats', open: true, onClose() {}, api });
+  const api = sessionKindsApi(context, [
+    // The summarising dispatch's title is the first line of its prompt: the core names the kind, not the title.
+    ['memory', 'memory-cycle', { internalKind: 'memory-cycle' }],
+    ['web', 'native-web-search', { internalKind: 'native-web-search' }],
+    ['warm', 'cache-warm', { internalKind: 'cache-warm' }],
+    ['run', 'exec', { internalKind: 'exec' }],
+    ['plugin-run', 'some-new-runner', {}],
+    ['gone-schedule', 'schedule', {}],
+    ['dev', 'lead', { sessionTitle: 'Dev session' }],
+    ['dev', 'cache-warm', { sessionTitle: 'Dev session', backgroundKind: 'cache-warm' }],
+  ]);  await render({ surface: 'stats', open: true, onClose() {}, api });
   const session = (row) => bodyRows()[row].children[1];
   const tag = (row) => session(row).querySelector('.request-log-internal');
   const kinds = ['Memory cycle', 'Web search', 'Cache warm-up', 'Heartbeat or exec run'];

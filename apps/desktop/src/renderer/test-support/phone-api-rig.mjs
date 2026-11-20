@@ -1,8 +1,8 @@
 // The phone's DesktopApi table over the protocol router, with the adapter and the connection stood in by the test: the real
 // `createRemoteApi` (remote-shim-api.ts) and the real `createProtocolRouter` (remote-shim-protocol.ts) over a real shim context, wired the
 // way `createPhoneApi` wires them (remote-shim-phone.ts). The test's `adapter` is the group that owns the names (PH-2's
-// `remote-protocol-<group>.ts` in the product); `calls` records what reached it, in order -- the phone's counterpart of what Node's tests read
-// off the fake socket. The connection is always up and synced; the lifecycle against a core is replayed by remote-shim-lifecycle.slow.test.mjs.
+// `remote-protocol-<group>.ts` in the product); `calls` records what reached it, in order -- what the adapter asked of the core, off the fake socket.
+// The connection is always up and synced.
 import { createProtocolRouter } from '../remote-shim-protocol.ts';
 import { createRemoteApi } from '../remote-shim-api.ts';
 import { createRemoteShimContext } from '../remote-shim-state.ts';

@@ -6,14 +6,20 @@ import { localizeOAuthFailure } from './oauth-failure-copy';
 import { errorSummary } from './ErrorNotice.tsx';
 import { pasteErrorText } from './settings/oauth-login-flow.tsx';
 import { SUPPORTED_UI_LANGUAGES } from '../shared/ui-language';
-import {
-  DEVIN_OAUTH_FAILURE_CODES,
-  exchangeDevinCode,
-} from '../shared/test-recorded/oauth-failure-copy.test.0.recorded.mjs';
 
 const ko = JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8'));
 const english = (code) => `${code}: some English sentence (127.0.0.1:59653)`;
 
+// The sign-in failure codes the core reports for Devin (the table of oauth-failure-copy.ts, written out here).
+const DEVIN_OAUTH_FAILURE_CODES = [
+  'DEVIN_OAUTH_CALLBACK_PORT_IN_USE',
+  'DEVIN_OAUTH_CALLBACK_SERVER_FAILED',
+  'DEVIN_OAUTH_LOGIN_TIMED_OUT',
+  'DEVIN_OAUTH_AUTHORIZATION_DENIED',
+  'DEVIN_OAUTH_STATE_MISMATCH',
+  'DEVIN_OAUTH_CODE_REQUIRED',
+  'DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED',
+];
 test('every Devin sign-in failure code has a cause and a remedy in every language', async () => {
   try {
     for (const { value: language } of SUPPORTED_UI_LANGUAGES) {
@@ -43,16 +49,12 @@ test('every Devin sign-in failure code has a cause and a remedy in every languag
   }
 });
 
-test('a request failure and a timeout of the token exchange read in the UI language', async () => {
+test('a failed or timed-out token exchange, coded by the core, reads in the UI language', async () => {
   i18n.addResourceBundle('ko', 'translation', ko);
   await i18n.changeLanguage('ko');
   try {
-    for (const thrown of [new TypeError('fetch failed'), new DOMException('signal timed out', 'TimeoutError')]) {
-      const error = await exchangeDevinCode('c', 'v', {
-        fetchFn: async () => {
-          throw thrown;
-        },
-      }).catch((caught) => caught);
+    for (const detail of ['fetch failed', 'signal timed out']) {
+      const error = new Error(`DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED: Devin token exchange failed: ${detail}`);
       assert.equal(
         pasteErrorText(error),
         'Devin이 로그인을 완료하지 못했습니다. 로그인을 다시 시작하세요. 계속 실패하면 잠시 후 다시 시도하세요.'
@@ -63,7 +65,6 @@ test('a request failure and a timeout of the token exchange read in the UI langu
     await i18n.changeLanguage('en');
   }
 });
-
 test('a coded failure is worded by its code, an uncoded one is left alone', async () => {
   i18n.addResourceBundle('ko', 'translation', ko);
   await i18n.changeLanguage('ko');

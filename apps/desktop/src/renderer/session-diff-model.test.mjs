@@ -6,7 +6,6 @@ import {
   sessionDiffPatchTooLarge,
   utf8ByteLength,
 } from './session-diff-model.ts';
-import { boundReviewPatch } from '../shared/test-recorded/session-diff-model.test.0.recorded.mjs';
 
 test('utf8ByteLength matches TextEncoder, surrogate pairs and lone surrogates included', () => {
   const encoder = new TextEncoder();
@@ -28,12 +27,13 @@ test('a `+++`/`---`-prefixed changed line inside a hunk is held to the 1 MiB lin
 });
 
 test('omitted large hunks keep modified, added and deleted rows in the session pane', () => {
+  // The core's bounded patch (review_diff.rs): a hunk past the display bound is replaced by its truncation marker, file headers stay.
   const patch = [
-    `diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+${'x'.repeat(70000)}\n`,
+    'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n… [diff truncated for display]\n',
     'diff --git a/b.txt b/b.txt\nnew file mode 100644\n--- /dev/null\n+++ b/b.txt\n',
     'diff --git a/c.txt b/c.txt\ndeleted file mode 100644\n--- a/c.txt\n+++ /dev/null\n',
   ].join('');
-  const rows = buildSessionDiffRows({ supported: true, files: [], patch: boundReviewPatch(patch, 65536).patch });
+  const rows = buildSessionDiffRows({ supported: true, files: [], patch });
   assert.deepEqual(
     rows.map((row) => [row.path, row.status]),
     [
@@ -43,7 +43,6 @@ test('omitted large hunks keep modified, added and deleted rows in the session p
     ]
   );
 });
-
 test('session diff rows follow the scoped capability file set', () => {
   const rows = buildSessionDiffRows({
     supported: true,

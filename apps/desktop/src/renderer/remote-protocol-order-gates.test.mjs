@@ -80,6 +80,6 @@ test('keystrokes and resizes go out once the connection is up, without waiting f
     10_000
   );
   // Node's fire waits for the connection and sends (remote-shim-calls.ts:354); the core's frame names are the spec table's, so there is no
-  // Node output of these entries to record: the order is the assertion (the lane's own order is recorded in phone-order/golden.json).
+  // The order is the assertion.
   assert.deepEqual(log, ['connection up', 'terminal/input', 'terminal/resize']);
 });

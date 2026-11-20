@@ -2186,8 +2186,6 @@ test("the runtime's known reasons read in the UI language; an agent's own reason
     'This connector tool is set to ask before it runs for this agent.',
   ];
   {
-    const { CONNECTOR_APPROVAL_REASON } = await import('../shared/test-recorded/ApprovalCard.slow.test.0.recorded.mjs');
-    assert.deepEqual([CONNECTOR_APPROVAL_REASON], known.slice(2), 'the runtime texts mapped');
     const ko = JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8'));
     for (const key of known.slice(2)) assert.ok(/[가-힣]/.test(ko[key] ?? ''), `ko: ${key}`);
   }

@@ -28,8 +28,7 @@ test("a terminal reveal reaches the phone's listeners, well-formed only, once pe
   await open({ ...reveal, requestId: 'one' });
   await open({ ...reveal, requestId: 'two' });
   await settle();
-  // Node's relay push carried `remoteTerminalRun` of each reveal (recorded: phone-terminal golden.json, trace.run); the malformed, path-bearing and
-  // redelivered requests are the core feed's (`ui/openRequested`), which Node never had, so there is no Node output for them.
+  // Each reveal carries its `remoteTerminalRun`; the malformed, path-bearing and redelivered requests are the core feed's (`ui/openRequested`).
   assert.deepEqual(runs, [reveal, { sessionId: 's2' }, reveal, reveal, reveal]);
 
   off();

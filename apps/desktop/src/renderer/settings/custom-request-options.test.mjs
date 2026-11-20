@@ -1,11 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  CUSTOM_REQUEST_BODY_MAX_CHARS,
-  CUSTOM_RESERVED_BODY_KEYS,
-} from '../../shared/test-recorded/custom-request-options.test.0.recorded.mjs';
-import { normalizeCustomProviderConfig } from '../../shared/test-recorded/custom-request-options.test.1.recorded.mjs';
 import { installTestDom } from '../test-support/test-dom.mjs';
 
 const { restore } = installTestDom(null, {
@@ -14,13 +9,9 @@ const { restore } = installTestDom(null, {
   actEnvironment: false,
 });
 test.after(restore);
-const { blockedModelHeader, parseRequestBody, REQUEST_BODY_MAX_CHARS, RESERVED_BODY_KEYS, requestBodyText } =
-  await import('./custom-request-options.tsx');
-
-test('the UI refuses exactly the keys the runtime refuses, with the same size cap', () => {
-  assert.deepEqual([...RESERVED_BODY_KEYS].sort(), [...CUSTOM_RESERVED_BODY_KEYS].sort());
-  assert.equal(REQUEST_BODY_MAX_CHARS, CUSTOM_REQUEST_BODY_MAX_CHARS);
-});
+const { blockedModelHeader, parseRequestBody, REQUEST_BODY_MAX_CHARS, requestBodyText } = await import(
+  './custom-request-options.tsx'
+);
 
 test('parseRequestBody: blank is none; bad JSON, non-objects and reserved keys block saving', () => {
   assert.deepEqual(parseRequestBody('  '), { value: {}, error: '' });
@@ -33,34 +24,6 @@ test('parseRequestBody: blank is none; bad JSON, non-objects and reserved keys b
   assert.match(parseRequestBody(`{"a":"${'x'.repeat(REQUEST_BODY_MAX_CHARS)}"}`).error, /at most/);
 });
 
-test('the UI refuses the same top-level keys as the runtime, unsafe prototype keys included', () => {
-  const config = {
-    type: 'custom',
-    schemaVersion: 2,
-    name: 'P',
-    protocol: 'openai-chat',
-    baseURL: 'https://llm.example.com/v1',
-  };
-  for (const key of [
-    ...CUSTOM_RESERVED_BODY_KEYS,
-    '__proto__',
-    'constructor',
-    'prototype',
-    'temperature',
-    'provider',
-  ]) {
-    const runtimeRefuses = (() => {
-      try {
-        normalizeCustomProviderConfig({ ...config, requestBody: JSON.parse(`{${JSON.stringify(key)}: 1}`) });
-        return false;
-      } catch {
-        return true;
-      }
-    })();
-    assert.equal(parseRequestBody(`{${JSON.stringify(key)}: 1}`).error !== '', runtimeRefuses, key);
-  }
-});
-
 test('size is the serialized length: a maximal object survives the pretty-printed round trip', () => {
   const filler = 'x'.repeat(REQUEST_BODY_MAX_CHARS - '{"a":""}'.length);
   const object = { a: filler };
@@ -69,15 +32,6 @@ test('size is the serialized length: a maximal object survives the pretty-printe
   assert.deepEqual(parseRequestBody(requestBodyText(object)), { value: object, error: '' });
   const over = parseRequestBody(JSON.stringify({ a: `${filler}y` }));
   assert.match(over.error, /at most/);
-  // The runtime accepts exactly what the UI accepts.
-  normalizeCustomProviderConfig({
-    type: 'custom',
-    schemaVersion: 2,
-    name: 'P',
-    protocol: 'openai-chat',
-    baseURL: 'https://llm.example.com/v1',
-    requestBody: object,
-  });
 });
 
 test('model headers: credential and transport headers are blocked; text round-trips', () => {

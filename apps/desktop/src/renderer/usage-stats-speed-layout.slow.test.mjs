@@ -3,12 +3,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
-import {
-  UsageLedger,
-  makeUsageRecord,
-} from '../shared/test-recorded/usage-stats-speed-layout.slow.test.0.recorded.mjs';
-import { createUsageStatsApi } from '../shared/test-recorded/usage-stats-speed-layout.slow.test.1.recorded.mjs';
-import { resolveUsageStatsPeriod } from '../shared/test-recorded/usage-stats-speed-layout.slow.test.2.recorded.mjs';
+import { usageSnapshot } from './test-support/usage-stats-fixture.mjs';
 
 // Vite gives every dynamic import its own chunk, so a surface only loads what
 // it opens. esbuild cannot code-split an `iife` bundle, so it inlines those
@@ -28,50 +23,48 @@ const lazyChunkBoundary = {
 
 const LONG_MODEL = 'claude-sonnet-4-6-with-a-very-long-model-identifier';
 
-// The real subscription answer over a ledger holding a model in both modes and a long Fast-only one.
-function quotaAnswer(context) {
+// A subscription answer built by hand: a model in both modes and a long Fast-only one, in one five-hour window.
+function quotaAnswer() {
   const minute = 60_000;
   const opened = new Date(2026, 8, 30, 13).getTime();
-  const ledger = new UsageLedger(':memory:');
-  context.after(() => ledger.close());
-  const call = (minutes, model, extra) =>
-    makeUsageRecord({
-      ts: opened + minutes * minute,
-      provider: 'anthropic-oauth',
-      account: 'default',
-      model,
-      sessionId: 'fast-session',
-      sourceType: 'lead',
-      inputTokens: 100000,
-      outputTokens: 300,
-      durationMs: 2000,
-      ...extra,
-    });
-  ledger.record([
-    call(10, 'claude-opus-5-5'),
-    call(20, 'claude-opus-5-5', { outputTokens: 600, requestServiceTier: 'fast' }),
-    call(30, LONG_MODEL, { requestServiceTier: 'fast' }),
-  ]);
-  const reading = (ts, usedPct) => ({
-    provider: 'anthropic-oauth',
-    account: 'default',
-    label: '5H',
-    ts,
-    usedPct,
-    resetAt: opened + 5 * 60 * minute,
-  });
-  ledger.recordQuota([reading(opened, 0), reading(opened + 40 * minute, 10)]);
+  const resetAt = opened + 5 * 60 * minute;
   const viewedAt = opened + 2 * 60 * minute;
-  context.mock.method(Date, 'now', () => viewedAt);
-  return createUsageStatsApi({
-    ledger: () => ledger,
-    importHistory: async () => {},
-    accountPool: () => ({ accounts: [{ id: 'default', label: 'Account 1' }], selectedId: null }),
-  }).getQuotaHistory({ provider: '', account: '', window: '', view: 'window' });
+  const route = (model, fields = {}) => ({
+    model,
+    consumed: 3,
+    turns: 1,
+    input: 100000,
+    output: 300,
+    cacheRead: 0,
+    tokens: 100300,
+    costUsd: 1,
+    outputTokensPerSecond: 150,
+    ...fields,
+  });
+  const models = [
+    route('claude-opus-5-5'),
+    route('claude-opus-5-5', { speedTier: 'fast', output: 600, tokens: 100600, outputTokensPerSecond: 300 }),
+    route(LONG_MODEL, { speedTier: 'fast' }),
+  ];
+  const domain = { fromMs: opened, toMs: resetAt };
+  return {
+    generatedAt: viewedAt,
+    view: 'window',
+    selection: { provider: 'anthropic-oauth', account: 'default', label: '5H' },
+    subscriptions: [{ provider: 'anthropic-oauth', account: 'default', accountLabel: 'Account 1', accountRank: 0, accountInRoster: true, windows: ['5H'] }],
+    period: domain,
+    domain,
+    focus: { usedPct: 10, resetAt, startMs: opened, endMs: resetAt, current: true, peak: 10 },
+    summary: { consumed: 9, costUsd: 3 },
+    totals: { turns: 3, input: 300000, output: 1200, tokens: 301500, costUsd: 3 },
+    points: [[opened, 0, 1], [viewedAt, 10, 1]],
+    models,
+    modelSeries: [],
+    slots: [],
+  };
 }
-
 test('TOK/S, Share and every kept column fit 375px and 390px in both usage tables; a Fast row keeps its marker', async (t) => {
-  const quota = await quotaAnswer(t);
+  const quota = quotaAnswer();
   const resolveDir = fileURLToPath(new URL('.', import.meta.url));
   const [bundle, styles] = await Promise.all([
     build({
@@ -101,10 +94,7 @@ test('TOK/S, Share and every kept column fit 375px and 390px in both usage table
           };
           const root = createRoot(document.getElementById("root"));
           const period = ${JSON.stringify(
-            resolveUsageStatsPeriod({
-              view: 'hour',
-              now: new Date(2026, 8, 13, 12).getTime(),
-            })
+            usageSnapshot('hour').period
           )};
           window.renderStats = () => {
             const route = {

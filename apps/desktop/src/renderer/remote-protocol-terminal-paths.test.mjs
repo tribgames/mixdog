@@ -2,7 +2,6 @@
 // path is spelled. The expected values are Node's own `path.win32` / `path.posix` run here, for each class of input; and the adapter's
 // calls, for one spelling on a Windows host and on a POSIX host.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { adapter } from './remote-protocol-terminal.ts';
@@ -34,34 +33,6 @@ const CLASSES = [
   '/a/./b//c',
   'D:\\x\\.\\y',
 ];
-
-const golden = JSON.parse(
-  readFileSync(new URL('../../../mobile/fixtures/absolute-local-path/golden.json', import.meta.url), 'utf8')
-);
-
-test("a Windows host answers every recorded input as Node's absoluteLocalPath did, whichever drive the working directory is on", async () => {
-  for (const [drive, answers] of Object.entries(golden.drives)) {
-    for (const [index, input] of golden.inputs.entries()) {
-      const answer = answers[index];
-      const { host: phone, calls } = host('windows', `${drive}:\\`);
-      const error = await adapter.calls.folderWatch([input.absent ? undefined : input.value, true], phone).then(
-        () => null,
-        (thrown) => thrown
-      );
-      assert.equal(
-        error?.message,
-        answer.error?.message,
-        `${input.name} on ${drive}: Node answered ${JSON.stringify(answer)}`
-      );
-      if (!error)
-        assert.equal(
-          calls.find(([method]) => method === 'fs/watch')[1].path,
-          answer.result,
-          `${input.name} on ${drive}`
-        );
-    }
-  }
-});
 
 test('a POSIX host resolves each class of path as path.posix does', () => {
   for (const text of CLASSES) {

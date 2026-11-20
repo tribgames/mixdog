@@ -9,7 +9,7 @@ import * as quotaContinue from './quota-continue.ts';
 import { useConversationQuotaCard, rosterOffersOtherAccount } from './use-conversation-quota-card.ts';
 import { inheritSessionDirectly } from './session-inheritance.ts';
 import { DESKTOP_TOAST_EVENT } from './desktop-toasts.tsx';
-import { transcriptTurnKeys } from '../shared/test-recorded/quota-continue.test.0.recorded.mjs';
+import { transcriptTurnKeys } from './renderer-logic.mjs';
 
 const { latestQuotaFailure, quotaDismissKey, quotaPanelVisible, quotaRemainingLabel, quotaResetLabel } = quotaContinue;
 const quota = { provider: 'anthropic', model: 'claude-opus', resetAt: null };

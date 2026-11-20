@@ -1,6 +1,42 @@
 {
  "wake-probe-answered": {
   "reason": "The phone confirms its feeds on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts) where Node resynced every view: no resync request, no syncing/connected cycle, no connected notice, no resync-banner state.",
+  "script": [
+   {
+    "op": "boot"
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "op": "check",
+    "name": "connected",
+    "expect": {
+     "foreground": true
+    }
+   },
+   {
+    "op": "hide"
+   },
+   {
+    "op": "advance",
+    "ms": 10000
+   },
+   {
+    "op": "show"
+   },
+   {
+    "op": "pong"
+   },
+   {
+    "op": "advance",
+    "ms": 5000
+   },
+   {
+    "op": "mark",
+    "name": "probe-answered"
+   }
+  ],
   "checkpoints": {
    "probe-answered": {
     "name": "probe-answered",
@@ -27,6 +63,28 @@
  },
  "relay-resync-hint": {
   "reason": "The phone confirms its feeds on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts) where Node resynced every view: no resync request, no syncing/connected cycle, no connected notice, no resync-banner state.",
+  "script": [
+   {
+    "op": "boot"
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "op": "check",
+    "name": "connected",
+    "expect": {
+     "foreground": true
+    }
+   },
+   {
+    "op": "relay-hint"
+   },
+   {
+    "op": "mark",
+    "name": "hint"
+   }
+  ],
   "checkpoints": {
    "hint": {
     "name": "hint",
@@ -51,6 +109,54 @@
  },
  "wake-late-pong": {
   "reason": "The phone confirms its feeds on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts) where Node resynced every view: no resync request, no syncing/connected cycle, no connected notice, no resync-banner state.",
+  "script": [
+   {
+    "op": "boot"
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "op": "check",
+    "name": "connected",
+    "expect": {
+     "foreground": true
+    }
+   },
+   {
+    "op": "hide"
+   },
+   {
+    "op": "advance",
+    "ms": 10000
+   },
+   {
+    "op": "show"
+   },
+   {
+    "op": "advance",
+    "ms": 1000
+   },
+   {
+    "op": "mark",
+    "name": "probe-waiting"
+   },
+   {
+    "op": "pong"
+   },
+   {
+    "op": "mark",
+    "name": "late-pong"
+   },
+   {
+    "op": "advance",
+    "ms": 5000
+   },
+   {
+    "op": "mark",
+    "name": "quiet-after"
+   }
+  ],
   "checkpoints": {
    "late-pong": {
     "name": "late-pong",
@@ -94,6 +200,46 @@
  },
  "backlog-kept": {
   "reason": "The phone confirms its feeds on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts) where Node resynced every view: no resync request, no syncing/connected cycle, no connected notice, no resync-banner state.",
+  "script": [
+   {
+    "op": "boot"
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "op": "check",
+    "name": "connected",
+    "expect": {
+     "foreground": true
+    }
+   },
+   {
+    "op": "hide"
+   },
+   {
+    "op": "advance",
+    "ms": 10000
+   },
+   {
+    "op": "show"
+   },
+   {
+    "op": "advance",
+    "ms": 1500
+   },
+   {
+    "op": "stray"
+   },
+   {
+    "op": "advance",
+    "ms": 1000
+   },
+   {
+    "op": "mark",
+    "name": "kept"
+   }
+  ],
   "checkpoints": {
    "kept": {
     "name": "kept",
@@ -120,6 +266,60 @@
  },
  "proven-drop-visible": {
   "reason": "A dropped, proven socket reconnects through the library: the phone does not resync the views on the new leg first (no syncing state, no resync request, one connected notice) - the wake design of b065f71034.",
+  "script": [
+   {
+    "op": "boot"
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "op": "check",
+    "name": "connected",
+    "expect": {
+     "foreground": true
+    }
+   },
+   {
+    "op": "hide"
+   },
+   {
+    "op": "advance",
+    "ms": 10000
+   },
+   {
+    "op": "show"
+   },
+   {
+    "op": "pong"
+   },
+   {
+    "op": "random",
+    "value": 0
+   },
+   {
+    "op": "drop",
+    "code": 1006
+   },
+   {
+    "op": "advance",
+    "ms": 0
+   },
+   {
+    "op": "mark",
+    "name": "dropped"
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "op": "check",
+    "name": "redialed",
+    "expect": {
+     "foreground": true
+    }
+   }
+  ],
   "checkpoints": {
    "dropped": {
     "name": "dropped",
@@ -148,6 +348,48 @@
  },
  "resync-fails-once": {
   "reason": "The phone confirms its feeds on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts) where Node resynced every view: no resync request, no syncing/connected cycle, no connected notice, no resync-banner state. The scripted refusal of the first sync therefore has nothing to refuse.",
+  "script": [
+   {
+    "op": "boot"
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "op": "check",
+    "name": "connected",
+    "expect": {
+     "foreground": true
+    }
+   },
+   {
+    "op": "fail-sync",
+    "times": 1
+   },
+   {
+    "op": "relay-hint"
+   },
+   {
+    "op": "mark",
+    "name": "refused"
+   },
+   {
+    "op": "advance",
+    "ms": 249
+   },
+   {
+    "op": "mark",
+    "name": "waiting"
+   },
+   {
+    "op": "advance",
+    "ms": 1
+   },
+   {
+    "op": "mark",
+    "name": "retried"
+   }
+  ],
   "checkpoints": {
    "refused": {
     "name": "refused",
@@ -210,6 +452,84 @@
  },
  "mxt-negotiated": {
   "reason": "The phone confirms its feeds on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts) where Node resynced every view: no resync request, no syncing/connected cycle, no connected notice, no resync-banner state.",
+  "script": [
+   {
+    "op": "boot",
+    "mxt": true
+   },
+   {
+    "op": "accept",
+    "flags": {
+     "transportWebrtc": 1,
+     "binaryFrames": 1
+    }
+   },
+   {
+    "op": "check",
+    "name": "connected",
+    "expect": {
+     "foreground": true
+    }
+   },
+   {
+    "op": "screen",
+    "ids": [
+     "s1"
+    ]
+   },
+   {
+    "op": "check",
+    "name": "reports-over-records",
+    "expect": {
+     "foreground": true,
+     "screen": [
+      "s1"
+     ]
+    }
+   },
+   {
+    "op": "advance",
+    "ms": 7000
+   },
+   {
+    "op": "mark",
+    "name": "quiet-visible"
+   },
+   {
+    "op": "hide"
+   },
+   {
+    "op": "stray"
+   },
+   {
+    "op": "stray"
+   },
+   {
+    "op": "stray"
+   },
+   {
+    "op": "advance",
+    "ms": 10000
+   },
+   {
+    "op": "mark",
+    "name": "hidden"
+   },
+   {
+    "op": "show"
+   },
+   {
+    "op": "pong"
+   },
+   {
+    "op": "advance",
+    "ms": 5000
+   },
+   {
+    "op": "mark",
+    "name": "woken"
+   }
+  ],
   "checkpoints": {
    "woken": {
     "name": "woken",
@@ -240,6 +560,62 @@
  },
  "resync-gates-reads": {
   "reason": "The phone confirms its feeds on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts) where Node resynced every view: no resync request, no syncing/connected cycle, no connected notice, no resync-banner state. Without a resync there is no held sync to gate the reads: the read the recording holds behind the resync is answered at once.",
+  "script": [
+   {
+    "op": "boot",
+    "reads": true
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "op": "check",
+    "name": "connected",
+    "expect": {
+     "foreground": true
+    }
+   },
+   {
+    "op": "advance",
+    "ms": 10000
+   },
+   {
+    "op": "mark",
+    "name": "boot-window-expired"
+   },
+   {
+    "op": "hold",
+    "name": "synchronizeViews"
+   },
+   {
+    "op": "relay-hint"
+   },
+   {
+    "op": "read",
+    "name": "readSettings",
+    "as": "gated"
+   },
+   {
+    "op": "advance",
+    "ms": 3000
+   },
+   {
+    "op": "mark",
+    "name": "resync-held"
+   },
+   {
+    "op": "release",
+    "name": "synchronizeViews"
+   },
+   {
+    "op": "advance",
+    "ms": 0
+   },
+   {
+    "op": "mark",
+    "name": "resync-landed"
+   }
+  ],
   "checkpoints": {
    "resync-held": {
     "name": "resync-held",
@@ -286,6 +662,82 @@
  },
  "resync-retry-gates-reads": {
   "reason": "The phone confirms its feeds on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts) where Node resynced every view: no resync request, no syncing/connected cycle, no connected notice, no resync-banner state. Without a resync there is no held sync to gate the reads: the read the recording holds behind the resync is answered at once.",
+  "script": [
+   {
+    "op": "boot",
+    "reads": true
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "op": "check",
+    "name": "connected",
+    "expect": {
+     "foreground": true
+    }
+   },
+   {
+    "op": "advance",
+    "ms": 10000
+   },
+   {
+    "op": "mark",
+    "name": "boot-window-expired"
+   },
+   {
+    "op": "fail-sync",
+    "times": 1
+   },
+   {
+    "op": "relay-hint"
+   },
+   {
+    "op": "read",
+    "name": "readSettings",
+    "as": "gated"
+   },
+   {
+    "op": "advance",
+    "ms": 249
+   },
+   {
+    "op": "mark",
+    "name": "refused-and-waiting"
+   },
+   {
+    "op": "hold",
+    "name": "synchronizeViews"
+   },
+   {
+    "op": "advance",
+    "ms": 1
+   },
+   {
+    "op": "mark",
+    "name": "retry-held"
+   },
+   {
+    "op": "advance",
+    "ms": 3000
+   },
+   {
+    "op": "mark",
+    "name": "retry-still-held"
+   },
+   {
+    "op": "release",
+    "name": "synchronizeViews"
+   },
+   {
+    "op": "advance",
+    "ms": 0
+   },
+   {
+    "op": "mark",
+    "name": "retry-landed"
+   }
+  ],
   "checkpoints": {
    "refused-and-waiting": {
     "name": "refused-and-waiting",
@@ -370,6 +822,93 @@
  },
  "disconnect-during-held-resync": {
   "reason": "The phone confirms its feeds on a wake or a relay hint (view.wake() + confirmFeeds, checkpoint b065f71034, pinned by phone-view.test.ts) where Node resynced every view: no resync request, no syncing/connected cycle, no connected notice, no resync-banner state. Without a resync there is no held sync to gate the reads.",
+  "script": [
+   {
+    "op": "boot",
+    "reads": true
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "op": "check",
+    "name": "connected",
+    "expect": {
+     "foreground": true
+    }
+   },
+   {
+    "op": "advance",
+    "ms": 10000
+   },
+   {
+    "op": "mark",
+    "name": "boot-window-expired"
+   },
+   {
+    "op": "hold",
+    "name": "synchronizeViews"
+   },
+   {
+    "op": "relay-hint"
+   },
+   {
+    "op": "read",
+    "name": "readSettings",
+    "as": "gated"
+   },
+   {
+    "op": "advance",
+    "ms": 3000
+   },
+   {
+    "op": "mark",
+    "name": "resync-held"
+   },
+   {
+    "op": "random",
+    "value": 0
+   },
+   {
+    "op": "drop",
+    "code": 1006
+   },
+   {
+    "op": "unhold",
+    "name": "synchronizeViews"
+   },
+   {
+    "op": "advance",
+    "ms": 0
+   },
+   {
+    "op": "mark",
+    "name": "dropped"
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "op": "check",
+    "name": "back",
+    "expect": {
+     "foreground": true
+    }
+   },
+   {
+    "op": "read",
+    "name": "readSettings",
+    "as": "after"
+   },
+   {
+    "op": "advance",
+    "ms": 0
+   },
+   {
+    "op": "mark",
+    "name": "served"
+   }
+  ],
   "checkpoints": {
    "resync-held": {
     "name": "resync-held",
@@ -419,6 +958,78 @@
  },
  "reconnect-sync-refused-once": {
   "reason": "On the reconnect the phone is not gated behind the sync the script refuses (the first sync of a reconnected leg is the view machine's own re-attachment, settled in the same turn), so its reads are answered at once and the reconnected signal is given there; Node held them until the retry.",
+  "script": [
+   {
+    "op": "boot",
+    "reads": true
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "op": "check",
+    "name": "connected",
+    "expect": {
+     "foreground": true
+    }
+   },
+   {
+    "op": "advance",
+    "ms": 10000
+   },
+   {
+    "op": "mark",
+    "name": "boot-window-expired"
+   },
+   {
+    "op": "random",
+    "value": 0
+   },
+   {
+    "op": "drop",
+    "code": 1006
+   },
+   {
+    "op": "refuse-syncs",
+    "times": 1
+   },
+   {
+    "op": "advance",
+    "ms": 0
+   },
+   {
+    "op": "read",
+    "name": "readSettings",
+    "as": "gated"
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "op": "advance",
+    "ms": 249
+   },
+   {
+    "op": "mark",
+    "name": "refused-and-waiting"
+   },
+   {
+    "op": "advance",
+    "ms": 1
+   },
+   {
+    "op": "mark",
+    "name": "retried"
+   },
+   {
+    "op": "advance",
+    "ms": 0
+   },
+   {
+    "op": "mark",
+    "name": "landed"
+   }
+  ],
   "checkpoints": {
    "refused-and-waiting": {
     "name": "refused-and-waiting",
@@ -481,6 +1092,125 @@
  },
  "call-delayed-send": {
   "reason": "The protocol client's own heartbeat (packages/protocol-client/src/health.ts) sends a probe request 3 s after the call left; its answer is traffic, so the relay-level ping that Node sent after 5 s of silence is not due.",
+  "script": [
+   {
+    "op": "boot",
+    "reads": true
+   },
+   {
+    "op": "accept"
+   },
+   {
+    "op": "check",
+    "name": "connected",
+    "expect": {
+     "foreground": true
+    }
+   },
+   {
+    "op": "advance",
+    "ms": 10000
+   },
+   {
+    "op": "hold",
+    "name": "readSettings"
+   },
+   {
+    "op": "hold-seal"
+   },
+   {
+    "op": "read",
+    "name": "readSettings",
+    "as": "late"
+   },
+   {
+    "op": "advance",
+    "ms": 9999
+   },
+   {
+    "op": "mark",
+    "name": "sealing-held-9999ms"
+   },
+   {
+    "op": "advance",
+    "ms": 1
+   },
+   {
+    "op": "mark",
+    "name": "sealing-held-10s"
+   },
+   {
+    "op": "pong"
+   },
+   {
+    "op": "advance",
+    "ms": 2000
+   },
+   {
+    "op": "release-seal"
+   },
+   {
+    "op": "mark",
+    "name": "frame-left-at-12s"
+   },
+   {
+    "op": "advance",
+    "ms": 4999
+   },
+   {
+    "op": "mark",
+    "name": "quiet-just-under-5s-after-send"
+   },
+   {
+    "op": "advance",
+    "ms": 1
+   },
+   {
+    "op": "mark",
+    "name": "silence-probe-5s-after-send"
+   },
+   {
+    "op": "pong"
+   },
+   {
+    "op": "advance",
+    "ms": 5000
+   },
+   {
+    "op": "mark",
+    "name": "quiet-10s-after-send"
+   },
+   {
+    "op": "pong"
+   },
+   {
+    "op": "advance",
+    "ms": 10000
+   },
+   {
+    "op": "mark",
+    "name": "deadline-probe-20s-after-send"
+   },
+   {
+    "op": "pong"
+   },
+   {
+    "op": "advance",
+    "ms": 4999
+   },
+   {
+    "op": "mark",
+    "name": "pending-just-under-25s-after-send"
+   },
+   {
+    "op": "advance",
+    "ms": 1
+   },
+   {
+    "op": "mark",
+    "name": "expired-25s-after-send"
+   }
+  ],
   "checkpoints": {
    "silence-probe-5s-after-send": {
     "name": "silence-probe-5s-after-send",
