@@ -48,8 +48,7 @@ export function registerNotificationHost(connection: HostConnection, presenter: 
     for (const notification of [...(byConnection.get(connectionId) ?? [])]) notification.close();
     byConnection.delete(connectionId);
   });
-  // What Node's `notificationStatus` host method answered (main/index.ts at b6f10295a): paired devices hold their pushes
-  // while this PC is in use.
+  // The `notificationStatus` host method: paired devices hold their pushes while this PC is in use.
   connection.handleRequest(
     HOST_METHOD.notificationStatus,
     async (): Promise<HostNotificationStatus> => ({

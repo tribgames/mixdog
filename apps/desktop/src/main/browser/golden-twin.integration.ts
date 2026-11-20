@@ -1,7 +1,7 @@
 /**
- * The browser golden twin (WP-DESKTOP-HOST, DS-HOST-1) on the core harness: one script that uses every action the `browser`
+ * The browser golden-corpus run (WP-DESKTOP-HOST, DS-HOST-1) on the core harness: one script that uses every action the `browser`
  * tools expose runs against a real mixdogd with this Electron process as the host role, and the model-visible text of every
- * step (result text, image mime, or error text) must equal the corpus the product's Node engine recorded
+ * step (result text, image mime, or error text) must equal the golden corpus
  * (native/core/fixtures/desktop-host/browser-golden.json), once ports, paths, durations and ids numbered by the run are
  * normalised.
  *
@@ -11,7 +11,7 @@
  * Run (apps/desktop):
  *   node scripts/run-browser-core-integration.mjs --suite src/main/browser/golden-twin.integration.ts --engine core|host
  * The corpus is read from MIXDOG_BROWSER_GOLDEN (default native/core/fixtures/desktop-host/browser-golden.json, two folders
- * above the runner's working directory). It is never written here: the loopback bridge that recorded it is gone, and the
+ * above the runner's working directory). It is never written here; the
  * engine's own host calls are recorded with MIXDOG_BROWSER_TRANSCRIPT.
  */
 import assert from 'node:assert/strict';
@@ -204,7 +204,7 @@ const suite: CoreHarnessSuite = async (harness) => {
 
     // The page the harness session shows, loaded as the pane would show it.
     await harness.guest.loadURL(`${origin}/root`);
-    progress(`golden twin: mode ${harness.engine}`);
+    progress(`golden corpus: mode ${harness.engine}`);
 
     const latest = { text: '', previous: '' };
     const context: Context = {

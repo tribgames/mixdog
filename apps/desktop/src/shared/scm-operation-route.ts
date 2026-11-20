@@ -1,7 +1,7 @@
 // The source-control operations (git, GitHub, the git/GitHub/LibreOffice installers) as protocol requests and replies, in one place
 // for both of their callers: the desktop's operation lane (main/protocol/desktop-operation-route.ts, which routes the windows and the
-// relay) and the phone's protocol adapter (renderer/remote-protocol-scm.ts). Each name takes the positional arguments Node's
-// `desktop-operations.ts` handler took, and each reply is Node's return value (the parity contract of DS-SCM-1).
+// relay) and the phone's protocol adapter (renderer/remote-protocol-scm.ts). Each name takes the positional arguments of its
+// `desktop-operations.ts` handler (DS-SCM-1).
 
 export interface OperationRoute {
   method: string;
@@ -11,7 +11,7 @@ export interface OperationRoute {
 export type OperationMapper = (args: readonly unknown[]) => OperationRoute;
 
 /** `names[i]` is the param the i-th positional argument fills; `null` is an argument the core has no param for (a
- *  Node-only value such as the user-data path every editor-backup call carried). An argument past the list is an
+ *  desktop-local value such as the user-data path every editor-backup call carries). An argument past the list is an
  *  error, never dropped; an undefined argument leaves its (optional) param out. */
 export function positional(method: string, names: ReadonlyArray<string | null>): OperationMapper {
   return (args) => {
@@ -94,7 +94,7 @@ export const SCM_OPERATION_ROUTES: Readonly<Record<string, OperationMapper>> = {
   gitStashDrop: positional('git/stashDrop', ['cwd', 'ref']),
   gitStashList: positional('git/stashList', ['cwd']),
   gitStashPop: positional('git/stashPop', ['cwd']),
-  // The second argument is Node's status-scan hint { reuseLineStats, skipLineStats }: it goes to the core, which skips the
+  // The second argument is the status-scan hint { reuseLineStats, skipLineStats }: it goes to the core, which skips the
   // line counts on skip and serves the counted scan from its cache on reuse.
   gitStatus: ([cwd, hint, ...extra]) => {
     if (extra.length) throw new TypeError('desktop operation for git/status takes at most 2 arguments');
@@ -119,7 +119,7 @@ export const SCM_OPERATION_ROUTES: Readonly<Record<string, OperationMapper>> = {
   // GitHub
   githubRequest: positional('github/request', ['cwd', 'input']),
   // The pull request value (a number, or the create input) and the merge method are JSON values the core's params require
-  // (`JsonValue`, no default): what Node's handler took as `undefined` goes as null, the core's own "absent" (merge: `merge`).
+  // (`JsonValue`, no default): what the caller leaves `undefined` goes as null, the core's own "absent" (merge: `merge`).
   ghPrCheckout: pullRequest('github/pr/checkout', ['cwd', 'value']),
   ghPrCreate: pullRequest('github/pr/create', ['cwd', 'value']),
   ghPrDefaultBranch: positional('github/pr/defaultBranch', ['cwd']),
@@ -135,7 +135,7 @@ export const SCM_OPERATION_ROUTES: Readonly<Record<string, OperationMapper>> = {
     params: defined({ openBrowser: record(options).openBrowser }),
   }),
   githubCliLoginStatus: positional('github/login/status', ['flowId']),
-  // The second argument is Node's { openBrowser? } options, which its handler ignored (gh never opens a browser itself).
+  // The second argument is the { openBrowser? } options, which are ignored (gh never opens a browser itself).
   githubCliLoginOpenBrowser: positional('github/login/openBrowser', ['flowId', null]),
   githubCliLogout: positional('github/logout', []),
   githubCliStatus: positional('github/status', ['refresh']),
@@ -155,8 +155,7 @@ export interface ScmReplyContext {
 }
 export type ScmReply = (reply: unknown, context: ScmReplyContext) => unknown;
 
-/** Replies that are Node's return value as the core sends it (the parity contract of DS-SCM-1, DS-REM-1: the JSON equals what
- *  the Node implementation returned). */
+/** Operations whose reply is the operation's return value exactly as the core sends it (DS-SCM-1, DS-REM-1). */
 const SAME_REPLY: readonly string[] = [
   'gitAbortOperation',
   'gitAmend',

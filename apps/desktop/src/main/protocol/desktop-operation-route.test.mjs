@@ -386,7 +386,7 @@ const CASES = [
   ['pcAccessApprove', [], 'pcAccess/approve', {}],
 ];
 
-/** [operation, args, params]: Node's announcements, the core methods the lane calls for them (no host display preferences here). */
+/** [operation, args, params]: the desktop announcements, the core methods the lane calls for them (no host display preferences here). */
 const ANNOUNCEMENTS = [
   ['notifySettingsChanged', ['git'], { scope: 'git' }],
   ['notifyProviderModelsChanged', ['win-1'], { origin: 'win-1' }],
@@ -489,7 +489,7 @@ test('termEnsure without a tab id sends none: the core spawns a new terminal and
     const sent = routeDesktopOperation('termEnsure', [id, R, null]);
     assert.equal(sent.method, 'terminal/ensure');
     assert.equal('tabId' in sent.params, false);
-    // Node's `termEnsure([id, cwd, shell])` (remote-methods.ts:1143) has no core params to record; `options` is the spec table's shape for them.
+    // `termEnsure([id, cwd, shell])` has no core params to record; `options` is the spec table's shape for them.
     assert.deepEqual(sent.params.options, { cwd: R });
   }
   assert.equal(routeDesktopOperation('termEnsure', ['t9', R, null]).params.tabId, 't9');
@@ -498,7 +498,7 @@ test('termEnsure without a tab id sends none: the core spawns a new terminal and
 test('an argument the core has no param for is refused, not dropped', () => {
   assert.throws(() => routeDesktopOperation('gitCommit', [R, 'm', 'extra']), /takes at most 2 arguments/);
   assert.throws(() => routeDesktopOperation('updateSessionRetention', ['nope', 1]), /retention setting is invalid/);
-  // Node's operation refused a flag that is no boolean before it wrote anything (desktop-operations.ts `updateActivityRailPins`).
+  // A flag that is no boolean is refused before anything is written.
   for (const flag of ['yes', 1, null]) {
     assert.throws(
       () => routeDesktopOperation('updateActivityRailPins', [['a'], flag]),
@@ -858,7 +858,7 @@ test('termFocus sends focused as given, so a view can leave a tab', () => {
   });
 });
 
-test("gitStatus passes Node's scan hint to the core", async () => {
+test('gitStatus passes the scan hint to the core', async () => {
   const { lane, calls } = laneWith({ 'git/status': { repository: true } });
   await lane.invoke('gitStatus', [R, { skipLineStats: true }]);
   await lane.invoke('gitStatus', [R, { reuseLineStats: true }]);
@@ -1142,8 +1142,7 @@ test('remoteAccess/state and remoteAccess/activate are protocol methods of the R
   assert.deepEqual(paramsSchema('remoteAccess/activate').required, ['opId']);
 });
 
-// What Node's `remoteAccessInfo(activate)` answered in each remote-access state, recorded from the real service over a
-// fake relay (fixtures/remote-info-node-states.json). `before` is the `remote` section the Rust core holds in that
+// What `remoteAccessInfo(activate)` answers in each remote-access state. `before` is the `remote` section the Rust core holds in that
 // state; `after` the value `remoteAccess/activate` answers (the state once `start(true)` ran).
 const NOT_RUNNING = { relay: { clientUrl: '', token: '', clients: [] }, enabled: false };
 const LIVE = (connected) => ({
@@ -1194,7 +1193,7 @@ for (const [name, state] of Object.entries(recorded.states)) {
         step.result,
         `${name} activate=${step.activate}`
       );
-      // Node's start(true) ran for every explicit read, except while the user had switched access off.
+      // Every explicit read starts remote access, except while the user has switched access off.
       assert.equal(
         calls.length - sent,
         step.activate && !before.disabled ? 1 : 0,

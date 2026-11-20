@@ -303,9 +303,9 @@ test('listAgentPool answers with the core reply', async () => {
   assert.deepEqual(await service.call('listAgentPool', []), { reply: 1 });
 });
 
-// Node's host sent `applyToCurrentSession: true, keepMainModel: Boolean(sessionId)` with every pick and answered the session's
+// Every pick is sent with `applyToCurrentSession: true, keepMainModel: Boolean(sessionId)` and answers the session's
 // state after it; the state is the core's thread state, where a clamped effort is the effective one (`ultra` asked, `high` held).
-test('setModelRoute writes the pick as Node sent it and answers the thread state the core holds after it', async () => {
+test('setModelRoute writes the pick for the current session and answers the thread state the core holds after it', async () => {
   const calls = [];
   const protocol = {
     snapshot: () => ({ status: 'ready', entries: [] }),
@@ -1474,7 +1474,7 @@ test('searchProjectFiles stops the consumer session before it starts one on anot
   );
 });
 // The core answers `search/update` with nothing: the files come on the search's feed (`search/updated`), and `search/completed`
-// ends the query. Node's method answered the paths, a folder's ending with a slash.
+// ends the query. The method answers the paths, a folder's ending with a slash.
 test('searchProjectFiles answers the files the feed carried for its query when the core completes it', async () => {
   let emitFor;
   const { service, emit } = lane(async (method, params) => {
@@ -1534,7 +1534,7 @@ test('a newer query of the same consumer ends the older one, which answers what 
   assert.equal(listeners.size, 0);
 });
 
-// Recorded from a core on a converted profile (2026-11-13): `project/list` answers `{ projects: [{ path, name, alias, hidden,
+// On a converted profile `project/list` answers `{ projects: [{ path, name, alias, hidden,
 // lastUsedAt }] }`, and the project folders `{ path }`. The contract's answers are the rows and the strings.
 test('the project list is the contract rows, and a project folder is its path', async () => {
   const { service } = lane(async (method) =>
@@ -1597,7 +1597,7 @@ test('a method with no request op is refused before anything is sent, with no fa
   assert.deepEqual(calls, []);
 });
 
-// Node's perfLog wrote the renderer's diagnostic line in the host; the spec map (`operations_map.json`, list `services`)
+// The renderer's diagnostic line (perfLog) goes to the core; the spec map (`operations_map.json`, list `services`)
 // sends it to the core as the `client/perfLog` notification, which has no reply and no request.
 test('perfLog is the client/perfLog notification with the line, and sends no request', async () => {
   const { calls, notified, service } = lane();

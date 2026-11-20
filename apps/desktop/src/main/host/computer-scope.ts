@@ -41,7 +41,7 @@ export const HOST_COMPUTER_REVOKE_SCOPES = 'host/computer/revokeScopes';
 export const HOST_COMPUTER_SCOPE_REPORT = 'host/computer/scopeReport';
 export const SCOPE_FIELD = 'automationScope';
 
-/** What a refused effect answers: Node's words for Computer Use that is unavailable. */
+/** What a refused effect answers: the text for Computer Use that is unavailable. */
 const REVOKED = 'computer use is unavailable; open the Mixdog desktop app and enable Computer Use in settings';
 
 /** Computer Use's switch on this desktop, which every connection's scopes follow. */

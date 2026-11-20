@@ -190,7 +190,7 @@ test('the remote-access and terminal-activity reads come from the held sections,
     disabled: false,
   });
   const { lane: l, calls } = lane([remote, entry('terminalActivity', null, { t1: 'working', t2: 'idle' })]);
-  // Without the activation (the argument false) the descriptor is the section's info as Node's descriptor() returned it:
+  // Without the activation (the argument false) the descriptor is the section's info:
   // no connected. The activating read, the stale states and the stubbed section are in desktop-operation-route.test.mjs.
   assert.deepEqual(await l.invoke('remoteAccessInfo', [false]), {
     relay: { clientUrl: 'u', token: 't', clients: [] },

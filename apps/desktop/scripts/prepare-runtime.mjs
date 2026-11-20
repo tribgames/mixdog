@@ -35,9 +35,7 @@ const runtimePackageDir = join(stagingDir, 'node_modules', 'mixdog');
 // plain Node): electron-builder maps this tree to resources/runtime.asar.unpacked/node_modules, and no
 // archive of it exists. Its name is the path the core's js-runtime.json and MIXDOG_ROOT already name.
 const builderNativeModulesDir = join(runtimeDir, 'native-modules');
-// The skill launcher (src/skill-script-entry.mjs, src/runtime/shared/skill-script-runtime.mjs) is
-// checked as part of CORE_READS / the core closure. K1 retired the Node skill scripts (validate-skill,
-// the pptx scripts) with their Node consumers, so no script is bundled or run here.
+// No skill script is bundled or run here.
 // The tools the app executes (native_tools.rs resolves only these): the patch engine and the process
 // manager are libraries of the core now, so their standalone binaries are neither downloaded nor packaged.
 const DESKTOP_NATIVE_TOOL_KINDS = Object.freeze(['graph']);

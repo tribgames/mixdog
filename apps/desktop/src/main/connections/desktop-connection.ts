@@ -69,7 +69,7 @@ function createServiceClient({
     ...(deps.initialSnapshot ? { initialSnapshot: deps.initialSnapshot() } : {}),
     onDiagnostic: (event, data) => deps.onDiagnostic?.(identity, event, data),
   });
-  // The core's announcements (`ui/settings/changed`, `ui/providerModels/changed`) are the events Node's service raised for
+  // The core's announcements (`ui/settings/changed`, `ui/providerModels/changed`) are the desktop events raised for
   // this process's windows; they last as long as the connection.
   watchAnnouncements(protocol, (name, value) => client.emitDesktopEvent(name, value));
   return client;

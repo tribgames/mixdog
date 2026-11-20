@@ -119,7 +119,7 @@ test('failed commands retain timing without changing a frozen error or replaying
 /** fixtures/timing.json: the corpus the Rust crate mixdog-browser-policy replays as well. */
 const corpus = JSON.parse(readFileSync(new URL('./fixtures/timing.json', import.meta.url), 'utf8'));
 
-test('every scripted command of the shared corpus records what the Rust twin records', async () => {
+test('every scripted command of the shared corpus records what the Rust engine records', async () => {
   const run = async (nodes) => {
     for (const node of nodes) {
       if (node.throw) throw new Error('scripted failure');

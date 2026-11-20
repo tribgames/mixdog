@@ -108,7 +108,7 @@ export function createBrowserView(
   });
 
   return {
-    /** The browser host's `publishRemoteFrame` (Node's `browserRemoteFrame`): the frame's facts as `host/browser/frame`, the
+    /** The browser host's `publishRemoteFrame`: the frame's facts as `host/browser/frame`, the
      *  picture they announce (`image` without `data`) as the X17 frame that follows, sent only for a JPEG paint of a viewed tab. */
     publishFrame(frame: DesktopRemoteBrowserStreamFrame): Promise<void> {
       let facts: DesktopRemoteBrowserStreamFrame = frame;

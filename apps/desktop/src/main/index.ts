@@ -220,7 +220,7 @@ for (const stream of [process.stdout, process.stderr]) {
 }
 // V8 compile cache for the main process's dynamic imports (remote access,
 // dialogs) and the daemon service adapter. Best-effort no-op when the
-// running Node build lacks the API.
+// running Node lacks the API.
 try {
   (nodeModule as { enableCompileCache?: () => unknown }).enableCompileCache?.();
 } catch {

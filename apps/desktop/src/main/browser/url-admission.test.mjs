@@ -104,7 +104,7 @@ test('browser URL admission rechecks completed DNS answers and coalesces only co
 /** fixtures/url-admission.json: the corpus the Rust crate mixdog-browser-policy replays as well. */
 const corpus = JSON.parse(readFileSync(new URL('./fixtures/url-admission.json', import.meta.url), 'utf8'));
 
-test('every case of the shared corpus gets the same verdict as the Rust twin', async () => {
+test('every case of the shared corpus gets the same verdict as the Rust engine', async () => {
   assert.ok(corpus.length > 40);
   for (const { case: name, input, expect } of corpus) {
     const lookupAddresses = async (host) => {

@@ -670,7 +670,7 @@ test('coverage: every validator a direct key calls is answered by a rule of the 
   const handlers = validatorsOfHandlers();
   const unmapped = new Set();
   // A covered validator is stale when no handler calls it. A key the host serves itself (the attachment staging) is not a
-  // direct key, but its handler still calls the validator the core twin answers for.
+  // direct key, but its handler still calls the validator the core's own validator answers for.
   const used = new Set([...handlers.values()].flatMap((names) => [...names]));
   // The renderer's remote adapters (the phone's calls) and the host's own closures call validators too, outside the handlers of main's
   // ipc files: a call anywhere in the desktop's sources is the desktop still calling it.

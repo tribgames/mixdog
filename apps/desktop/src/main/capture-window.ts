@@ -466,8 +466,8 @@ async function runCaptureLightThemePass(window: BrowserWindow): Promise<{
       return true;
     })()`);
   await new Promise((resolve) => setTimeout(resolve, 150));
-  // Keep the full light-theme frame as a standing artifact so dark/light
-  // parity can be reviewed visually, not just via token assertions.
+  // Keep the full light-theme frame as a standing artifact so the dark and light
+  // themes can be compared visually, not just via token assertions.
   const lightImage = await window.webContents.capturePage();
   const lightShellTopEdge = measureShellTopEdge(lightImage, 'light');
   const lightPng = lightImage.toPNG();

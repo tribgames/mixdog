@@ -4,9 +4,8 @@ import test from 'node:test';
 import { DesktopServiceClient } from './desktop-service-client.ts';
 import { createCapabilityLane } from './protocol/capability-route.ts';
 
-// The session methods a window calls on a core connection. There is no Node host on that connection: the lane is the
-// whole path (SessionHost is Node-only and K1 deletes it), so each method is one core request and the Node service is
-// never reached. The window's rename is the renderer's core-direct `renameSession` (renderer/core-direct/api-sessions.ts: this capability, errors mapped by withDirectErrors); the title's own checks are the lane's and the core's.
+// The session methods a window calls on a core connection. The lane is the whole path, so each method is one core
+// request and no local service is reached. The window's rename is the renderer's core-direct `renameSession` (renderer/core-direct/api-sessions.ts: this capability, errors mapped by withDirectErrors); the title's own checks are the lane's and the core's.
 const SESSION = `sess_desktop_${'a'.repeat(64)}`;
 const notAvailable = Object.assign(new Error('rpc'), {
   detail: { kind: 'rpc', data: { reason: 'domainError', domain: 'thread', message: 'Session is not available.' } },
@@ -31,7 +30,7 @@ function coreClient({ refuse = false, config = undefined, answer = async () => (
   };
   const client = new DesktopServiceClient({
     connect() {
-      throw new Error('the Node service must not be reached');
+      throw new Error('a local service must not be reached');
     },
     sessionOptions: () => ({}),
     capabilityLane: createCapabilityLane({ protocol }),

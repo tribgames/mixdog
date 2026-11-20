@@ -88,8 +88,6 @@ test('the cut never splits a surrogate pair and is stable for an unchanged row',
   assert.equal(remoteTranscriptSnapshot(snapshot).items[1], remoteTranscriptSnapshot(snapshot).items[1]);
 });
 
-// The relay baseline and submit patch half of this case went with the Node relay (remote-relay-session-state.ts); the phone's
-// session state now comes from the core (uncovered-cases.md).
 test('the prompt history a phone is sent is bounded: newest entries that fit, oversized ones skipped', () => {
   const typed = Array.from({ length: 50 }, (_, index) => `typed ${index} ${'y'.repeat(1_300)}`);
   const kept = remotePromptHistory(typed);
@@ -122,7 +120,7 @@ test('the full output is found by row id, member id or the renderer member name'
 const SECRET = 'API_TOKEN=sk-live-0123456789';
 const quotedDiff = `diff --git "a/caf\\303\\251/.env" "b/caf\\303\\251/.env"\n--- "a/caf\\303\\251/.env"\n+++ "b/caf\\303\\251/.env"\n@@ -1 +1 @@\n-${SECRET}\n+${SECRET}2\n`;
 /** Rows that name secret-bearing files in every field a row can carry a path
- *  in; before parity each was withheld from a paired device. */
+ *  in; each is projected to a paired device like any other row. */
 const secretRows = [
   { id: 'read-env', kind: 'tool', name: 'read', args: { path: '.env' }, result: SECRET, rawResult: SECRET },
   { id: 'array', kind: 'tool', name: 'read', args: { path: ['src/a.ts', '.env'] }, result: SECRET },
@@ -166,7 +164,6 @@ test('a row naming a secret-bearing file reaches the phone as the desktop shows 
 });
 
 test('a relative path is projected at once, whatever folder the session runs in', () => {
-  // Before parity it was withheld until the session folder was known.
   const row = { id: 'rel', kind: 'tool', name: 'read', args: { path: 'src/a.ts' }, result: 'code' };
   assert.equal(remoteTranscriptSnapshot({ items: [row] }).items[0], row);
 });

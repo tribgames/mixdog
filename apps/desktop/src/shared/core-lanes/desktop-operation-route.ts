@@ -1,6 +1,6 @@
 // The renderer's desktop operations (`invokeDesktopOperation(name, args)`) over the one protocol connection
 // (desktop-services.md §12.5, protocol.md §12.5): each operation with a Rust op becomes that op's named params,
-// filled from the positional arguments the Node handlers took (`desktop-operations.ts`, `desktop-service.ts`
+// filled from the operation's positional arguments (see `desktop-operations.ts`, `desktop-service.ts`
 // `createServiceOperationRouter`, `notification-center.ts`, `server-file-operations.ts`). Expected params come from
 // the Rust `v2/params.rs` structs and `operations_map.json`, not from this table.
 import { normalizeBrowserPermissionPolicy } from '../browser-permission-policy';
@@ -77,7 +77,7 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   documentPreviewIn: positional('document/preview', ['root', 'rel']),
   documentPreviewPagesIn: positional('document/previewPages', ['root', 'rel', 'options']),
 
-  // files (the editor-backup and scoped-settings calls lead with the Node user-data path)
+  // files (the editor-backup and scoped-settings calls lead with the user-data path, which has no core param)
   deleteEditorBackup: positional('projectFs/backup/delete', [null, 'sourcePath']),
   readEditorBackup: positional('projectFs/backup/read', [null, 'sourcePath']),
   writeEditorBackup: positional('projectFs/backup/write', [null, 'sourcePath', 'content', 'expectedContent']),
@@ -144,7 +144,7 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   // desktop settings are keys of the Config actor (desktop-services.md §3)
   writeMarkdownDefaultView: ([, view]) => desktopWrite('desktop.editor.markdownDefaultView', view),
   updateActivityRailPins: ([pins, initializeIfMissing]) => {
-    // Node's operation refused any flag that is not a boolean before it wrote (desktop-operations.ts `updateActivityRailPins`).
+    // A flag that is not a boolean is refused before anything is written.
     if (initializeIfMissing !== undefined && typeof initializeIfMissing !== 'boolean') {
       throw new TypeError('initializeIfMissing must be a boolean.');
     }
@@ -177,7 +177,7 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   setConversationNotification: ([target, setting]) =>
     configWrite('notifications.overrides', { target, setting }, 'setConversation'),
 
-  // terminals; the size owner is the calling connection, so Node's force flag and client id have no param
+  // terminals; the size owner is the calling connection, so a force flag and client id have no param
   // With no id the core spawns a new terminal and answers the id it made.
   termEnsure: ([tabId, cwd, profile]) => terminalEnsureRequest(tabId, cwd, profile),
   // `resumeFrom` ({ epoch, seq }) asks the core to continue the replay after that point; left out when not given.
@@ -248,7 +248,7 @@ const NEEDS_RULING: Readonly<Record<string, string>> = {
 };
 
 /** Operations whose spec target is a client notification (no reply, no slot): sent with `ProtocolConnection.notify`.
- *  `result` is what Node's handler returned. */
+ *  `result` is what the operation answers. */
 const NOTIFICATION_ROUTES: Readonly<Record<string, { route: Mapper; result: null | undefined }>> = {
   termWrite: {
     route: (args) => ({
@@ -298,8 +298,8 @@ type Reply = (reply: unknown, context: ReplyContext) => unknown;
 type Prepare = (args: readonly unknown[], context: { entries(): readonly SectionEntry[] }) => Promise<unknown[]>;
 
 const PREPARERS: Readonly<Record<string, Prepare>> = {
-  // A phone app paired at or after the store was first written starts from bot chats only (Node's devicePreferencesIn):
-  // the mode names which default the core merges the patch onto. A device that is not paired is refused, as Node does.
+  // A phone app paired at or after the store was first written starts from bot chats only:
+  // the mode names which default the core merges the patch onto. A device that is not paired is refused.
   // The paired device is a row of the `remote` section's `clients` (mixdog-remote `ClientInfo`: id, name, platform,
   // browser, createdAt, lastSeenAt, online, and pendingRemoval while an unpair is queued); `migratedAt` is the one of
   // `config.notifications`: an unwritten subtree is a store Node would stamp `now` on first load, a written one without
@@ -338,13 +338,12 @@ function written(reply: unknown): unknown {
   return values[0];
 }
 
-/** Node's settings writers answered the whole `DesktopSettings` of the saved config; the write reply carries only the
+/** A settings write answers the whole `DesktopSettings` of the saved config; the core's write reply carries only the
  *  stored value, so the saved config is read back (`config/read`, the write is complete when it answers). */
 const savedSettings: Reply = async (_reply, { call }) =>
   desktopSettingsFromConfig(record(await call('config/read', { keys: ['agent', 'desktop'] })).config);
 
-/** Replies that are Node's return value as the core sends it (the parity contract of DS-SCM-1, DS-WS-1, DS-REM-1:
- *  the JSON equals what the Node implementation returned). */
+/** Operations whose reply is the operation's return value exactly as the core sends it (DS-SCM-1, DS-WS-1, DS-REM-1). */
 const SAME_REPLY: readonly string[] = [
   'documentPreviewIn',
   'documentPreviewPagesIn',
@@ -413,11 +412,11 @@ const NULL_REPLY: readonly string[] = [
 ];
 
 const CUSTOM_REPLY: Readonly<Record<string, Reply>> = {
-  // The folder's path when the core classified it standalone; null for a registered Project (Node's `standaloneFolder`).
+  // The folder's path when the core classified it standalone; null for a registered Project.
   standaloneRoot: (reply) => (record(reply).standalone === true ? record(reply).path : null),
   // The path of an entry, as the rooted service route answers `projectEntryPath`.
   projectEntryPathIn: (reply) => record(reply).path,
-  // The core answers {url}; Node's localVirtualPageUrl returned the URL string.
+  // The core answers {url}; the operation returns the URL string.
   localPageVirtualIn: (reply) => record(reply).url,
   // The core answers {type}; '' when the file is not served.
   localPageAssetType: (reply) => String(record(reply).type ?? ''),
@@ -432,7 +431,7 @@ const CUSTOM_REPLY: Readonly<Record<string, Reply>> = {
   // Node answered {id, replay, sizeOwner?} and left `sizeOwner` out when no phone owns the size, where the core writes
   // null; the id is the core's own (a client id it accepted, else the one it made).
   termEnsure: (reply) => terminalReply(reply),
-  // The same answer for a running tab, null for one that is not (Node's `termAttach`).
+  // The same answer for a running tab, null for one that is not.
   termAttach: (reply) => (reply == null ? null : terminalReply(reply)),
   // Node answered the bytes received so far: a chunk is acknowledged only when written, at offset + its length.
   serverUploadChunk: (_reply, { args }) => ({
@@ -572,8 +571,8 @@ export function createOperationLane({
       throw coreErrorForWindow(error);
     });
   // `folderWatch`/`folderUnwatch` for callers that hold no window of their own (the paired phones, through the relay's
-  // remote methods): Node's reference-counted folder watcher raised `folder-changed` for the directory; here the same
-  // project watch registry the windows use (`fs/watch`) raises it. This lane owns the watches, as one window of the
+  // remote methods): the same project watch registry the windows use (`fs/watch`) raises `folder-changed` for the
+  // directory. This lane owns the watches, as one window of the
   // connection, and they end with the last unwatch.
   const folderWatchIds = new Map<string, () => void>();
   const folderSubscriptions = new Map<string, { count: number; off: () => void }>();
@@ -588,8 +587,8 @@ export function createOperationLane({
       if (typeof watchId === 'string') folderWatchIds.get(watchId)?.();
     },
   };
-  // One normalization for the registry and for this lane's own per-directory count, as Node's registry used one key for both
-  // watch and unwatch: C:\Work and c:\work are the same watch on Windows.
+  // One normalization for the registry and for this lane's own per-directory count, so watch and unwatch use one key:
+  // C:\Work and c:\work are the same watch on Windows.
   const folderKeyOf = (path: string): string => (platform === 'win32' ? path.toLocaleLowerCase() : path);
   const folderWatches = createProjectWatchRegistry({
     keyOf: folderKeyOf,
@@ -621,7 +620,7 @@ export function createOperationLane({
       if (held) held.count += 1;
       else {
         detachFolderOwner ??= protocol.attach(folderOwner);
-        // One event per change however many callers watch the directory, as Node's registry raised it.
+        // One event per change however many callers watch the directory.
         const off = folderWatches.subscribe(dir, () => host.emitDesktopEvent?.('folder-changed', dir), recursive);
         folderSubscriptions.set(key, { count: 1, off });
       }
@@ -658,7 +657,7 @@ export function createOperationLane({
       if (name === 'notifySettingsChanged') {
         const change = readSettingsChange({ scope: args[0] });
         if (!change) throw new TypeError('settings scope is invalid.');
-        // The host's theme and language travel as `hostState.displayPreferences`, which Node's announcement made the
+        // The host's theme and language travel as `hostState.displayPreferences`, which the announcement makes the
         // paired devices re-read: published first, so a re-read on the announcement sees them.
         if (change.scope === 'desktop' && host.readDisplayPreferences) {
           await call('host/state/set', { key: 'displayPreferences', value: await host.readDisplayPreferences() });
@@ -669,8 +668,7 @@ export function createOperationLane({
         return undefined;
       }
       if (name === 'notifyProviderModelsChanged') {
-        // A cache hint between UI peers: every client drops its provider model lists, this one too (Node's broadcast,
-        // desktop-operations.ts:455-458); the core tells every client (`ui/providerModels/changed`).
+        // A cache hint between UI peers: every client drops its provider model lists, this one too: the core tells every client (`ui/providerModels/changed`).
         await call('ui/providerModels/announce', { origin: args[0] });
         return undefined;
       }

@@ -1,4 +1,4 @@
-// The remote browser pane's parity methods. The service (daemon) side
+// The remote browser pane's methods. The service (daemon) side
 // validates a paired client's call and forwards it to the window process, which
 // owns the Browser Use host; `runBrowserRemoteRequest` is that window-side end.
 // Saved passwords never travel: the host fills them straight into its guest.
@@ -111,7 +111,7 @@ export async function runBrowserRemoteRequest(
 
 type RemoteBrowserRequest = (method: BrowserRemoteMethod, args: unknown[], timeoutMs?: number) => Promise<unknown>;
 
-/** Daemon-side RPC table for the parity methods; each validates before forwarding. */
+/** Daemon-side RPC table for the remote browser methods; each validates before forwarding. */
 export function browserParityRemoteMethods(browserRemote: RemoteBrowserRequest | undefined) {
   const request: RemoteBrowserRequest = (method, args, timeoutMs) => {
     if (!browserRemote) throw new TypeError('Remote Browser Use is unavailable.');

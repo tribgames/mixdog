@@ -1,7 +1,7 @@
 // The renderer's session capabilities over the one protocol connection (protocol.md §12.3-12.4): `invokeCapability`
 // and `readCapabilities` become `<namespace>/<action>` with the positional arguments as the method's named params, and
-// the session the call is addressed to as `threadId`. A call without a session is the control session's (Node's
-// `invokeCapability`/`readCapabilities`): the control thread is named as `threadId` for every op that takes one.
+// the session the call is addressed to as `threadId`. A call without a session is the control session's: the control
+// thread is named as `threadId` for every op that takes one.
 // The routing table is the TUI's (`packages/protocol-client/src/actions`); only actions the TUI does not route are added.
 // The control session is a real thread of the core, started on first need.
 import {
@@ -30,8 +30,8 @@ import { normalizeSessionTitle } from '../session-title.mjs';
 import { isSessionId } from '../desktop-state';
 import { coreErrorForWindow } from './core-error';
 
-/** `sessionIdOf` of the Node transport (`session-host-transport.ts`), which this file cannot import: that module has a
- *  TypeScript parameter property, and the harness loads this one with Node's strip-only mode. */
+/** The session id a call names; throws when it is not a session id. Kept here because the harness loads this file with
+ *  Node's strip-only mode, which cannot take a module that uses TypeScript parameter properties. */
 const sessionIdOf = (value: unknown): string => {
   const id = String(value || '');
   if (!isSessionId(id)) throw new TypeError('session id is invalid.');
@@ -97,7 +97,7 @@ export const DESKTOP_OVERRIDES: Readonly<Record<string, Override>> = {
     method: 'review/diff/get',
     params: defined({ scope: 'session', path: file, oldPath }, threadId),
   }),
-  // `refresh`/`poll` are dropped: Node's `readTurnReview` ignores them.
+  // `refresh`/`poll` are dropped: the core's review read has no such options.
   getTurnReviewDiff: ([options], { threadId }) => {
     const { summary, known } = (options ?? {}) as { summary?: unknown; known?: unknown };
     return {
@@ -121,7 +121,7 @@ export const DESKTOP_OVERRIDES: Readonly<Record<string, Override>> = {
     };
   },
   setModel: ([model], { threadId }) => ({ method: 'route/set', params: defined({ route: { model } }, threadId) }),
-  // Node's `clear(options)` rebuilds the prompt of the emptied session only for `rebuildPrompt === true`; its other options
+  // `clear(options)` rebuilds the prompt of the emptied session only for `rebuildPrompt === true`; its other options
   // (`archiveAs`, `recoverAgent`) are the TUI's.
   clear: ([options], { threadId }) => ({
     method: 'thread/clear',
@@ -167,7 +167,7 @@ export interface CapabilityLane {
   read(requests: ReadonlyArray<DesktopCapabilityReadRequest>): Promise<DesktopCapabilityReadResult[]>;
   /** `SessionHostLifecycle.renameSession` on a core connection: the host's own checks, then `thread/name/set`. */
   renameSession(sessionId: string, title: string): Promise<void>;
-  /** The DesktopService session methods a core connection serves itself (there is no Node host: protocol.md §12.3).
+  /** The DesktopService session methods a core connection serves itself (protocol.md §12.3).
    *  `setSessionFavorite`/`setSessionProject` are `thread/metadata/update` (the metadata lives on the thread, SPEC.md metadata
    *  row), `setSessionArchived` is `thread/archive`/`thread/unarchive` (the core cascades over sub-agent sessions). */
   setSessionFavorite(sessionId: string, favorite: boolean): Promise<void>;
@@ -212,16 +212,16 @@ const hasRpcReason = (error: unknown, ...reasons: string[]): boolean => {
 
 const isThreadNotFound = (error: unknown): boolean => hasRpcReason(error, 'threadNotFound');
 
-/** Whether a `saveSchedule` entry renames its schedule: Node's `saveSchedule` (`channel-admin.mjs:344-345`) renames when
- *  `newName`, trimmed, is not empty and is not the trimmed `name`. */
+/** Whether a `saveSchedule` entry renames its schedule: it does when `newName`, trimmed, is not empty and is not the
+ *  trimmed `name`. */
 const renamesSchedule = (entry: unknown): boolean => {
   const { name, newName } = (entry ?? {}) as { name?: unknown; newName?: unknown };
   const to = newName == null ? '' : String(newName).trim();
   return to !== '' && to !== String(name || '').trim();
 };
 
-/** Node's `scheduleRenameUncertainError(cause)` (`channels/lib/schedule-errors.mjs`), raised by its `renameSchedule` when the
- *  call to the scheduler went unanswered (`session-runtime/channel-config-api.mjs:63`). */
+/** The error raised by a schedule rename when the call to the scheduler went unanswered, so the rename may or may not
+ *  have happened. */
 const scheduleRenameUncertain = (cause: string): Error =>
   Object.assign(
     new Error(
@@ -264,7 +264,7 @@ const startedThreadId = (started: unknown): string => {
  *  read from the core when the reply arrives (`thread/read` without items, folded by the client library's own
  *  `sessionReducer`/`desktopSessionState`, with the `hostShellJobs` section the core pushes): nothing is held between calls.
  *  The pending approvals are the ones the core asked this connection
- *  for (the server requests the library holds), joined by the library's own projection, so `toolApproval` is what Node's reply shows. */
+ *  for (the server requests the library holds), joined by the library's own projection, so `toolApproval` is the library's own projection. */
 export function createCapabilityLane({ protocol }: { protocol: CapabilityProtocol }): CapabilityLane {
   const request = (method: string, params: unknown): Promise<unknown> =>
     protocol.call(method, params).catch((error: unknown) => {
@@ -314,8 +314,8 @@ export function createCapabilityLane({ protocol }: { protocol: CapabilityProtoco
     return sendOnce(capability, args, await controlThread());
   };
   const sendOnce = async (capability: string, args: readonly unknown[], sessionId?: string): Promise<unknown> => {
-    // `noteUserInput(at)` is the `client/activity {at}` notification (rate-limited by the connection), not a request; Node's
-    // session-api wrapper answers it `{ ok: true }`.
+    // `noteUserInput(at)` is the `client/activity {at}` notification (rate-limited by the connection), not a request, and answers
+    // `{ ok: true }`.
     if (capability === 'noteUserInput') {
       protocol.noteUserInput(args[0] as number);
       return { ok: true };
@@ -325,9 +325,9 @@ export function createCapabilityLane({ protocol }: { protocol: CapabilityProtoco
     // `retryFailedTurn(sessionId, turnKey)` names its thread as its first argument; left out, it is the one addressed.
     const named = capability === 'retryFailedTurn' && !args[0] ? [thread, ...args.slice(1)] : args;
     const { method, params } = routeCapability(capability, named, thread);
-    // `inheritFrom` answers as Node's does (`lifecycle/inheritance.mjs`): the heir, its source, the messages carried and its route.
+    // `inheritFrom` answers the heir, its source, the messages carried and its route.
     if (capability === 'inheritFrom') {
-      // The core answers a source thread it does not have with `threadNotFound`; Node's `inheritFrom` throws its own text.
+      // The core answers a source thread it does not have with `threadNotFound`; the caller gets its own text.
       const forked = (await request(method, params).catch((error: unknown) => {
         throw isThreadNotFound(error)
           ? new Error(`inheritFrom: session ${String(args[0]).trim()} was not found`)
@@ -341,8 +341,8 @@ export function createCapabilityLane({ protocol }: { protocol: CapabilityProtoco
         model: forked.model,
       };
     }
-    // The core answers these route ops with the route object / normalized mode; Node's session-api wrapper
-    // (`session-api/settings.mjs`) answers the effort in force, nothing, and `true`.
+    // The core answers these route ops with the route object / normalized mode; the capability answers
+    // the effort in force, nothing, and `true`.
     if (capability === 'setEffort') {
       const route = ((await request(method, params)) ?? {}) as {
         effectiveEffort?: unknown;
@@ -367,9 +367,9 @@ export function createCapabilityLane({ protocol }: { protocol: CapabilityProtoco
         throw error;
       });
     }
-    // `prioritizeQueued` (`session-flow/queue.mjs`) answers an entry that is not queued with a count of none; the core refuses it
+    // `prioritizeQueued` answers an entry that is not queued with a count of none; the core refuses it
     // as `queuedEntryNotFound`, which would leave the entry marked sending in the renderer; a queued one is promoted and answers a count
-    // of one, whether or not a turn runs (the core's `turn/steer` acknowledgement is not Node's reply).
+    // of one, whether or not a turn runs (the core's `turn/steer` acknowledgement is not the capability's reply).
     if (capability === 'prioritizeQueued') {
       return request(method, params).then(
         () => ({ count: 1, ids: [args[0]], priority: 'now' }),
@@ -399,7 +399,7 @@ export function createCapabilityLane({ protocol }: { protocol: CapabilityProtoco
     const remoteSession = entries.find(
       (entry) => entry.section === 'hostState' && entry.key === 'remoteSession'
     )?.value;
-    // Node's host stamped every session snapshot it answered with the remote channel's session (`snapshotWithRemoteSession`).
+    // Every session snapshot answered is stamped with the remote channel's session.
     return withRemoteSession(
       desktopSessionState(
         sessionReducer.initial(read as Parameters<typeof sessionReducer.initial>[0]),
@@ -479,8 +479,7 @@ export function createCapabilityLane({ protocol }: { protocol: CapabilityProtoco
       }) as { id: string | number; params: { threadId: string } } | undefined;
       if (!asked) return false;
       const { device: _device, ...answer } = decision;
-      // Answered once the core's thread took the decision or another one had: `accepted` is Node's serialized answer
-      // (session-host-lifecycle.ts:1086), false for the card that lost.
+      // Answered once the core's thread took the decision or another one had: `accepted` is false for the card that lost.
       const answered = await request('thread/approval/answer', {
         threadId: asked.params.threadId,
         approvalId: String(asked.id),
@@ -504,7 +503,7 @@ export function createCapabilityLane({ protocol }: { protocol: CapabilityProtoco
       if (typeof saved !== 'boolean') throw new Error('The quota auto-resume write did not return the stored value.');
       return saved;
     },
-    // Node's host throws `TypeError('Session title is invalid.')` for a title that is empty once normalized, before the
+    // The host throws `TypeError('Session title is invalid.')` for a title that is empty once normalized, before the
     // runtime is reached; the core cannot tell that case from a refusal ("Session is not available.", the runtime's `false`,
     // which it sends as a code-less `domainError`), so the host check stays here. `setName` and `publishCatalogs` are the
     // core's own (the title is stored and the section pushed by `thread/name/set`).

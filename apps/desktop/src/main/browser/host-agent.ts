@@ -94,7 +94,7 @@ interface SecretFillHost {
   saveLogin?: (login: { origin: string; username: string; password: string }) => Promise<void>;
 }
 
-/** The checks Node's `fillSecretInput` made before it took the value: the request is bound to this
+/** The checks made before a secret input takes its value: the request is bound to this
  *  session, the session's takeover lock is free, the page it was bound to is still on its https
  *  origin showing the main-frame document it showed then (a navigation, even within the origin,
  *  retires the binding), and the exact elements to write were bound. Every refusal drops the

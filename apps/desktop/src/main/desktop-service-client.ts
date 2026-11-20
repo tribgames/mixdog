@@ -110,7 +110,7 @@ export class DesktopServiceClient implements DesktopService {
     this.options.sessionLane.requestSessionStateResync(sessionId);
   }
 
-  /** Node's host published a start call's blank snapshot as its shell snapshot (session-host-lifecycle.ts `publishShell`). */
+  /** A start call's blank snapshot is published as the shell snapshot. */
   private async startShell(
     method: 'startProject' | 'startProjectTask' | 'startTask',
     args: unknown[]
@@ -389,8 +389,7 @@ export class DesktopServiceClient implements DesktopService {
   readCapabilities(requests: ReadonlyArray<DesktopCapabilityReadRequest>): Promise<DesktopCapabilityReadResult[]> {
     return this.options.capabilityLane.read(requests);
   }
-  /** An event this process raises for its own windows, as the Node service's broadcast reached them (a core connection
-   *  has no Node service to send it). */
+  /** An event this process raises for its own windows (a core connection has no service to broadcast it). */
   emitDesktopEvent(name: string, value: unknown): void {
     if (name === DESKTOP_NOTICE_EVENT) this.receiveNotice(value);
     for (const listener of [...this.desktopEventListeners]) listener({ name, value });

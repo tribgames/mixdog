@@ -1,6 +1,6 @@
-// The phone's own transcript window over `mixdogd` (Node: remote-transcript-window.ts, one window per phone delta encoder).
-// The phone folds a thread's feed into rows (packages/protocol-client); what it shows of them is cut here, per thread, by Node's
-// rules (phoneTranscriptView):
+// The phone's own transcript window over `mixdogd` (one window per phone delta encoder).
+// The phone folds a thread's feed into rows (packages/protocol-client); what it shows of them is cut here, per thread, by
+// these rules (phoneTranscriptView):
 //  - a first page is the newest rows whose phone copies fit REMOTE_TRANSCRIPT_TAIL_ITEMS rows and REMOTE_TRANSCRIPT_TAIL_BYTES
 //    bytes, always its newest row: a tool row's outputs are capped, an oversized one cut to fit (remote-transcript.ts);
 //  - a page request (`prefetchSession`'s limit) adds at most 512 rows above, within DESKTOP_TRANSCRIPT_PAGE_BYTES, as history

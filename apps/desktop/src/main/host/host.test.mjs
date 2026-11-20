@@ -498,7 +498,7 @@ test('a shown notification plays its sound and a click reports the thread', () =
   assert.deepEqual(wire.sent.notifications, [['host/notification/clicked', { threadId: 'th9' }]]);
 });
 
-test("the core asks whether this PC shows toasts and how long it has been idle, as Node's notificationStatus answered", async () => {
+test("the core asks whether this PC shows toasts and how long it has been idle", async () => {
   const { wire } = build();
   assert.deepEqual(await wire.call('host/notification/status', {}), { supported: true, idleSeconds: 42 });
 });
@@ -518,7 +518,7 @@ test('power, update state and remote target reports; state is re-sent after a cl
   assert.deepEqual(await wire.call('host/update/command', { action: 'check' }), { checked: true });
 });
 
-test("non-tool browser requests get Node's argument checks, and a malformed one gets Node's message", async () => {
+test('non-tool browser requests get the argument checks, and a malformed one gets the normalizer message', async () => {
   const { wire, calls } = build();
   const call = (action, input, threadId = 'th1') => wire.call('host/browser/command', { action, input, threadId });
   const nodeMessage = (run) => {
@@ -529,7 +529,7 @@ test("non-tool browser requests get Node's argument checks, and a malformed one 
     }
     throw new Error('expected a throw');
   };
-  // Malformed values: invalid params carrying exactly the message Node's normalizer throws.
+  // Malformed values: invalid params carrying exactly the message the normalizer throws.
   const bad = [
     ['history', { query: 'x'.repeat(501) }, () => normalizeBrowserHistoryQuery('x'.repeat(501))],
     ['history', { query: 7 }, () => normalizeBrowserHistoryQuery(7)],
@@ -546,7 +546,7 @@ test("non-tool browser requests get Node's argument checks, and a malformed one 
     });
   }
   assert.deepEqual(calls.remote, [], 'nothing malformed reaches the window process');
-  // Well-formed: the same arguments Node forwards.
+  // Well-formed: the arguments are forwarded unchanged.
   assert.deepEqual(await call('history', { query: 'docs' }), [{ method: 'history' }]);
   await call('tabOpen', { url: 'https://a.test/' });
   await call('release', { id: 'main-browser-1' });

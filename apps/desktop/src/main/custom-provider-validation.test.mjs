@@ -133,7 +133,7 @@ test('v2 custom provider input shape is validated', () => {
 });
 
 // Every v2 modelOverrides / reasoning / discovery case the IPC validator accepts (`true`) or rejects.
-const PARITY_CASES = [
+const VALIDATION_CASES = [
   ['baseline', {}, true],
   ['empty override', { modelOverrides: { m: {} } }, true],
   ['ultra level', { modelOverrides: { m: { reasoning: { levels: ['ultra'] } } } }, true],
@@ -226,7 +226,7 @@ const PARITY_CASES = [
 
 test('IPC validator accepts and rejects the v2 inputs of every case', () => {
   const base = { name: 'Local', protocol: 'openai-chat', baseURL: 'http://localhost:1234/v1', schemaVersion: 2 };
-  for (const [label, patch, expected] of PARITY_CASES) {
+  for (const [label, patch, expected] of VALIDATION_CASES) {
     let accepted = true;
     try {
       requiredCustomProviderInput({ ...base, ...patch });

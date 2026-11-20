@@ -20,7 +20,7 @@ export { SECTION_NAMES };
 export const CLIENT_ACTIVITY_MIN_GAP_MS = 60_000;
 
 /** The most sign-in flow feeds one connection keeps once flows have ended; the oldest ended one is let go first. A
- *  flow still pending (or whose first frame has not arrived) is never let go: Node's status read answered for any
+ *  flow still pending (or whose first frame has not arrived) is never let go: a status read answers for any
  *  live flow, and a dialog waiting on it would never be told. */
 export const MAX_FOLLOWED_LOGINS = 32;
 

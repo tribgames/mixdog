@@ -4,7 +4,7 @@ import { REMOTE_TRANSCRIPT_ROW_MAX_BYTES } from './remote-transcript.ts';
 import * as support from './desktop-support.ts';
 import * as shared from '../shared/desktop-transcript-limits.ts';
 
-// Node's own byte count (Buffer.byteLength) is the reference: the web-safe count must be identical for every string.
+// Buffer.byteLength is the reference: the web-safe count must be identical for every string.
 const SAMPLES = [
   '',
   'plain',

@@ -27,17 +27,17 @@ Compare a session's `loop` rows with its `browser_timing` rows (same
 `session_id`). The former cover model round trips; the latter contain one
 record per `host/browser/command` the core sends to the desktop for its
 browser tools, the handoff and saved-login commands, and a secret request
-(`secret_bind`, then `secret_precheck` and `secret_fill`, which stand for
-Node's one `secret_input` request). Browser commands of the desktop's own UI
+(`secret_bind`, then `secret_precheck` and `secret_fill`, which together
+make one `secret_input` request). Browser commands of the desktop's own UI
 or of a phone (`browser/command`, the live view's `input`) are not the
-core's and are not recorded, as Node recorded only its runtime's requests.
+core's and are not recorded: only the core's own requests are.
 
 `loop`, one per completed provider send, timed from the round of the loop
 that settled it:
 
 - `send_ms`: send start to the settled response, the provider's own retries
-  and the stream included. A replay the loop runs as a new round, as Node's
-  does (a reconnect once the provider's retries ran out, a replay after shown
+  and the stream included. A replay the loop runs as a new round
+  (a reconnect once the provider's retries ran out, a replay after shown
   text was withdrawn or a tool call's arguments were cut, a content-filter
   replay, a request rebuilt without a rejected tool schema, image, or
   thinking replay), starts the iteration and the send again after its wait.

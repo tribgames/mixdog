@@ -1,5 +1,5 @@
 /**
- * The structured twin of a `visualize` result (the tool result's `toolMeta`,
+ * The structured metadata of a `visualize` result (the tool result's `toolMeta`,
  * kept with the stored message and restored onto its transcript item): the
  * desktop host ran the call for another session's work (a sub-agent, a room
  * member) and keeps its tabs in that owner conversation's panel. Chat cards

@@ -134,7 +134,7 @@ export function collectUiKeys(
         else if (ts.isJsxExpression(node.initializer)) expression(node.initializer.expression);
       }
       if (ts.isPropertyAssignment(node) && properties.has(node.name.getText(source))) {
-        // Desktop command metadata retains a CLI description for parity, but
+        // Desktop command metadata retains the CLI description, but
         // only its desktop override is rendered when one exists.
         const overridden =
           node.name.getText(source) === 'description' &&
