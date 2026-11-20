@@ -68,7 +68,12 @@ pub struct NoToolState {
     parts: Vec<String>,
     /// Segments before this index are answers the turn went on past.
     ended_parts_end: usize,
-    carried_answers: Vec<String>,
+    /// Answers the turn went on past, one entry per tool boundary that sealed them, each as its
+    /// runs of text in order; `true` for a run a completion reminder cut short, which a later
+    /// answer replaces in the caller's report.
+    carried_answers: Vec<Vec<(String, bool)>>,
+    /// Indices into `parts` of the answers a completion reminder cut short.
+    reminded_parts: Vec<usize>,
     /// The newest kept answer was followed by nothing but todo bookkeeping.
     report_stands: bool,
     /// Successful reactions: the input each was left against and whether it
@@ -114,22 +119,53 @@ impl NoToolState {
 
     /// Every answer the turn went on past, for a turn that fails after them.
     pub(crate) fn ended_report(&self) -> String {
-        let mut all = self.carried_answers.clone();
+        // Every ended answer, the reminded ones too: a failed turn has no later answer to replace them.
+        let mut all = self.carried(true);
         all.push(self.parts[..self.ended_parts_end.min(self.parts.len())].join(""));
         join_reports(&all)
     }
 
-    /// The terminal response of a turn that ended any other way gets the same
-    /// report as one that ended through [`Run::resolve_no_tool`].
-    pub(crate) fn finalize(&self, mut response: ModelResponse) -> ModelResponse {
-        let earlier = join_reports(&self.carried_answers);
-        if earlier.is_empty() {
-            return response;
+    /// The text each tool boundary sealed, its runs joined as they were written; `reminded` keeps
+    /// the runs a completion reminder cut short.
+    fn carried(&self, reminded: bool) -> Vec<String> {
+        self.carried_answers
+            .iter()
+            .map(|runs| runs.iter().filter(|(_, cut)| reminded || !cut).map(|(text, _)| text.as_str()).collect())
+            .collect()
+    }
+
+    /// The turn's own segments before `upto`, without the answers a completion reminder cut short,
+    /// then `tail`; `None` when no answer was cut short.
+    fn report_after_reminded(&self, upto: usize, tail: &str) -> Option<String> {
+        if self.reminded_parts.is_empty() {
+            return None;
         }
+        let kept: String = self.parts[..upto].iter().enumerate().filter(|(index, _)| !self.reminded_parts.contains(index)).map(|(_, part)| part.as_str()).collect();
+        Some(format!("{kept}{tail}"))
+    }
+
+    /// The terminal response of a turn that ended any other way gets the same
+    /// report as one that ended through [`Run::resolve_no_tool`]. An answer a
+    /// completion reminder cut short is dropped when the response answers
+    /// again; with no new answer it stands.
+    pub(crate) fn finalize(&self, response: ModelResponse) -> ModelResponse {
+        let answered = {
+            let own = response.report_content.as_deref().unwrap_or(&response.content);
+            !mixdog_js::js_trim(own).is_empty()
+        };
+        self.finalize_as(response, answered)
+    }
+
+    /// `answered`: the response carries an answer of the agent's own, not only a runtime notice.
+    fn finalize_as(&self, mut response: ModelResponse, answered: bool) -> ModelResponse {
         let own = response
             .report_content
             .clone()
             .unwrap_or_else(|| response.content.clone());
+        let earlier = join_reports(&self.carried(!answered));
+        if earlier.is_empty() {
+            return response;
+        }
         response.report_content = Some(join_reports(&[earlier, own]));
         response
     }
@@ -184,8 +220,12 @@ impl Run {
         }
         let terminal = response.content.clone();
         let attempts = self.no_tool.max_output_recovery_count;
+        // The lead's report has the last answer only: an answer a completion reminder cut short is
+        // left out once this one answers (`content` keeps every segment for the transcript).
+        let report_content = if response.has_content() { self.no_tool.report_after_reminded(self.no_tool.parts.len(), &terminal) } else { None };
         let aggregated = ModelResponse {
             content: format!("{}{terminal}", self.no_tool.parts.join("")),
+            report_content,
             history_content: Some(terminal),
             max_output_recovery_attempts: (attempts > 0).then_some(attempts),
             ..response
@@ -239,8 +279,12 @@ impl Run {
         .await
         .ok_or(AgentError::Aborted)?;
         if let Some(reminder) = completion {
+            // Every segment since the previous ended answer is this answer (an output cut splits one).
+            let from = self.no_tool.ended_parts_end;
             if self.keep_ended_answer(&response, has_content).await? {
                 self.no_tool.report_stands = true;
+                let to = self.no_tool.parts.len();
+                self.no_tool.reminded_parts.extend(from..to);
             }
             self.push(AgentMessage::user(reminder)).await?;
             return Ok(Outcome::Continue);
@@ -331,25 +375,27 @@ impl Run {
             MAX_OUTPUT_EXHAUSTED_NOTICE.to_owned()
         };
         let parts = &self.no_tool.parts;
-        let earlier_parts = if has_content {
-            &parts[..parts.len().saturating_sub(1)]
-        } else {
-            &parts[..]
-        };
-        let earlier = earlier_parts.join("");
+        let upto = parts.len() - usize::from(has_content);
+        let earlier = parts[..upto].join("");
         let gap = if !earlier.is_empty() && !has_content {
             "\n\n"
         } else {
             ""
         };
         let attempts = self.no_tool.max_output_recovery_count;
+        // The notice is the runtime's, not an answer: it replaces a reminded answer only when text
+        // of the agent's own followed that answer, in this cut or an earlier one.
+        let after_reminded = self.no_tool.reminded_parts.iter().max().map_or(0, |last| last + 1).min(upto);
+        let answered = has_content || parts[after_reminded..upto].iter().any(|part| !mixdog_js::js_trim(part).is_empty());
+        let report_content = if answered { self.no_tool.report_after_reminded(upto, &format!("{gap}{terminal}")) } else { None };
         let ended = ModelResponse {
             content: format!("{earlier}{gap}{terminal}"),
+            report_content,
             history_content: Some(terminal),
             max_output_recovery_attempts: Some(attempts),
             ..response
         };
-        Ok(Outcome::Break(Box::new(self.no_tool.finalize(ended))))
+        Ok(Outcome::Break(Box::new(self.no_tool.finalize_as(ended, answered))))
     }
 
     /// The escalation discards the cut response, so what it already put on
@@ -444,9 +490,18 @@ impl Run {
         }
         if self.no_tool.ended_parts_end > 0 {
             let end = self.no_tool.ended_parts_end.min(self.no_tool.parts.len());
-            let answer = self.no_tool.parts[..end].join("");
-            self.no_tool.carried_answers.push(answer);
+            // One entry per run of segments with the same flag, so the order of the answers holds.
+            let mut runs: Vec<(String, bool)> = Vec::new();
+            for index in 0..end {
+                let reminded = self.no_tool.reminded_parts.contains(&index);
+                match runs.last_mut() {
+                    Some((text, flag)) if *flag == reminded => text.push_str(&self.no_tool.parts[index]),
+                    _ => runs.push((self.no_tool.parts[index].clone(), reminded)),
+                }
+            }
+            self.no_tool.carried_answers.push(runs);
         }
+        self.no_tool.reminded_parts.clear();
         self.no_tool.ended_parts_end = 0;
         if calls.iter().any(|call| call.name != TODO_TOOL) {
             self.no_tool.report_stands = false;
