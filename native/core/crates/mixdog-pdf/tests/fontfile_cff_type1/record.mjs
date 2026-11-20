@@ -6,6 +6,7 @@
 // The worker file is only read: a copy with its CFF and Type 1 classes exported is written to the temp directory and
 // imported from there. Output: fonts/<name>.bin, expected/<name>.txt and cases.rs, beside this script. Nothing in
 // the fonts is third-party content; the two Foxit programs are the ones the crate embeds.
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -615,5 +616,7 @@ const rows = [
   "",
 ];
 fs.writeFileSync(path.join(here, "cases.rs"), rows.join("\n"));
+// Laid out as the workspace formats Rust (native/rustfmt.toml, found from the file's folder), so a regeneration leaves no diff.
+execFileSync("rustfmt", [path.join(here, "cases.rs")]);
 console.warn = warn;
 console.error(`recorded ${cases.cff.length} CFF and ${cases.type1.length} Type 1 cases`);

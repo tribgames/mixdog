@@ -1,0 +1,5 @@
+# Commits that only move code between lines; `git blame` and GitHub's blame view skip them.
+# Locally: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# Format the Rust under native with rustfmt
+7c5636511c185713a0033f2d0edece543ebdeded
