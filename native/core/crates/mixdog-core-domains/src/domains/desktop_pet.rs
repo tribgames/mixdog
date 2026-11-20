@@ -54,7 +54,7 @@ const DOMAIN: &str = "desktopPet";
 pub const STATE_FILE: &str = "desktop/desktop-pet.json";
 pub const LEGACY_FILE: &str = "desktop-pet.json";
 
-// ---- Shared constants (shared/desktop-pet.ts) --------------------------------------------------
+// Shared constants (shared/desktop-pet.ts)
 
 /// The bot's size choices, in percent of the 100% sprite box.
 pub const SCALE_MIN: u32 = 50;
@@ -90,7 +90,7 @@ fn js_round(value: f64) -> f64 {
     (value + 0.5).floor()
 }
 
-// ---- Prefs -------------------------------------------------------------------------------------
+// Prefs
 
 /// Off unless explicitly turned on; pinned unless explicitly unpinned.
 pub fn default_prefs() -> DesktopPetPrefs {
@@ -183,7 +183,7 @@ pub fn import_legacy(lane: &InLane<DurabilityIo>, target: &Path, legacy: &Path) 
     Ok(published == Published::Written)
 }
 
-// ---- Placement ---------------------------------------------------------------------------------
+// Placement
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PetRect {
@@ -369,7 +369,7 @@ pub fn pet_position_on(display: &PetDisplay, prefs: &DesktopPetPrefs, geometry: 
     clamp_free_pet_position(saved.unwrap_or_else(|| default_pet_position(display.work_area, geometry.window)), geometry, display.work_area)
 }
 
-// ---- The placement method ----------------------------------------------------------------------
+// The placement method
 
 fn rect_of(rect: PlacementRect) -> PetRect {
     PetRect { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
@@ -425,7 +425,7 @@ pub fn resolve_placement(params: DesktopPetPlacementResolveParams) -> Value {
     }
 }
 
-// ---- The service -------------------------------------------------------------------------------
+// The service
 
 pub struct DesktopPetService {
     file: PathBuf,

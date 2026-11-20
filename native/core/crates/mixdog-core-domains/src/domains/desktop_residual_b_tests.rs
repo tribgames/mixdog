@@ -28,7 +28,7 @@ fn jpeg(width: u32, height: u32) -> Vec<u8> {
     out
 }
 
-// ---- local-file-links.test.mjs ---------------------------------------------------------------------------------------
+// local-file-links.test.mjs
 
 #[test]
 fn a_link_names_a_plain_local_path_or_is_refused() {
@@ -107,7 +107,7 @@ fn a_link_is_decided_inside_the_project_only() {
     assert!(gone.contains("The file no longer exists: docs/removed.pdf"), "{gone}");
 }
 
-// ---- attachment-files.test.mjs ---------------------------------------------------------------------------------------
+// attachment-files.test.mjs
 
 #[test]
 fn an_attachment_takes_an_inert_extension_or_is_refused() {
@@ -193,7 +193,7 @@ fn a_png_picture_is_scaled_like_a_jpeg_one() {
     assert_eq!(image::load_from_memory(&small).unwrap().to_rgb8().dimensions(), (40, 30));
 }
 
-// ---- attachment-thumbnail.test.mjs -----------------------------------------------------------------------------------
+// attachment-thumbnail.test.mjs
 
 #[test]
 fn a_picture_is_scaled_to_a_thumbnail_or_handed_over_bounded() {
@@ -232,7 +232,7 @@ fn a_bare_version_is_what_the_first_form_of_the_record_wrote() {
     }
 }
 
-// ---- model-bootstrap.test.mjs ----------------------------------------------------------------------------------------
+// model-bootstrap.test.mjs
 
 fn preset(id: &str, model: &str) -> Value {
     json!({ "id": id, "name": id, "type": "agent", "provider": "anthropic-oauth", "model": model })
@@ -281,7 +281,7 @@ fn the_first_snapshot_carries_the_default_preset_route() {
     }
 }
 
-// ---- linux-input-access.test.mjs -------------------------------------------------------------------------------------
+// linux-input-access.test.mjs
 
 struct FakeMachine {
     platform: &'static str,
@@ -344,7 +344,7 @@ fn the_privileged_script_holds_constants_only() {
     assert!(script.ends_with("udevadm settle --timeout=5"));
 }
 
-// ---- conversation-import-progress.test.mjs ---------------------------------------------------------------------------
+// conversation-import-progress.test.mjs
 
 struct Jobs {
     jobs: Mutex<Vec<Value>>,
@@ -377,7 +377,7 @@ fn a_stamp_reads_a_missing_field_as_undefined() {
     assert!(!is_job_active(&job("a", 1, "failed", 0)));
 }
 
-// ---- network-watch.test.mjs ------------------------------------------------------------------------------------------
+// network-watch.test.mjs
 
 #[test]
 fn the_network_signature_lists_external_addresses_in_order() {
@@ -395,7 +395,7 @@ fn the_leg_redials_when_the_network_returns_or_changes_while_online() {
     assert!(!network_changed(&snapshot(false, "a"), &snapshot(false, "b")));
 }
 
-// ---- login-shell-environment.test.mjs --------------------------------------------------------------------------------
+// login-shell-environment.test.mjs
 
 fn map(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
     pairs.iter().map(|(key, value)| ((*key).to_owned(), (*value).to_owned())).collect()
@@ -463,7 +463,7 @@ fn every_method_of_the_service_is_listed_once() {
     assert!(METHODS.iter().all(|name| name.starts_with("desktop/")));
 }
 
-// ---- the JavaScript edges of the ported rules ------------------------------------------------------------------------
+// the JavaScript edges of the ported rules
 
 #[test]
 fn base64_padding_follows_the_regex_and_buffer_from() {
@@ -579,7 +579,7 @@ async fn the_thumbnail_method_reads_the_store_by_content_hash() {
         assert_eq!(ask(json!({ "attachmentRef": bad })).await.unwrap(), json!({ "dataUrl": null }));
     }
 }
-// ---- launch-version.test.mjs -----------------------------------------------------------------------------------------
+// launch-version.test.mjs
 
 #[tokio::test]
 async fn a_launch_is_recorded_and_an_update_announced_until_acknowledged() {
@@ -638,7 +638,7 @@ async fn the_model_bootstrap_method_reads_the_config_file() {
     std::fs::write(dir.path().join("mixdog-config.json"), json!({ "agent": { "presets": [preset("p", "m")], "default": "p" } }).to_string()).unwrap();
     assert_eq!(ask().await.unwrap()["snapshot"]["model"], json!("m"));
 }
-// ---- native-runtime-cache-gc.test.mjs and user-file-write.test.mjs ------------------------------------------------------
+// native-runtime-cache-gc.test.mjs and user-file-write.test.mjs
 
 #[tokio::test]
 async fn a_superseded_native_cache_is_removed_and_the_others_stay() {

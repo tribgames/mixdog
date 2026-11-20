@@ -125,7 +125,7 @@ pub struct CommandContext<'a> {
 /// Receives the failure of a detached run, which nobody awaits.
 pub type DetachedReport = Arc<dyn Fn(String) + Send + Sync>;
 
-// ---- http ------------------------------------------------------------------------------
+// http
 
 /// Hosts that name the local machine or a private network.
 fn private_hostname(host: &str) -> bool {

@@ -32,7 +32,7 @@ async fn advance(duration: Duration) {
     settle().await;
 }
 
-// ----- the server's core -----------------------------------------------------------------------
+// the server's core
 
 enum Reply {
     Ok(Json),
@@ -205,7 +205,7 @@ fn naming_flows(method: &str, params: &Json) -> Reply {
     }
 }
 
-// ----- the attached link and the forward -------------------------------------------------------
+// the attached link and the forward
 
 struct FakeServer {
     login: Mutex<ModelLogin>,
@@ -296,7 +296,7 @@ fn message<T: std::fmt::Debug>(result: LoginResult<T>) -> String {
     result.unwrap_err().0
 }
 
-// ----- the callback port -----------------------------------------------------------------------
+// the callback port
 
 #[test]
 fn the_callback_port_is_the_loopback_redirect_uri_port_of_the_authorization_url() {
@@ -312,7 +312,7 @@ fn the_callback_port_is_the_loopback_redirect_uri_port_of_the_authorization_url(
     assert_eq!(callback_port_of(None), None);
 }
 
-// ----- a subscription login --------------------------------------------------------------------
+// a subscription login
 
 #[tokio::test(start_paused = true)]
 async fn a_login_runs_on_the_server_returns_the_address_to_open_and_forwards_the_callback_port_until_it_ends() {
@@ -432,7 +432,7 @@ async fn an_unforwarded_login_is_cancelled_on_a_reachable_server_too() {
     assert_eq!(rig.cancels(), 1);
 }
 
-// ----- the cancels the server could not take ---------------------------------------------------
+// the cancels the server could not take
 
 #[tokio::test(start_paused = true)]
 async fn a_cancel_the_connection_could_not_carry_is_sent_once_it_is_attached_again() {
@@ -599,7 +599,7 @@ async fn only_an_authoritative_unknown_status_retires_the_login_without_cancelli
     assert_eq!((rig.closes(), rig.cancels()), (vec![1], 0));
 }
 
-// ----- what is reached -------------------------------------------------------------------------
+// what is reached
 
 #[tokio::test(start_paused = true)]
 async fn only_a_server_attached_with_its_own_logins_is_reached() {
@@ -705,7 +705,7 @@ async fn a_failed_key_save_shows_the_servers_words_without_the_key_in_either_spe
     assert_eq!(message(rig.logins.save_key("h1", "openai", "sk-1").await), "a keyless provider takes no key");
 }
 
-// ----- the server's push of a pending login ----------------------------------------------------
+// the server's push of a pending login
 
 #[tokio::test(start_paused = true)]
 async fn a_pending_login_follows_the_servers_feed_and_settles_when_the_redirect_completes_it() {

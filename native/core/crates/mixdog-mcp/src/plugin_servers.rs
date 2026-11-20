@@ -57,7 +57,7 @@ fn truthy_or<'a>(first: &'a Value, second: &'a Value) -> &'a Value {
     if truthy(first) { first } else { second }
 }
 
-// ---- names ----
+// names
 
 /// Lowercased text with every run of characters `keep` rejects turned into one `-`, and the
 /// ends trimmed of `-`.
@@ -125,7 +125,7 @@ fn legacy_server_name(plugin: &Value) -> String {
     if base.is_empty() { "plugin-mcp".to_owned() } else { format!("plugin-{base}") }
 }
 
-// ---- paths (the host's own path rules, as Node's `path` module) ----
+// paths (the host's own path rules, as Node's `path` module)
 
 fn is_absolute(path: &str) -> bool {
     Path::new(path).is_absolute() || (cfg!(windows) && path.starts_with(['/', '\\']))
@@ -161,7 +161,7 @@ fn comparable_path(path: &Value) -> String {
     if cfg!(windows) { unified.to_lowercase() } else { unified }
 }
 
-// ---- transports ----
+// transports
 
 /// Transport a declared server asks for, inferred the way the MCP client does when `type` is
 /// absent: `transport: "http"` or a `url` -> http, else stdio. None for an unrecognised type.
@@ -188,7 +188,7 @@ fn comparable_transport(config: &Map<String, Value>) -> Option<String> {
     declared_mcp_transport(config).map(|t| if t == "streamable-http" { "http".to_owned() } else { t })
 }
 
-// ---- plugin placeholders (Node `mcp/plugin-placeholders.mjs`) ----
+// plugin placeholders (Node `mcp/plugin-placeholders.mjs`)
 
 fn normalize_slashes(path: &str) -> String {
     if cfg!(windows) { path.replace('\\', "/") } else { path.to_owned() }
@@ -265,7 +265,7 @@ pub fn plugin_server_env(root: &str, data: &str) -> Map<String, Value> {
     env
 }
 
-// ---- declarations ----
+// declarations
 
 /// One registered plugin and what it declares for MCP.
 pub struct Declared {
@@ -320,7 +320,7 @@ pub fn declarations_of(plugins: &[Value], load: &dyn Fn(&Path) -> PluginMcpDecla
         .collect()
 }
 
-// ---- copy adoption ----
+// copy adoption
 
 fn deep_equal(a: Option<&Value>, b: Option<&Value>) -> bool {
     match (a, b) {
@@ -551,7 +551,7 @@ fn plan_copy_adoption(user: &Map<String, Value>, intents: &Map<String, Value>, d
     plan
 }
 
-// ---- naming ----
+// naming
 
 struct Slot {
     declared: usize,
@@ -636,7 +636,7 @@ fn assign_names(user_names: &[String], declared: &[Declared], intents: &Map<Stri
     Names { names: names.into_iter().map(Option::unwrap_or_default).collect(), slots, warnings, unpinned }
 }
 
-// ---- resolving ----
+// resolving
 
 fn with_intent_overrides(config: &Map<String, Value>, intent: Option<&Value>) -> Map<String, Value> {
     let mut out = config.clone();
@@ -846,7 +846,7 @@ pub fn resolve_mcp_server_catalog(config: &Value, declared: &[Declared], cwd: &s
     }
 }
 
-// ---- config edits ----
+// config edits
 
 fn with_key(config: &Value, edits: Vec<(&str, Value)>) -> Value {
     let mut next = config.as_object().cloned().unwrap_or_default();

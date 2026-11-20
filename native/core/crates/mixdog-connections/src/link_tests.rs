@@ -36,7 +36,7 @@ const OPTIONS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.
 const PID: u32 = 4242;
 const INSTANCE: &str = "run-a";
 
-// ----- the server's ssh side -------------------------------------------------------------------
+// the server's ssh side
 
 /// A core's `/health` on a loopback port.
 async fn serve_health() -> u16 {
@@ -150,7 +150,7 @@ impl Transport for FakeTransport {
     }
 }
 
-// ----- the Ports panel's forwards --------------------------------------------------------------
+// the Ports panel's forwards
 
 struct ForwardFake {
     state: watch::Sender<TunnelState>,
@@ -197,7 +197,7 @@ impl LocalPorts for FreePorts {
     }
 }
 
-// ----- the dialer ------------------------------------------------------------------------------
+// the dialer
 
 /// Asks the resolver for the endpoint at every open, as the WebSocket connector does, then opens the scripted server.
 struct Resolving {
@@ -250,7 +250,7 @@ impl LinkDialer for FakeDialer {
     }
 }
 
-// ----- this PC's desktop host ------------------------------------------------------------------
+// this PC's desktop host
 
 /// This PC's core as the host channel: records what the link relays to the desktop and answers every request with `{ "ran": method }`.
 #[derive(Default)]
@@ -277,7 +277,7 @@ impl HostChannel for FakeHost {
     }
 }
 
-// ----- this PC's core --------------------------------------------------------------------------
+// this PC's core
 
 /// A call that runs until the server gives it up.
 struct FakeLocal(mpsc::UnboundedSender<()>);
@@ -410,7 +410,7 @@ fn a_host_request_names_the_capability_of_its_holder() {
     assert_eq!(host_capability("host.unknown"), None);
 }
 
-// ----- the user's reconnect --------------------------------------------------------------------
+// the user's reconnect
 
 struct Helper;
 
@@ -516,7 +516,7 @@ async fn frame_of(conn: &MockConn, method: &str) -> Value {
     })
     .await
 }
-// ----- cases -----------------------------------------------------------------------------------
+// cases
 
 #[tokio::test]
 async fn a_link_opens_names_the_desktop_core_and_reports_its_view() {
@@ -723,7 +723,7 @@ async fn power_pauses_and_wakes_every_link() {
     assert_eq!(link.view().borrow().state, LinkState::Connected);
     assert!(link.view().borrow().rtt_ms.is_some(), "the wake probed the link");
 }
-// ----- the server's pushes ---------------------------------------------------------------------
+// the server's pushes
 
 #[tokio::test]
 async fn the_servers_listening_ports_reach_the_link_from_the_ports_feed() {
@@ -757,7 +757,7 @@ async fn the_servers_listening_ports_reach_the_link_from_the_ports_feed() {
     within(ports.changed()).await.unwrap();
     assert!(ports.borrow().is_empty());
 }
-// ----- the server's host requests --------------------------------------------------------------
+// the server's host requests
 
 /// The frame the client sent that answers request `id`.
 async fn answer_of(conn: &MockConn, id: &str) -> Value {
@@ -815,7 +815,7 @@ async fn a_host_notification_of_the_server_is_delivered_to_this_pcs_desktop() {
     .await;
     assert_eq!(rig.host.notifications.lock().unwrap().clone(), vec![(HostCapability::Notifications, "host/notification/show".to_owned(), toast)]);
 }
-// ----- the diagnostics ring --------------------------------------------------------------------
+// the diagnostics ring
 
 #[tokio::test]
 async fn the_links_losses_and_restores_are_written_to_the_servers_diagnostics_ring() {
@@ -831,7 +831,7 @@ async fn the_links_losses_and_restores_are_written_to_the_servers_diagnostics_ri
     assert!(lines.contains("core-link-lost"), "{lines}");
     assert!(lines.matches("core-link-restored").count() >= 2, "the first attach and the one after the drop: {lines}");
 }
-// ----- the logins of the server's own ----------------------------------------------------------
+// the logins of the server's own
 
 /// A watch whose work records the order it ran in, and what the transport had been asked by then.
 fn recording_watch(link: &ServerLink, rig: &Rig, login: ModelLogin, label: &'static str, log: &Arc<Mutex<Vec<(&'static str, usize)>>>) -> ModelLoginWatch {

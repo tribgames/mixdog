@@ -51,9 +51,6 @@ fn the_stored_form_drops_defaults_and_credentials() {
     assert_eq!(stored["enabledAgents"], json!(["explore", "front-worker", "heavy-worker", "maintainer", "security", "writer"]));
 }
 
-#[allow(dead_code)]
-fn _keep(_: Arc<()>) {}
-
 async fn open(dir: &tempfile::TempDir, agent: Value) -> Config {
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };

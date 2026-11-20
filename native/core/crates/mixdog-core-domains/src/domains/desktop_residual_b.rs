@@ -109,9 +109,7 @@ fn holds_no_data(text: &str) -> bool {
     text.chars().all(|c| c == '\0' || is_js_space(c))
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Local file links (local-file-links.ts, file-launch.ts, shared/local-files.ts, shared/file-preview.ts)
-// ---------------------------------------------------------------------------------------------------------------------
 
 const EXECUTABLE_PACKAGE_EXTENSIONS: &[&str] = &["exe", "msi", "msix", "msixbundle", "appx", "appxbundle", "dmg", "pkg", "app"];
 const FILE_LAUNCH_EXTENSIONS: &[&str] = &[
@@ -348,9 +346,7 @@ pub fn decide_local_link(project: &str, href: &str, confirmed: Option<&str>, win
     launch("file")
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Attachment files (attachment-files.ts, ipc-validation.ts requiredAttachmentFile)
-// ---------------------------------------------------------------------------------------------------------------------
 
 const MAX_DATA_URL_BYTES: usize = 256 * 1024 * 1024;
 const MIME_EXTENSIONS: &[(&str, &str)] = &[
@@ -479,9 +475,7 @@ pub fn write_attachment_file(temp: &Path, data_url: &Value, name: &Value) -> Res
     Ok(file)
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Attachment thumbnails (attachment-thumbnail.ts)
-// ---------------------------------------------------------------------------------------------------------------------
 
 const THUMBNAIL_MAX_SIDE: f64 = 320.0;
 const THUMBNAIL_FALLBACK_MAX_BYTES: usize = 512 * 1024;
@@ -552,9 +546,7 @@ pub fn thumbnail_of(bytes: &[u8], fallback_max_bytes: usize) -> Option<String> {
     (bytes.len() <= fallback_max_bytes).then(|| data_url_of(mime, bytes))
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Launch record (launch-version.ts)
-// ---------------------------------------------------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LaunchRecord {
@@ -635,9 +627,7 @@ pub fn acknowledge_announcement(lane: &InLane<DurabilityIo>, path: &Path, versio
     write_launch_record(lane, path, &LaunchRecord { last_launched: record.last_launched, pending_announcement: None })
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Model bootstrap (model-bootstrap.ts)
-// ---------------------------------------------------------------------------------------------------------------------
 
 fn selected_preset(agent: &Map<String, Value>) -> Option<Map<String, Value>> {
     // Storage holds only the delta from the shipped presets; the effective list is rebuilt.
@@ -701,9 +691,7 @@ pub fn read_model_bootstrap(config_path: &Path) -> Option<Value> {
     model_bootstrap_from_config(&json_parse(&text).ok()?)
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Native tool caches (native-runtime-cache-gc.mjs)
-// ---------------------------------------------------------------------------------------------------------------------
 
 const CACHE_DIRECTORIES: &[(&str, &str)] = &[("graph", "graph-bin"), ("patch", "patch-bin"), ("spawn", "spawn-bin"), ("supervisor", "supervisor-bin")];
 const GC_RETRIES: usize = 5;
@@ -722,9 +710,7 @@ fn remove_tree(path: &Path) -> std::io::Result<()> {
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // User files (user-file-write.ts)
-// ---------------------------------------------------------------------------------------------------------------------
 
 /// `writeUserFile`: an existing file is rewritten in place (it keeps its inode, links, ACLs and mode; a symlink stays a link) and
 /// flushed before the write returns, a longer old tail cut after the new bytes are down so it is never empty midway; a new file is created
@@ -749,9 +735,7 @@ pub fn write_user_file(lane: &InLane<DurabilityIo>, path: &Path, data: &[u8]) ->
     write().map_err(|error| format!("{}: {error}", target.display()))
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Linux input access (linux-input-access.ts)
-// ---------------------------------------------------------------------------------------------------------------------
 
 const UINPUT_DEVICE: &str = "/dev/uinput";
 const RULE_FILE: &str = "70-mixdog-uinput.rules";
@@ -936,9 +920,7 @@ impl InputAccessRequests {
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Conversation import progress (conversation-import-progress.ts)
-// ---------------------------------------------------------------------------------------------------------------------
 
 /// The desktop event one import job snapshot is published as.
 pub const CONVERSATION_IMPORT_PROGRESS_EVENT: &str = "conversation-import-progress";
@@ -1131,9 +1113,7 @@ impl DomainService for ImportProgressService {
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Network change detection (network-watch.ts)
-// ---------------------------------------------------------------------------------------------------------------------
 
 pub const NETWORK_POLL_MS: u64 = 2_000;
 
@@ -1340,9 +1320,7 @@ impl NetworkWatcher {
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Login shell environment (login-shell-environment.ts)
-// ---------------------------------------------------------------------------------------------------------------------
 //
 // A Dock/Finder (macOS) or desktop-entry (Linux) launch inherits only the session manager's environment: the PATH additions and keys a user
 // exports from ~/.zprofile or ~/.zshrc are missing, so the daemon it spawns, and every terminal and tool call under it, cannot find what a
@@ -1568,9 +1546,7 @@ pub fn adopt_login_shell_environment(platform: &str, inherited: &BTreeMap<String
     login_shell_adoption(platform, read_login_shell_environment(platform, None, budget), inherited, |dir| Path::new(dir).is_dir())
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // The service
-// ---------------------------------------------------------------------------------------------------------------------
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

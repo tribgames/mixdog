@@ -111,7 +111,7 @@ impl Settings {
         save_and_adopt(&self.config, before, after).await.map_err(ToolModulesError::Config)
     }
 
-    // --- heartbeat ---
+    // heartbeat
 
     pub fn heartbeat(&self) -> Value {
         let agent = self.config.agent();
@@ -141,7 +141,7 @@ impl Settings {
         Ok(self.heartbeat())
     }
 
-    // --- reactions, AI session titles, cache warming ---
+    // reactions, AI session titles, cache warming
 
     pub fn reactions(&self) -> Value {
         json!({ "reactions": self.config.agent().get("reactions") != Some(&Value::Bool(false)) })
@@ -183,7 +183,7 @@ impl Settings {
         Ok(self.cache_warming())
     }
 
-    // --- recap ---
+    // recap
 
     pub fn recap(&self) -> Value {
         let agent = self.config.agent();
@@ -191,7 +191,7 @@ impl Settings {
         json!({ "enabled": !off })
     }
 
-    // --- bot order ---
+    // bot order
 
     pub fn bot_order(&self) -> Value {
         json!({ "order": normalize_bot_order(self.config.agent().get("botOrder")).unwrap_or_default() })
@@ -215,7 +215,7 @@ impl Settings {
         Ok(self.bot_order())
     }
 
-    // --- system shell ---
+    // system shell
 
     /// `normalizeSystemShellConfig(config.shell)`.
     pub fn system_shell(&self) -> Value {
@@ -253,7 +253,7 @@ impl Settings {
         Ok(self.system_shell())
     }
 
-    // --- developer options ---
+    // developer options
 
     pub fn developer(&self) -> Value {
         developer_view(self.config.agent().get("developer"))
@@ -284,7 +284,7 @@ impl Settings {
         Ok(self.developer())
     }
 
-    // --- starter guide ---
+    // starter guide
 
     /// `saveStarterGuideState(state)`; answers `getOnboardingStatus()` of the config it adopted.
     pub async fn save_starter_guide_state(&self, state: &Value) -> Result<Value, ToolModulesError> {

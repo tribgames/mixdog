@@ -105,7 +105,7 @@ async fn a_lost_connection_reaches_the_caller_as_the_clients_error() {
     assert!(matches!(stat_on(&client, "/r", "x").await, Err(ClientError::ConnectionLost)));
 }
 
-// ----- the pool's reader over a link -----------------------------------------------------------
+// the pool's reader over a link
 
 /// Waits for the call of `method` the client sends and answers it with `answer` (`result` or `error`).
 async fn answer(conn: &MockConn, method: &str, mut answer: Json) -> Json {

@@ -22,7 +22,7 @@ fn nothing_pending() -> HashSet<String> {
     HashSet::new()
 }
 
-// ---- the tracker (PTE)
+// the tracker (PTE)
 
 /// PTE "the first roster only establishes a baseline", "a session that never started working is not announced", "a repeated
 /// idle roster does not announce the same finish twice".
@@ -94,7 +94,7 @@ fn a_roster_is_the_whole_list_and_each_session_in_it_finishes_on_its_own() {
     assert!(!tracker.is_idle("b"));
 }
 
-// ---- the reads
+// the reads
 
 /// What a read answers, in order; `hang` never answers.
 struct Scripted {

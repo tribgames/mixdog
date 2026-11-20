@@ -46,7 +46,7 @@ fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-// ----- fakes -----------------------------------------------------------------------------------------------------------
+// fakes
 
 #[derive(Default)]
 struct FakeLinks {
@@ -214,7 +214,7 @@ async fn store() -> (Arc<SshHostStore>, tempfile::TempDir) {
     (hosts, dir)
 }
 
-// ----- cleanup ----------------------------------------------------------------------------------------------------------
+// cleanup
 
 struct CleanupRig {
     cleanup: Cleanup,
@@ -375,7 +375,7 @@ async fn a_cleanup_without_an_operation_or_a_saved_server_is_refused() {
     assert!(locked(&rig.cleaner.runs).is_empty());
 }
 
-// ----- diagnostics ------------------------------------------------------------------------------------------------------
+// diagnostics
 
 struct FakeMachine {
     diagnostics: Arc<Diagnostics>,
@@ -528,7 +528,7 @@ async fn an_empty_server_log_and_an_unreachable_server_are_answers_not_errors() 
     assert!(lines.iter().any(|line| line.contains("server log failed: Connection timed out")), "{lines:?}");
 }
 
-// ----- the saved list ---------------------------------------------------------------------------------------------------
+// the saved list
 
 async fn list_rig() -> (HostList, Arc<SshHostStore>, Arc<FakeLinks>, tempfile::TempDir) {
     let (hosts, dir) = store().await;

@@ -349,7 +349,7 @@ pub(crate) fn delete_pack(paths: &WorkflowPaths, requested: &str) -> Result<(Str
     Ok((id, reverted))
 }
 
-// --- shipped definitions ---
+// shipped definitions
 
 /// The editable surface of a pack plus the loader-visible fields the editor cannot express.
 pub struct Definition {

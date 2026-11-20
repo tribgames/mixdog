@@ -82,9 +82,7 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-// ---------------------------------------------------------------------------------------------
 // What the logins reach outside themselves
-// ---------------------------------------------------------------------------------------------
 
 /// An attached server connection, as the logins use it.
 #[async_trait]
@@ -185,9 +183,7 @@ pub struct ServerLoginStores {
     pub hosts: Arc<SshHostStore>,
 }
 
-// ---------------------------------------------------------------------------------------------
 // The server's words, read
-// ---------------------------------------------------------------------------------------------
 
 fn opt_text(value: Option<&Value>) -> Option<String> {
     value.and_then(Value::as_str).filter(|text| !text.is_empty()).map(str::to_owned)
@@ -333,9 +329,7 @@ fn is_custom_provider(id: &str) -> bool {
     groups.len() == 5 && groups.iter().zip([8, 4, 4, 4, 12]).all(|(group, len)| group.len() == len && group.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')))
 }
 
-// ---------------------------------------------------------------------------------------------
 // The service
-// ---------------------------------------------------------------------------------------------
 
 type Key = (String, String);
 

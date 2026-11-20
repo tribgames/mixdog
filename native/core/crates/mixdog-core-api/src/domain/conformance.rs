@@ -102,9 +102,7 @@ async fn drain<T: Send>(source: &mut dyn EventSource<T>) -> Vec<T> {
     out
 }
 
-// ---------------------------------------------------------------------------
 // Provider
-// ---------------------------------------------------------------------------
 
 /// `complete` is a recorded wire body that ends with the terminal event;
 /// `truncated` is the same body cut before it. `complete` is fed in two
@@ -256,9 +254,7 @@ pub fn check_request_options(codec: &dyn WireCodec, request: &ModelRequest) {
     assert_eq!(set.url, unset.url);
 }
 
-// ---------------------------------------------------------------------------
 // Files
-// ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug)]
 pub struct FsLanes {
@@ -267,9 +263,7 @@ pub struct FsLanes {
     pub maintenance: MaintenanceIo,
 }
 
-// ---------------------------------------------------------------------------
 // Processes
-// ---------------------------------------------------------------------------
 
 pub struct ProcessFixture {
     pub cwd: AbsPath,
@@ -377,9 +371,7 @@ pub async fn check_process_overloaded(pm: &dyn ProcessManager, fx: ProcessFixtur
     assert!(written.iter().all(|e| !matches!(e, ProcessEvent::Output { bytes, .. } if bytes == b"x")), "refused input is not written");
 }
 
-// ---------------------------------------------------------------------------
 // Repository
-// ---------------------------------------------------------------------------
 
 /// `change` modifies the work tree of `repo` (e.g. writes a file).
 pub async fn check_repo_inspector(inspector: &dyn RepoInspector, lane: MaintenanceIo, repo: RepoRef, base: super::repo::ObjectId, change: impl FnOnce()) {
@@ -399,9 +391,7 @@ pub async fn check_repo_inspector(inspector: &dyn RepoInspector, lane: Maintenan
     assert!(matches!(inspector.review_page(&changed, None, None), Ok(Cached::Pending { .. })), "no page for a key not yet computed");
 }
 
-// ---------------------------------------------------------------------------
 // Extension pool
-// ---------------------------------------------------------------------------
 
 /// `pending_cap` is the pool's global pending cap.
 pub async fn check_ext_pool(pool: &dyn ExtPool, call: ExtCall, pending_cap: usize) {
@@ -418,9 +408,7 @@ pub async fn check_ext_pool(pool: &dyn ExtPool, call: ExtCall, pending_cap: usiz
     assert!(pool.call(call).is_ok(), "dropping calls frees capacity");
 }
 
-// ---------------------------------------------------------------------------
 // Computer and media
-// ---------------------------------------------------------------------------
 
 pub async fn check_computer_backend(backend: &dyn ComputerBackend) {
     for action in ComputerAction::ALL {
@@ -497,9 +485,7 @@ pub fn check_video_track(track: &dyn VideoTrack) {
     track.stop();
 }
 
-// ---------------------------------------------------------------------------
 // Login and ownership
-// ---------------------------------------------------------------------------
 
 /// Drives the flow to its end: exactly one terminal state, last, and the
 /// snapshot equals it.
@@ -1180,9 +1166,7 @@ fn check_antigravity(decider: &dyn RetryDecider, base: &RetryPolicy) {
     assert_eq!(send().fail(&rpm(Some(60_000)), mid), Some(ms(60_000)));
     assert_eq!(send().fail(&rpm(Some(60_001)), mid), None, "RPM advice over 60 s");
 }
-// ---------------------------------------------------------------------------
 // Tools and approval
-// ---------------------------------------------------------------------------
 
 /// `ctx` carries an already-cancelled token: the tool either completes (it
 /// committed first) or returns `Cancelled`.

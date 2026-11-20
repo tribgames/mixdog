@@ -22,9 +22,7 @@ use mixdog_protocol::ProviderId;
 use mixdog_protocol::ThreadId;
 use mixdog_protocol::TurnId;
 
-// ---------------------------------------------------------------------------
 // Request
-// ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Role {
@@ -380,9 +378,7 @@ pub struct ErrorResponse {
     pub body: Vec<u8>,
 }
 
-// ---------------------------------------------------------------------------
 // Stream vocabulary (PW §2.3)
-// ---------------------------------------------------------------------------
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum StopReason {
@@ -1702,9 +1698,7 @@ impl StreamEvent {
         kinds
     }
 }
-// ---------------------------------------------------------------------------
 // Errors (PW §3)
-// ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum ErrorKind {
@@ -2098,9 +2092,7 @@ impl ProviderError {
         err
     }
 }
-// ---------------------------------------------------------------------------
 // Traits
-// ---------------------------------------------------------------------------
 
 /// Incremental decoder for one attempt. Fed transport units in arrival
 /// order: body chunks for HTTP, one message per call for WebSocket.

@@ -537,7 +537,7 @@ impl Authorizer for McpOAuth {
     }
 }
 
-// ---- the explicit login ------------------------------------------------------------------
+// the explicit login
 
 struct Pending {
     redirect_url: String,

@@ -105,7 +105,7 @@ fn daemon_running() -> ConnectError {
     ConnectError::Bootstrap(RemoteBootstrapError::from_wire("daemon-not-proxy", "A daemon is running (pid 4242).", None))
 }
 
-// ----- fakes -----------------------------------------------------------------------------------------------------------
+// fakes
 
 struct FakeMachine {
     inspections: Mutex<VecDeque<HostKeyInspection>>,
@@ -398,7 +398,7 @@ fn failure(result: &SshConnectResult) -> &SshFailureKind {
     }
 }
 
-// ----- the attempt guarantees --------------------------------------------------------------------------------------------
+// the attempt guarantees
 
 #[tokio::test]
 async fn attempt_bound_to_caller() {
@@ -579,7 +579,7 @@ async fn max_8_attempts() {
     }
 }
 
-// ----- what the pre-check allows --------------------------------------------------------------------------------------
+// what the pre-check allows
 
 #[tokio::test]
 async fn unknown_key_needs_the_users_confirmation() {
@@ -705,7 +705,7 @@ async fn entered_settings_are_validated_and_saved_with_the_server() {
     assert!(matches!(failure(&result), SshFailureKind::AlreadyConnected));
 }
 
-// ----- login and restart -----------------------------------------------------------------------------------------------
+// login and restart
 
 #[tokio::test]
 async fn refused_login_is_retried_once_through_askpass() {
@@ -777,7 +777,7 @@ async fn progress_reaches_only_the_caller_that_started_the_attempt() {
     assert!(rig.machine.diagnostics().lines(&key, 10).iter().any(|line| line.contains("check: linux x64")));
 }
 
-// ----- questions ---------------------------------------------------------------------------------------------------------
+// questions
 
 #[tokio::test]
 async fn a_withdrawn_question_is_closed_in_the_dialog() {
@@ -827,7 +827,7 @@ async fn an_operation_question_is_answered_by_its_caller_and_dies_with_it() {
     assert_eq!(within(asked).await.unwrap(), None);
 }
 
-// ----- opening a server's window ---------------------------------------------------------------------------------------
+// opening a server's window
 
 #[tokio::test]
 async fn open_focuses_only_a_connected_saved_server() {
@@ -842,7 +842,7 @@ async fn open_focuses_only_a_connected_saved_server() {
     assert_eq!(rig.windows.opened.lock().unwrap().len(), 2);
 }
 
-// ----- a forget and a connection of one server ---------------------------------------------------------------------------
+// a forget and a connection of one server
 
 const RETIRED: &str = "This connection attempt is no longer active. Check the address again.";
 

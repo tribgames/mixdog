@@ -11,7 +11,7 @@ use crate::memory::error::Result;
 use crate::memory::pg::db::Db;
 use crate::memory::query_terms::{build_fts_prefix_query, build_fts_query, tokenize_recall_query};
 use crate::memory::recall::filters::{ScopeOptions, project_scope_predicate, scope_filter, valid_categories};
-use crate::memory::recall::ranking::{collapse_history_duplicates, evidence_kind, is_semantic_only, lane_ranks, rank_candidates, rrf_score};
+use crate::memory::recall::ranking::{collapse_history_duplicates, lane_ranks, rank_candidates, rrf_score};
 use crate::memory::recall::row::{P, Row};
 use crate::memory::recall::store::read_query;
 
@@ -328,16 +328,6 @@ async fn attach_members(db: &Db, page: &mut [Row], matched: &HashMap<i64, HashSe
         row.members = Some(if kept.is_empty() { all } else { kept });
     }
     Ok(())
-}
-
-/// Whether every returned candidate matched on meaning alone.
-pub fn semantic_only(rows: &[Row]) -> bool {
-    is_semantic_only(rows)
-}
-
-#[allow(dead_code)]
-fn evidence_of(row: &Row) -> &'static str {
-    evidence_kind(row)
 }
 
 #[cfg(test)]
