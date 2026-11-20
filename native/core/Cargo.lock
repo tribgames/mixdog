@@ -6479,6 +6479,7 @@ dependencies = [
  "tokio-postgres",
  "tokio-tungstenite",
  "tokio-util",
+ "toml",
  "tracing",
  "unicode-normalization",
  "uuid",

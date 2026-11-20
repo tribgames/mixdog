@@ -34,7 +34,7 @@ pub fn parse_dotnet_format_report(json_text: &str, cwd: &Path) -> RunnerResult {
     let (mut diagnostics, mut files) = (Vec::new(), Vec::new());
     for row in rows_of(&payload) {
         let path = first(&row, &["FilePath", "filePath", "FileName", "fileName"]).and_then(Value::as_str).unwrap_or("");
-        let file = to_rel_long_path(cwd, path);
+        let file = to_rel(cwd, path);
         if file.is_empty() {
             continue;
         }
@@ -66,11 +66,9 @@ pub fn is_unsupported(stderr: &str, stdout: &str) -> bool {
     ["could not execute because the specified command or file was not found", "no executable found matching command", "dotnet-format does not exist", "unrecognized command or argument"].iter().any(|p| text.contains(p))
 }
 
-fn with_install_hint(mut result: RunnerResult, timed_out: bool) -> RunnerResult {
-    if !timed_out {
-        result.diagnostics[0].message.push_str(&format!(". {INSTALL_HINT}"));
-    }
-    result
+/// The failure of an SDK that has no `format whitespace --folder`, with what provides one.
+fn unsupported(r: &crate::tidy::process::ProcessResult) -> RunnerResult {
+    engine_stopped(format!("{ID} could not run: {}. {INSTALL_HINT}", said(r)))
 }
 
 /// The report a spawn wrote, read on the lane; empty when there is none.
@@ -95,7 +93,7 @@ pub fn plan_spawns(files: &[String], cwd: &Path, per_spawn: usize) -> Vec<Spawn1
     let mut groups: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut order: Vec<String> = Vec::new();
     for file in files {
-        let rel = to_rel_long_path(cwd, file);
+        let rel = to_rel(cwd, file);
         if rel.is_empty() {
             continue;
         }
@@ -177,8 +175,8 @@ mod tests {
         assert!(is_unsupported("Could not execute because the specified command or file was not found.", ""));
         assert!(is_unsupported("", "Unrecognized command or argument 'whitespace'"));
         assert!(!is_unsupported("fine", "fine"));
-        let hinted = with_install_hint(spawn_failure_result(ID, "ENOENT", false, -1, ""), false);
-        assert!(hinted.diagnostics[0].message.ends_with(INSTALL_HINT));
+        let old = unsupported(&crate::tidy::process::ProcessResult { code: 1, stderr: "Unrecognized command or argument 'whitespace'".into(), ..Default::default() });
+        assert!(old.error.is_some_and(|e| e.contains("Unrecognized command") && e.ends_with(INSTALL_HINT)));
     }
 }
 
@@ -209,7 +207,7 @@ async fn invoke(req: &RunRequest, verify: bool) -> RunnerResult {
     let root = std::env::temp_dir().join(format!("mixdog-dotnet-format-{}", uuid::Uuid::new_v4().simple()));
     let (lane, made) = (req.lane, root.clone());
     if io_on_lane(lane, move || create_report_dir(&made)).await.is_err() {
-        return spawn_failure_result(ID, "cannot create a report directory", false, -1, "");
+        return engine_stopped(format!("{ID} could not run: cannot create a report directory"));
     }
     let outcome = async {
         let (mut diagnostics, mut changed, mut stderr) = (Vec::new(), Vec::new(), String::new());
@@ -221,29 +219,31 @@ async fn invoke(req: &RunRequest, verify: bool) -> RunnerResult {
                 args.push("--verify-no-changes".into());
             }
             args.extend(["--report".to_owned(), report.to_string_lossy().into_owned(), "--include".to_owned()]);
-            args.extend(spawn.files.iter().cloned());
+            args.extend(spawn.files.iter().map(|file| path_arg(file)));
             let r = req.spawn.run(&req.bin, &args, &req.cwd, req.timeout, req.cancel.as_ref(), None, None).await;
             stderr.push_str(&r.stderr);
-            if !r.error.is_empty() {
-                let f = spawn_failure_result(ID, &r.error, r.timed_out, r.code, &r.stderr);
-                return with_install_hint(f, r.timed_out);
+            if let Some(why) = stopped(req, ID, &r) {
+                return engine_stopped(why);
             }
             if is_unsupported(&r.stderr, &r.stdout) {
-                let error = if mixdog_js::js_trim(&r.stderr).is_empty() { format!("exit {}", r.code) } else { tail600(&r.stderr) };
-                return with_install_hint(spawn_failure_result(ID, &error, false, r.code, &r.stderr), false);
+                return unsupported(&r);
             }
             if !verify {
+                // Without `--verify-no-changes` the exit code is the write's own.
+                if r.code != 0 {
+                    return engine_stopped(format!("{ID} did not complete its fix: {}", said(&r)));
+                }
                 continue;
             }
             // An unread report is not a clean one: `dotnet format` may have found anything.
             let text = match read_report(lane, &report).await {
                 Ok(text) => text,
-                Err(why) => return spawn_failure_result(ID, &why, false, r.code, &r.stderr),
+                Err(why) => return engine_stopped(why),
             };
             let parsed = parse_dotnet_format_report(&text, &req.cwd);
+            // With `--verify-no-changes` a non-zero exit is "would change": one with nothing reported is not.
             if parsed.changed_files.is_empty() && parsed.diagnostics.is_empty() && r.code != 0 {
-                let error = if mixdog_js::js_trim(&r.stderr).is_empty() { format!("exit {}", r.code) } else { tail600(&r.stderr) };
-                return spawn_failure_result(ID, &error, r.timed_out, r.code, &r.stderr);
+                return engine_stopped(format!("{ID} did not complete: {}", said(&r)));
             }
             diagnostics.extend(parsed.diagnostics);
             changed.extend(parsed.changed_files);

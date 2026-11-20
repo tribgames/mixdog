@@ -1,7 +1,7 @@
 {
   "name": "tidy",
   "title": "Tidy",
-  "description": "Clean up code across the languages in this project; engine/rule work belongs here, not shell. fix writes only with apply:true. Managed engines auto-download unless tidy.downloads is ask (user approves). results pages the last check/fix without re-running; rules/paths filter before paging; pages omit the header; check/fix list only engines that ran. Rows: loc,rule; severity/message only when unlike byRule; fix only if true. byRule (count, top severity, fixable, message) and byDir survive trimming. ok:true with status:partial: engines ran but a structural pass failed (structural.errors names the languages); no structural fix is written for that run. Returns final results in this call.",
+  "description": "Clean up code across the languages in this project; engine/rule work belongs here, not shell. fix writes only with apply:true. Managed engines auto-download unless tidy.downloads is ask (user approves). results pages the last check/fix without re-running; rules/paths filter before paging; pages omit the header; check/fix list only engines that ran over a file (one that got nowhere keeps its result row and error). Files come from git ls-files: a directory that is not a git repository, a failed listing, or a .mixdog/tidy.json that cannot be honoured fails the call. emptyPaths names requested paths that yield no file, with the reason (all empty: the call fails). unprocessed names, per language, files no formatter or linter processed and why (no engine, missing, skipped, failed, ignored, could not process); they are unchecked, not clean; results pages their files (after a scan: scan again with offset). An engine result's unprocessed lists files it ran on but could not process. Rows: loc,rule; severity/message only when unlike byRule; fix only if true. byRule (count, top severity, fixable, message) and byDir survive trimming. ok:true with status:partial: engines ran but a structural pass failed (structural.errors names the languages); no structural fix is written for that run. Returns final results in this call.",
   "annotations": {},
   "inputSchema": {
     "type": "object",
@@ -23,7 +23,7 @@
         "items": {
           "type": "string"
         },
-        "description": "User-selected files or directories; required for scan/check/fix. Ask when the scope is missing; use \".\" only for an explicitly requested whole project. Includes tracked and non-ignored untracked files; never derives scope from a diff or commit. results: optional cached path-prefix filters (directory boundaries, no scope requirement)."
+        "description": "User-selected files or directories; required for scan/check/fix. Ask when the scope is missing; use \".\" only for an explicitly requested whole project. Includes tracked and non-ignored untracked files that exist on disk (a deleted file, nested repository or submodule is not one); never derives scope from a diff or commit. results: optional cached path-prefix filters (directory boundaries, no scope requirement)."
       },
       "languages": {
         "type": "array",

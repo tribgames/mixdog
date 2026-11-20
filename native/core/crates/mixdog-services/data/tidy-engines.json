@@ -12,7 +12,8 @@
    "javascript",
    "typescript",
    "json",
-   "css"
+   "css",
+   "yaml"
   ],
   "managed": true,
   "managedModule": false,
@@ -381,6 +382,88 @@
   "hostInstallHint": ""
  },
  {
+  "id": "google-java-format",
+  "title": "google-java-format",
+  "bin": "google-java-format",
+  "altBins": [],
+  "kind": [
+   "format"
+  ],
+  "languages": [
+   "java"
+  ],
+  "managed": true,
+  "managedModule": false,
+  "toolchain": false,
+  "projectLocal": [],
+  "projectLocalOnly": false,
+  "configFiles": [],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": null,
+  "installHint": "install google-java-format, or run tidy action:install engines:[\"google-java-format\"]",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "ktfmt",
+  "title": "ktfmt",
+  "bin": "ktfmt",
+  "altBins": [],
+  "kind": [
+   "format"
+  ],
+  "languages": [
+   "kotlin"
+  ],
+  "managed": true,
+  "managedModule": false,
+  "toolchain": false,
+  "projectLocal": [],
+  "projectLocalOnly": false,
+  "configFiles": [
+   ".editorconfig"
+  ],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [],
+  "versionArgs": null,
+  "command": null,
+  "installHint": "install ktfmt, or run tidy action:install engines:[\"ktfmt\"]",
+  "hostInstallHint": ""
+ },
+ {
+  "id": "taplo",
+  "title": "Taplo",
+  "bin": "taplo",
+  "altBins": [],
+  "kind": [
+   "format"
+  ],
+  "languages": [
+   "toml"
+  ],
+  "managed": true,
+  "managedModule": false,
+  "toolchain": false,
+  "projectLocal": [],
+  "projectLocalOnly": false,
+  "configFiles": [
+   ".taplo.toml",
+   "taplo.toml"
+  ],
+  "tomlConfig": null,
+  "requiresConfig": false,
+  "suppressedBy": [
+   "dprint"
+  ],
+  "versionArgs": null,
+  "command": null,
+  "installHint": "install taplo (cargo install taplo-cli), or run tidy action:install engines:[\"taplo\"]",
+  "hostInstallHint": ""
+ },
+ {
   "id": "rustfmt",
   "title": "rustfmt",
   "bin": "rustfmt",
@@ -606,10 +689,7 @@
   "requiresConfig": false,
   "suppressedBy": [],
   "versionArgs": null,
-  "command": [
-   "mix",
-   "format"
-  ],
+  "command": null,
   "installHint": "install Elixir (mix format)",
   "hostInstallHint": ""
  }

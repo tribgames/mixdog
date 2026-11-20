@@ -1,5 +1,5 @@
-//! Archive extraction for managed engine downloads: zip and tar.gz (through a minimal ustar
-//! reader), no shelling out to tar/unzip. Absolute paths, drive letters and `..` segments are
+//! Archive extraction for managed engine downloads: zip, tar.gz (through a minimal ustar reader)
+//! and a gzipped executable, no shelling out to tar/unzip. Absolute paths, drive letters and `..` segments are
 //! refused.
 
 use std::fs;
@@ -171,7 +171,8 @@ pub fn extract_zip(src: &Path, dest: &Path, skip: impl Fn(&str) -> bool) -> Resu
     Ok(written)
 }
 
-/// Extracts by manifest archive kind; `none` copies the single downloaded file to `bin_path`.
+/// Extracts by manifest archive kind; `none` copies the single downloaded file to `bin_path`
+/// and `gz` decompresses it there.
 /// Blocking: the body of a durability-lane job.
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 pub fn extract_archive(archive: &str, src: &Path, dest: &Path, bin_path: &str) -> Result<Vec<String>, ExtractError> {
@@ -180,15 +181,26 @@ pub fn extract_archive(archive: &str, src: &Path, dest: &Path, bin_path: &str) -
         "nupkg" => extract_zip(src, dest, is_nupkg_metadata),
         "zip" => extract_zip(src, dest, |_| false),
         "tar.gz" | "tgz" => extract_tar_gz(src, dest),
-        "none" | "" => {
-            let name = bin_path.replace('\\', "/");
-            if !is_safe_entry_path(&name) {
-                return Err(ExtractError::UnsafeBinPath(bin_path.to_owned()));
-            }
-            Ok(vec![write_entry(dest, &name, &fs::read(src)?, 0o755)?])
-        }
+        "gz" => write_binary(dest, bin_path, &gunzip(src)?),
+        "none" | "" => write_binary(dest, bin_path, &fs::read(src)?),
         other => Err(ExtractError::Unsupported(other.to_owned())),
     }
+}
+
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a durability-lane job")]
+fn gunzip(src: &Path) -> Result<Vec<u8>, ExtractError> {
+    let mut raw = Vec::new();
+    flate2::read::GzDecoder::new(fs::File::open(src)?).read_to_end(&mut raw)?;
+    Ok(raw)
+}
+
+/// A download that is the executable itself, bare or gzipped: written as `bin_path`.
+fn write_binary(dest: &Path, bin_path: &str, data: &[u8]) -> Result<Vec<String>, ExtractError> {
+    let name = bin_path.replace('\\', "/");
+    if !is_safe_entry_path(&name) {
+        return Err(ExtractError::UnsafeBinPath(bin_path.to_owned()));
+    }
+    Ok(vec![write_entry(dest, &name, data, 0o755)?])
 }
 
 #[cfg(test)]
@@ -265,6 +277,11 @@ mod tests {
         let out = dir.path().join("o3");
         assert_eq!(extract_archive("none", &single, &out, "bin/tool").unwrap(), ["bin/tool"]);
         assert!(matches!(extract_archive("none", &single, &out, "../tool"), Err(ExtractError::UnsafeBinPath(_))));
+        let zipped = dir.path().join("tool.gz");
+        std::fs::write(&zipped, gz(b"bin")).unwrap();
+        assert_eq!(extract_archive("gz", &zipped, &out, "tool").unwrap(), ["tool"]);
+        assert_eq!(std::fs::read(out.join("tool")).unwrap(), b"bin");
+        assert!(matches!(extract_archive("gz", &zipped, &out, "/tool"), Err(ExtractError::UnsafeBinPath(_))));
         assert!(matches!(extract_archive("rar", &single, &out, ""), Err(ExtractError::Unsupported(_))));
     }
 }

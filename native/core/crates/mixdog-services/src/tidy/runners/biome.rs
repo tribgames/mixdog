@@ -1,4 +1,5 @@
-//! Biome — JSON reporter for check, `--write` (1.x: `--apply`) for fix. Output can be huge and
+//! Biome — JSON reporter for check, `--write` for fix (both need Biome 1.8 or later: before it,
+//! `check` refuses `--max-diagnostics=none`, so there is no older spelling to fall back to). Output can be huge and
 //! arrive truncated, so documents are scanned incrementally, a truncated chunk is split and
 //! re-run, and fix safety comes from the row or from `biome explain <rule>`.
 
@@ -13,6 +14,9 @@ use super::shared::*;
 use crate::tidy::process::map_limit;
 
 pub const BIOME_CHECK_ARGS: [&str; 3] = ["check", "--reporter=json", "--max-diagnostics=none"];
+/// Biome ends lines as its configuration says; tidy does not report or rewrite a file for its
+/// line endings, so the files are run by how they end theirs, each group told its own.
+const BIOME_LINE_ENDINGS: LineEndingFlags = LineEndingFlags { lf: &["--line-ending=lf"], crlf: &["--line-ending=crlf"] };
 pub const BIOME_TRUNCATED_NOTE: &str = "biome JSON output was truncated; split the scope and re-run to get complete diagnostics";
 const EXPLAIN_CONCURRENCY: usize = 4;
 
@@ -29,7 +33,7 @@ pub struct Parsed {
     pub diagnostics: Vec<Diagnostic>,
     pub changed_files: Vec<String>,
     pub truncated: bool,
-    /// Files biome itself says it processed (`summary.changed + unchanged`); `None` without a summary.
+    /// Files biome itself says it processed (`summary.changed + unchanged - skipped`); `None` without a summary.
     pub processed: Option<i64>,
 }
 
@@ -276,7 +280,9 @@ pub fn parse_biome_json(stdout: &str, cwd: &std::path::Path, truncated_input: bo
             omitted = true;
         }
         if doc.pointer("/summary/changed").or_else(|| doc.pointer("/summary/unchanged")).is_some() {
-            *processed.get_or_insert(0) += number(doc.pointer("/summary/changed")) + number(doc.pointer("/summary/unchanged"));
+            // A file biome could not decode it counts as unchanged and as skipped; one that is not
+            // there, or that its configuration leaves out, it does not count at all.
+            *processed.get_or_insert(0) += number(doc.pointer("/summary/changed")) + number(doc.pointer("/summary/unchanged")) - number(doc.pointer("/summary/skipped"));
         }
     }
     Parsed { processed, ..rows_to_result(&rows, cwd, truncated_input || parse_truncated || omitted) }
@@ -327,9 +333,11 @@ pub fn biome_stderr_tail(stderr: &str) -> String {
     tail600(&kept.join("\n"))
 }
 
+#[derive(Default)]
 struct Chunks {
     parts: Vec<Parsed>,
-    failure: Option<Chunked>,
+    /// Biome could not run: it did not start, timed out or was cancelled.
+    failure: Option<String>,
     /// Biome exited non-zero without a report: its configuration or invocation was rejected.
     incomplete: Option<(i32, String)>,
     /// Files biome itself listed as "provided but ignored", with no diagnostic against them.
@@ -350,6 +358,12 @@ impl Chunks {
     }
 }
 
+/// Biome's own word on a file it could not read: a diagnostic against it in its file categories
+/// (`internalError/io` up to 2.5; `fs/io` and `fs/cantRead` from 2.6).
+fn could_not_read<'a>(diagnostics: &'a [Diagnostic], file: &str) -> Option<&'a Diagnostic> {
+    diagnostics.iter().find(|d| d.file == normalize_path(file) && (d.code.starts_with("internalError/") || d.code.starts_with("fs/")))
+}
+
 fn normalize_path(path: &str) -> String {
     let p = path.replace('\\', "/");
     p.strip_prefix("./").unwrap_or(&p).to_owned()
@@ -362,24 +376,30 @@ fn ignored_paths(stderr: &str) -> Vec<String> {
     lines.filter_map(|l| l.strip_prefix("- ")).map(|p| normalize_path(js_trim(p))).collect()
 }
 
-fn run_json_chunks<'a>(req: &'a RunRequest, files: &'a [String], files_per_spawn: usize) -> std::pin::Pin<Box<dyn std::future::Future<Output = Chunks> + Send + 'a>> {
+/// `biome check` over `files`, a group at a time, with `line_ending` added for the files that need it said.
+fn run_json_chunks<'a>(req: &'a RunRequest, files: &'a [String], files_per_spawn: usize, line_ending: &'a [&'a str]) -> std::pin::Pin<Box<dyn std::future::Future<Output = Chunks> + Send + 'a>> {
     Box::pin(async move {
-        let mut out = Chunks { parts: Vec::new(), failure: None, incomplete: None, ignored: Vec::new(), unexplained: Vec::new(), stderr: String::new() };
+        let mut out = Chunks::default();
         for chunk in chunk_files(files, files_per_spawn) {
-            let args: Vec<String> = req.args.iter().cloned().chain(BIOME_CHECK_ARGS.map(String::from)).chain(chunk.iter().cloned()).collect();
+            // A run that stopped says nothing about the files it had not reached.
+            if out.failure.is_some() {
+                break;
+            }
+            let args: Vec<String> = req.args.iter().cloned().chain(BIOME_CHECK_ARGS.iter().chain(line_ending).map(|flag| (*flag).to_owned())).chain(chunk.iter().map(|file| path_arg(file))).collect();
             let result = req.spawn.run(&req.bin, &args, &req.cwd, req.timeout, req.cancel.as_ref(), None, None).await;
             out.stderr.push_str(&result.stderr);
-            if !result.error.is_empty() && out.failure.is_none() {
-                out.failure = Some(Chunked { code: result.code, stdout: String::new(), stderr: result.stderr.clone(), timed_out: result.timed_out, truncated: false, error: result.error.clone() });
+            if let Some(why) = stopped(req, "biome", &result) {
+                out.failure = Some(why);
+                break;
             }
             // A truncated answer is split in half and re-run so every diagnostic is seen.
-            if result.error.is_empty() && result.truncated && chunk.len() > 1 {
-                let nested = run_json_chunks(req, &chunk, chunk.len().div_ceil(2)).await;
+            if result.truncated && chunk.len() > 1 {
+                let nested = run_json_chunks(req, &chunk, chunk.len().div_ceil(2), line_ending).await;
                 out.absorb_nested(nested);
                 continue;
             }
             let parsed = parse_biome_json(&result.stdout, &req.cwd, result.truncated);
-            if result.error.is_empty() && !result.truncated {
+            if !result.truncated {
                 if parsed.processed.is_none() && result.code != 0 && js_trim(&result.stdout).is_empty() {
                     out.incomplete.get_or_insert((result.code, result.stderr.clone()));
                     continue;
@@ -388,7 +408,7 @@ fn run_json_chunks<'a>(req: &'a RunRequest, files: &'a [String], files_per_spawn
                     // Biome lists the paths it ignored only when it processed nothing, so a partly
                     // processed set is split until each leftover file is asked about alone.
                     if n > 0 && chunk.len() > 1 {
-                        let nested = run_json_chunks(req, &chunk, chunk.len().div_ceil(2)).await;
+                        let nested = run_json_chunks(req, &chunk, chunk.len().div_ceil(2), line_ending).await;
                         out.absorb_nested(nested);
                         continue;
                     }
@@ -493,15 +513,34 @@ mod tests {
             (self.0)(args)
         }
     }
-    fn request(files: &[&str], reply: impl Fn(&[String]) -> crate::tidy::process::ProcessResult + Send + Sync + 'static) -> RunRequest {
-        RunRequest::new(Path::new(CWD), "biome", files.iter().map(|f| (*f).to_owned()).collect(), std::sync::Arc::new(Reply(Box::new(reply))), mixdog_rt::testing::tokens().durability_io)
+    /// A directory holding `files`, each one line that ends with LF: Biome is told how a file ends
+    /// its lines, which tidy reads from the file.
+    fn on_disk(files: &[String]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        for file in files {
+            std::fs::write(dir.path().join(file), "x\n").unwrap();
+        }
+        dir
+    }
+
+    /// The files a fake Biome was given: what follows the command's three flags and the line ending.
+    fn given(args: &[String]) -> Vec<&String> {
+        assert_eq!(args[3], "--line-ending=lf");
+        args.iter().skip(4).collect()
+    }
+
+    fn request(files: &[&str], reply: impl Fn(&[String]) -> crate::tidy::process::ProcessResult + Send + Sync + 'static) -> (tempfile::TempDir, RunRequest) {
+        let files: Vec<String> = files.iter().map(|f| (*f).to_owned()).collect();
+        let dir = on_disk(&files);
+        let req = RunRequest::new(dir.path(), "biome", files, std::sync::Arc::new(Reply(Box::new(reply))), mixdog_rt::testing::tokens().durability_io);
+        (dir, req)
     }
     #[tokio::test]
     async fn a_file_biome_did_not_process_is_ignored_not_checked_and_a_rejected_config_is_a_failure() {
         use crate::tidy::process::ProcessResult;
         // Biome processes everything but `ignored.ts`; with nothing processed it exits 1 and names no file.
         let by_config = |args: &[String]| {
-            let files: Vec<&String> = args.iter().skip(3).collect();
+            let files = given(args);
             let processed = files.iter().filter(|f| f.as_str() != "ignored.ts" && f.as_str() != "unreadable.ts").count();
             let rows: Vec<Value> = files.iter().filter(|f| f.as_str() == "unreadable.ts").map(|f| json!({"category": "internalError/io", "severity": "error", "description": "stream did not contain valid UTF-8", "location": {"path": f}})).collect();
             let stdout = json!({"summary": {"changed": 0, "unchanged": processed}, "diagnostics": rows}).to_string();
@@ -509,16 +548,23 @@ mod tests {
             let stderr = if processed == 0 { format!("  × No files were processed in the specified paths.\n  \n  i These paths were provided but ignored:\n  \n{}", files.iter().map(|f| format!("  - {f}\n")).collect::<String>()) } else { String::new() };
             ProcessResult { stdout, stderr, code: i32::from(processed == 0), ..Default::default() }
         };
-        let mixed = Biome.check(&request(&["a.ts", "ignored.ts", "b.ts"], by_config)).await;
+        let mixed = Biome.check(&request(&["a.ts", "ignored.ts", "b.ts"], by_config).1).await;
         assert_eq!((mixed.files_checked, mixed.ignored.clone(), mixed.error.clone()), (Some(2), vec!["ignored.ts".to_owned()], None));
-        let only = Biome.check(&request(&["ignored.ts"], by_config)).await;
+        let only = Biome.check(&request(&["ignored.ts"], by_config).1).await;
         assert_eq!((only.files_checked, only.ignored.clone(), only.error.clone()), (Some(0), vec!["ignored.ts".to_owned()], None));
-        // Biome lists an unreadable file as "ignored" too, but with an error against it: a failure, with the diagnostic kept.
-        let unreadable = Biome.check(&request(&["a.ts", "unreadable.ts"], by_config)).await;
-        assert!(unreadable.error.as_deref().is_some_and(|e| e.contains("unreadable.ts")), "{:?}", unreadable.error);
+        // Biome lists an unreadable file as "ignored" too, but with an error against it: unprocessed
+        // for the reason that error gives, with the diagnostic kept.
+        let unreadable = Biome.check(&request(&["a.ts", "unreadable.ts"], by_config).1).await;
+        assert_eq!(unreadable.unprocessed, [("unreadable.ts".to_owned(), "stream did not contain valid UTF-8".to_owned())]);
         assert_eq!((unreadable.files_checked, unreadable.ignored.is_empty(), unreadable.diagnostics.iter().map(|d| d.code.as_str()).collect::<Vec<_>>()), (Some(1), true, vec!["internalError/io"]));
+        // A file tidy itself cannot read is not handed to Biome.
+        let (dir, mut gone) = request(&["a.ts"], by_config);
+        gone.files.push("gone.ts".to_owned());
+        let missing = Biome.check(&gone).await;
+        assert_eq!((missing.files_checked, missing.unprocessed.iter().map(|(file, _)| file.as_str()).collect::<Vec<_>>()), (Some(1), vec!["gone.ts"]));
+        drop(dir);
         // An invalid biome.json: exit 1, no report at all.
-        let rejected = Biome.check(&request(&["a.ts"], |_| ProcessResult { code: 1, stderr: "biome.json:1:11 deserialize\n\n  × Found an unknown key `bogus`.".into(), ..Default::default() })).await;
+        let rejected = Biome.check(&request(&["a.ts"], |_| ProcessResult { code: 1, stderr: "biome.json:1:11 deserialize\n\n  × Found an unknown key `bogus`.".into(), ..Default::default() }).1).await;
         assert!(rejected.error.as_deref().is_some_and(|e| e.contains("unknown key")), "{:?}", rejected.error);
         assert!(rejected.files_checked.is_none() && rejected.diagnostics.is_empty());
     }
@@ -528,7 +574,7 @@ mod tests {
             if args.first().map(String::as_str) == Some("explain") {
                 return crate::tidy::process::ProcessResult { stdout: "- Fix: safe".into(), ..Default::default() };
             }
-            let files: Vec<&String> = args.iter().skip(3).collect();
+            let files = given(args);
             self.0.lock().unwrap().push(files.len());
             // More than two files overflows the capture; each file alone reports one diagnostic.
             if files.len() > 2 {
@@ -539,10 +585,50 @@ mod tests {
         }
     }
     #[tokio::test]
+    async fn a_fix_that_leaves_findings_is_applied_and_one_biome_refuses_is_not() {
+        use crate::tidy::process::ProcessResult;
+        // Findings remain after the fixes: exit 1, with a report that counts the one file processed.
+        let remaining = |args: &[String]| {
+            assert_eq!(&args[..5], ["check", "--write", "--reporter=json", "--max-diagnostics=none", "--line-ending=lf"]);
+            ProcessResult { code: 1, stdout: json!({"summary": {"changed": 1, "unchanged": 0, "errors": 1}, "diagnostics": []}).to_string(), stderr: "× Some errors were emitted while applying fixes.".into(), ..Default::default() }
+        };
+        let applied = Biome.fix(&request(&["a.ts"], remaining).1).await;
+        assert_eq!((applied.error, applied.unprocessed.len(), applied.files_checked), (None, 0, Some(1)));
+        // The same report for two files leaves one of them unaccounted for: neither counts as fixed.
+        let partial = Biome.fix(&request(&["a.ts", "b.ts"], remaining).1).await;
+        assert_eq!((partial.files_checked, partial.unprocessed.len()), (Some(0), 2));
+        assert!(partial.unprocessed[0].1.contains("biome processed 1 of the 2 files"), "{:?}", partial.unprocessed);
+        let rejected = Biome.fix(&request(&["a.ts", "b.ts"], |_| ProcessResult { code: 1, stderr: "biome.json:1:2 deserialize\n  × Found an unknown key `bogus`.".into(), ..Default::default() }).1).await;
+        assert!(rejected.error.as_deref().is_some_and(|e| e.contains("unknown key")), "{:?}", rejected.error);
+        // Biome exits 0 after writing one file and failing to open the other, as 2.5.13 does: the
+        // file it names is unprocessed for the reason it gives, and the other is written.
+        let one_gone = |args: &[String]| {
+            let rows = json!([{"category": "internalError/io", "severity": "error", "description": "The system cannot find the file specified.", "location": {"path": &args[6]}}]);
+            ProcessResult { stdout: json!({"summary": {"changed": 1, "unchanged": 0, "errors": 1}, "diagnostics": rows}).to_string(), ..Default::default() }
+        };
+        let skipped = Biome.fix(&request(&["a.ts", "b.ts"], one_gone).1).await;
+        assert_eq!((skipped.files_checked, skipped.unprocessed, skipped.error), (Some(1), vec![("b.ts".to_owned(), "The system cannot find the file specified.".to_owned())], None));
+        // A file it cannot decode it counts as unchanged and as skipped (2.6.8 names it under `fs/io`):
+        // with a.ts written, the two account for a group of two, and not for one of three, whose third
+        // file (one its configuration left out) the report does not name.
+        let undecodable = |args: &[String]| {
+            let rows = json!([{"category": "fs/io", "severity": "error", "description": "stream did not contain valid UTF-8", "location": {"path": &args[6]}}]);
+            ProcessResult { stdout: json!({"summary": {"changed": 1, "unchanged": 1, "skipped": 1}, "diagnostics": rows}).to_string(), ..Default::default() }
+        };
+        let two = Biome.fix(&request(&["a.ts", "b.ts"], undecodable).1).await;
+        assert_eq!((two.files_checked, two.unprocessed), (Some(1), vec![("b.ts".to_owned(), "stream did not contain valid UTF-8".to_owned())]));
+        let three = Biome.fix(&request(&["a.ts", "b.ts", "c.ts"], undecodable).1).await;
+        assert_eq!((three.files_checked, three.unprocessed.len()), (Some(0), 3));
+        assert!(three.unprocessed[0].1.contains("biome processed 1 of the 3 files") && three.unprocessed[2].1 == three.unprocessed[0].1, "{:?}", three.unprocessed);
+        assert_eq!(three.unprocessed[1], ("b.ts".to_owned(), "stream did not contain valid UTF-8".to_owned()));
+    }
+
+    #[tokio::test]
     async fn a_truncated_chunk_is_halved_until_every_file_is_covered() {
         let spawn = std::sync::Arc::new(Splitting(Default::default()));
         let files: Vec<String> = (0..5).map(|n| format!("f{n}.ts")).collect();
-        let req = RunRequest::new(Path::new(CWD), "biome", files, spawn.clone(), mixdog_rt::testing::tokens().durability_io);
+        let dir = on_disk(&files);
+        let req = RunRequest::new(dir.path(), "biome", files, spawn.clone(), mixdog_rt::testing::tokens().durability_io);
         let out = Biome.check(&req).await;
         assert!(!out.truncated);
         assert_eq!(out.changed_files.len(), 5);
@@ -560,12 +646,23 @@ impl Runner for Biome {
     }
 
     async fn check(&self, req: &RunRequest) -> RunnerResult {
-        let result = run_json_chunks(req, &req.files, req.files_per_spawn).await;
-        if let Some(failure) = &result.failure {
-            return spawn_failure("biome", failure);
+        let files = match files_by_line_ending(req, "biome").await {
+            Ok(files) => files,
+            Err(why) => return engine_stopped(why),
+        };
+        let mut result = Chunks::default();
+        for (group, line_ending) in [(&files.lf, BIOME_LINE_ENDINGS.lf), (&files.crlf, BIOME_LINE_ENDINGS.crlf)] {
+            // With no path biome checks the whole directory.
+            if !group.is_empty() && result.failure.is_none() {
+                result.absorb_nested(run_json_chunks(req, group, req.files_per_spawn, line_ending).await);
+            }
+        }
+        if let Some(why) = result.failure {
+            return engine_stopped(why);
         }
         if let Some((code, stderr)) = &result.incomplete {
-            return engine_failure("biome", *code, &biome_stderr_tail(stderr));
+            let detail = biome_stderr_tail(stderr);
+            return RunnerResult { error: Some(format!("biome exited {code} without completing: {detail}")), stderr_tail: detail, ..Default::default() };
         }
         let mut parsed = merge_biome_parses(result.parts);
         let mut names: Vec<String> = parsed.diagnostics.iter().map(|f| rule_name(&f.code)).filter(|n| !n.is_empty()).collect();
@@ -580,7 +677,12 @@ impl Runner for Biome {
         .into_iter()
         .collect();
         apply_biome_fix_kinds(&mut parsed.diagnostics, &kinds);
-        let error = (!result.unexplained.is_empty()).then(|| format!("biome did not process {} file(s) and did not report them as ignored: {}", result.unexplained.len(), result.unexplained.join(", ")));
+        // Biome's reason for a file it did not process is what it reported against it.
+        let reason = |file: &String| {
+            let against = could_not_read(&parsed.diagnostics, file).or_else(|| parsed.diagnostics.iter().find(|d| d.file == normalize_path(file) && d.severity == "error"));
+            against.map_or_else(|| "biome did not process it and gave no reason".to_owned(), |d| d.message.clone())
+        };
+        let unprocessed: Vec<(String, String)> = result.unexplained.iter().map(|file| (file.clone(), reason(file))).chain(files.unreadable).collect();
         RunnerResult {
             counts: Some(biome_counts(&parsed.diagnostics, &parsed.changed_files)),
             stderr_tail: biome_stderr_tail(&result.stderr),
@@ -588,22 +690,44 @@ impl Runner for Biome {
             note: parsed.truncated.then(|| BIOME_TRUNCATED_NOTE.to_owned()),
             diagnostics: parsed.diagnostics,
             changed_files: parsed.changed_files,
-            files_checked: Some(req.files.len() - result.ignored.len() - result.unexplained.len()),
+            files_checked: Some(req.files.len() - result.ignored.len() - unprocessed.len()),
             ignored: result.ignored,
-            error,
+            unprocessed,
             ..Default::default()
         }
     }
 
     async fn fix(&self, req: &RunRequest) -> RunnerResult {
-        let legacy = JsRegex::new_static(r"unexpected argument|unrecognized|unknown (?:option|argument)", "i");
-        let mut r = run_chunked(req, &args_with(req, &["check", "--write", "--max-diagnostics=none"]), &req.files, false).await;
-        if r.code != 0 && legacy.is_match(&r.stderr) {
-            r = run_chunked(req, &args_with(req, &["check", "--apply", "--max-diagnostics=none"]), &req.files, false).await;
-        }
-        if !r.error.is_empty() {
-            return spawn_failure("biome", &r);
-        }
-        RunnerResult::default().with_stderr(biome_stderr_tail(&r.stderr))
+        let pass = write(req).await;
+        RunnerResult { stderr_tail: biome_stderr_tail(&pass.stderr), ..pass.into_result() }
     }
+}
+
+/// `biome check --write` over the files. Biome's exit code does not say what it wrote: it exits 1
+/// when findings remain after its fixes and for a configuration it rejects, and 0 after skipping
+/// a file it could not read. Its report does: the summary counts the files it processed, and a
+/// file it could not read has a diagnostic against it. A group is settled when those two account
+/// for every file; a file left over (one its configuration came to exclude) has no name in the
+/// report, so every file of the group is then unprocessed, for the reason biome gave it or, where
+/// it gave none, for that.
+async fn write(req: &RunRequest) -> Pass {
+    let wrote = |r: &crate::tidy::process::ProcessResult, files: &[String]| {
+        let report = parse_biome_json(&r.stdout, &req.cwd, r.truncated);
+        let left_out: Vec<(String, String)> = files.iter().filter_map(|file| could_not_read(&report.diagnostics, file).map(|d| (file.clone(), d.message.clone()))).collect();
+        match report.processed {
+            Some(n) if n + left_out.len() as i64 >= files.len() as i64 => Batch::Partly(Findings::default(), left_out),
+            // Which of the others it left out it does not say: each file keeps the reason biome
+            // gave for it, and the rest share what is known.
+            Some(n) => {
+                let unknown = format!("biome processed {n} of the {} files it was given and did not say which", files.len());
+                let reason = |file: &String| left_out.iter().find(|(named, _)| named == file).map_or_else(|| unknown.clone(), |(_, why)| why.clone());
+                Batch::Partly(Findings::default(), files.iter().map(|file| (file.clone(), reason(file))).collect())
+            }
+            None if r.truncated => Batch::Incomplete("biome printed more than tidy captures, its summary included".to_owned()),
+            // No report at all: biome rejected its configuration or the invocation.
+            None => Batch::Refused(said(r)),
+        }
+    };
+    let call = |line_ending: &[&str], files: &[String]| Invocation::over(req, &[&["check", "--write", "--reporter=json", "--max-diagnostics=none"][..], line_ending].concat(), files);
+    run_by_line_ending(req, "biome", Command::Writes, &BIOME_LINE_ENDINGS, &call, &wrote).await
 }

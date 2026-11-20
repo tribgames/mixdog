@@ -7,12 +7,13 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value, json};
 
+use super::languages::normalize_rel;
 use super::resolve::Resolved;
 use super::shadow::shadow_note;
 use super::worktree::worktree_notes;
 
 pub const DIAGNOSTIC_CAP: usize = 20;
-const FILE_LIST_CAP: usize = 25;
+pub const FILE_LIST_CAP: usize = 25;
 pub const RESULTS_PAGE_MAX: usize = 100;
 const TRIM_STEPS: [usize; 3] = [8, 3, 0];
 pub const TOOL_OUTPUT_MAX_BYTES: usize = 50 * 1024;
@@ -145,24 +146,39 @@ fn compact_diagnostic(row: &Value, by_rule: &Value) -> Value {
     Value::Object(m)
 }
 
-/// Summarizes the full selection, never the page or trimmed sample.
-fn summarize_diagnostics(rows: &[Value], include_rules: bool) -> Value {
+/// The `byDir` group of a project-relative file: one level below the requested path it came from
+/// (the longest one holding it), or its own directory when it sits directly in that path.
+fn dir_group(file: &str, scopes: &[String]) -> String {
+    let base = scopes
+        .iter()
+        .map(|s| normalize_rel(s).trim_end_matches('/').to_owned())
+        .map(|b| if b == "." { String::new() } else { b })
+        .filter(|b| b.is_empty() || file == b || file.starts_with(&format!("{b}/")))
+        .max_by_key(String::len)
+        .unwrap_or_default();
+    let rest = if base.is_empty() { file } else { file[base.len()..].trim_start_matches('/') };
+    match rest.split_once('/') {
+        Some((first, _)) if base.is_empty() => first.to_owned(),
+        Some((first, _)) => format!("{base}/{first}"),
+        None => file.rsplit_once('/').map_or_else(|| ".".to_owned(), |(dir, _)| dir.to_owned()),
+    }
+}
+
+/// Summarizes the full selection, never the page or trimmed sample. `byRule` holds every row (a
+/// row without a rule under `""`), so its counts sum to the row count.
+fn summarize_diagnostics(rows: &[Value], include_rules: bool, scopes: &[String]) -> Value {
     let rank = |s: &str| match s { "error" => 3, "warning" => 2, _ => 1 };
     let mut by_rule: Vec<(String, Map<String, Value>)> = Vec::new();
     let mut by_dir: BTreeMap<String, i64> = BTreeMap::new();
     let mut dir_order: Vec<String> = Vec::new();
     for row in rows {
         let f = shape_diagnostic(row);
-        let file = row["file"].as_str().unwrap_or("").replace('\\', "/");
-        let file = file.strip_prefix("./").unwrap_or(&file);
-        let parts: Vec<&str> = file.split('/').collect();
-        let dir = parts[..parts.len().saturating_sub(1)].iter().take(2).copied().collect::<Vec<_>>().join("/");
-        let dir = if dir.is_empty() { ".".to_owned() } else { dir };
+        let dir = dir_group(&normalize_rel(row["file"].as_str().unwrap_or("")), scopes);
         if !by_dir.contains_key(&dir) {
             dir_order.push(dir.clone());
         }
         *by_dir.entry(dir).or_default() += 1;
-        if !include_rules || f.rule.is_empty() {
+        if !include_rules {
             continue;
         }
         let idx = by_rule.iter().position(|(r, _)| *r == f.rule).unwrap_or_else(|| {
@@ -271,6 +287,15 @@ fn shape_engine_result(result: &Value, summary: &Value, cap: usize, offset: usiz
         put_if(&mut m, more > 0, "ignoredNextOffset", || json!(ignored_offset + items.len()));
         put(&mut m, "ignoredCount", json!(ignored.len()));
     }
+    // Files the engine ran on and could not process (`{file, reason}`), paged like `ignored`.
+    let unprocessed = arr(&result["unprocessed"]);
+    if !unprocessed.is_empty() {
+        let (items, more, unprocessed_offset) = page_list(unprocessed, file_paging.1, file_paging.0);
+        put(&mut m, "unprocessed", json!(items));
+        put_if(&mut m, more > 0, "unprocessedMore", || json!(more));
+        put_if(&mut m, more > 0, "unprocessedNextOffset", || json!(unprocessed_offset + items.len()));
+        put(&mut m, "unprocessedCount", json!(unprocessed.len()));
+    }
     put(&mut m, "diagnosticsCount", json!(diagnostics_count));
     if diagnostics_count > 0 {
         put(&mut m, "diagnostics", json!(diag_items.iter().map(|r| compact_diagnostic(r, &summary["byRule"])).collect::<Vec<_>>()));
@@ -342,6 +367,12 @@ pub struct ReportInput {
     pub scope: Value,
     pub shadows: Option<Vec<Value>>,
     pub working_tree: Value,
+    /// check/fix: ids of the engines that ran over at least one file.
+    pub ran: Vec<String>,
+    /// `[{language, reason, count, files}]`: files no formatter or linter engine processed.
+    pub unprocessed: Vec<Value>,
+    /// `[{path, reason}]`: requested paths that yield no file.
+    pub empty_paths: Vec<Value>,
     pub elapsed_ms: u64,
     pub offset: usize,
     pub limit: usize,
@@ -353,7 +384,8 @@ impl Default for ReportInput {
         Self {
             action: String::new(), ok: true, languages: Vec::new(), language_source: String::new(), engines: Vec::new(), results: None, structural: Value::Null,
             function_length: Value::Null, needs_approval: Value::Null, installed: Value::Null, errors: Vec::new(), notes: Vec::new(), policy: Value::Null, rules: Value::Null,
-            scope: Value::Null, shadows: None, working_tree: Value::Null, elapsed_ms: 0, offset: 0, limit: DIAGNOSTIC_CAP, max_bytes: TOOL_OUTPUT_MAX_BYTES,
+            scope: Value::Null, shadows: None, working_tree: Value::Null, ran: Vec::new(), unprocessed: Vec::new(), empty_paths: Vec::new(), elapsed_ms: 0, offset: 0,
+            limit: DIAGNOSTIC_CAP, max_bytes: TOOL_OUTPUT_MAX_BYTES,
         }
     }
 }
@@ -380,6 +412,9 @@ struct Parts {
     function_length: Value,
     shadows: Vec<Value>,
     working_tree: Value,
+    ran: Vec<String>,
+    unprocessed: Vec<Value>,
+    empty_paths: Vec<Value>,
     pass_errors: Vec<Value>,
     rules: Value,
     installed: Value,
@@ -425,11 +460,18 @@ pub fn build_tidy_report(input: ReportInput) -> Value {
     if !pass_errors.is_empty() {
         notes.push("structural apply blocked for the entire run; no structural fixes were written".into());
     }
+    let unprocessed_files: u64 = input.unprocessed.iter().map(|u| u["count"].as_u64().unwrap_or(0)).sum();
+    if unprocessed_files > 0 {
+        let languages: std::collections::BTreeSet<&str> = input.unprocessed.iter().filter_map(|u| u["language"].as_str()).collect();
+        let what = if input.action == "scan" { "no formatter or linter engine will process" } else { "no formatter or linter engine processed" };
+        notes.push(format!("{what} {unprocessed_files} file(s) of {}; see unprocessed: they are unchecked, not clean", languages.into_iter().collect::<Vec<_>>().join(", ")));
+    }
+    let scopes: Vec<String> = arr(&input.scope).iter().filter_map(Value::as_str).map(str::to_owned).collect();
     let summaries = results
         .iter()
         .map(|r| {
             let kind = input.engines.iter().find(|e| e.id == r["id"].as_str().unwrap_or("")).map(|e| e.kind.clone());
-            summarize_diagnostics(arr(&r["diagnostics"]), kind.is_none_or(|k| k.iter().any(|x| x == "lint")))
+            summarize_diagnostics(arr(&r["diagnostics"]), kind.is_none_or(|k| k.iter().any(|x| x == "lint")), &scopes)
         })
         .collect();
     let (resolved, missing): (Vec<Resolved>, Vec<Resolved>) = input.engines.iter().cloned().partition(|e| !e.missing);
@@ -448,10 +490,13 @@ pub fn build_tidy_report(input: ReportInput) -> Value {
         result_summaries: summaries,
         rolled: rollup_engine_counts(&results),
         structural: input.structural.clone(),
-        structural_summary: summarize_diagnostics(&structural_matches, true),
+        structural_summary: summarize_diagnostics(&structural_matches, true, &scopes),
         function_length: if run { input.function_length.clone() } else { Value::Null },
         shadows: if run { Vec::new() } else { input.shadows.clone().unwrap_or_default() },
         working_tree: input.working_tree.clone(),
+        ran: input.ran.clone(),
+        unprocessed: input.unprocessed.clone(),
+        empty_paths: input.empty_paths.clone(),
         pass_errors,
         rules: input.rules.clone(),
         installed: input.installed.clone(),
@@ -487,9 +532,10 @@ fn environment_header(parts: &Parts, action: &str) -> Map<String, Value> {
         put(&mut m, "engines", json!(parts.resolved.iter().map(shape).collect::<Vec<_>>()));
         put_if(&mut m, !parts.missing.is_empty(), "missing", || json!(parts.missing.iter().map(shape).collect::<Vec<_>>()));
         put_if(&mut m, !parts.policy.is_null(), "policy", || parts.policy.clone());
+        put_if(&mut m, !parts.empty_paths.is_empty(), "emptyPaths", || json!(parts.empty_paths));
         return m;
     }
-    let ran: Vec<&Resolved> = parts.resolved.iter().filter(|e| e.skipped.is_none()).collect();
+    let ran: Vec<&Resolved> = parts.resolved.iter().filter(|e| parts.ran.contains(&e.id)).collect();
     let covered: Vec<&String> = ran.iter().flat_map(|e| e.languages.iter()).collect();
     let in_scope: Vec<&str> = parts.languages.iter().filter_map(|l| l["id"].as_str()).collect();
     let uncovered: Vec<Value> = parts
@@ -500,7 +546,27 @@ fn environment_header(parts: &Parts, action: &str) -> Map<String, Value> {
         .collect();
     put(&mut m, "engines", json!(ran.iter().map(|e| brief_engine(&shape_engine(e))).collect::<Vec<_>>()));
     put_if(&mut m, !uncovered.is_empty(), "missing", || json!(uncovered));
+    put_if(&mut m, !parts.empty_paths.is_empty(), "emptyPaths", || json!(parts.empty_paths));
     m
+}
+
+/// Each unprocessed group with its count and one page of its files, paged like the other file
+/// lists: `results` reaches the rest of a run's, and `scan` with `offset` the rest of its own.
+fn shape_unprocessed(groups: &[Value], file_paging: (usize, usize)) -> Vec<Value> {
+    groups
+        .iter()
+        .map(|g| {
+            let (items, more, offset) = page_list(arr(&g["files"]), file_paging.1, file_paging.0);
+            let mut m = Map::new();
+            for k in ["language", "reason", "count"] {
+                put(&mut m, k, g[k].clone());
+            }
+            put(&mut m, "files", json!(items));
+            put_if(&mut m, more > 0, "filesMore", || json!(more));
+            put_if(&mut m, more > 0, "filesNextOffset", || json!(offset + items.len()));
+            Value::Object(m)
+        })
+        .collect()
 }
 
 /// One report shape at a given diagnostic cap; optional sections appear only when they carry something.
@@ -528,6 +594,7 @@ fn compose(parts: &Parts, cap: usize) -> Value {
         put(&mut m, "results", json!(rs.iter().enumerate().map(|(i, r)| shape_engine_result(r, &parts.result_summaries[i], cap, parts.page_offset, file_paging)).collect::<Vec<_>>()));
     }
     put_if(&mut m, totals.is_some(), "counts", || totals.clone().unwrap_or(Value::Null));
+    put_if(&mut m, !parts.unprocessed.is_empty(), "unprocessed", || json!(shape_unprocessed(&parts.unprocessed, file_paging)));
     put_if(&mut m, !parts.structural.is_null(), "structural", || shape_structural(&parts.structural, &parts.structural_summary, &parts.pass_errors, cap, parts.page_offset));
     if let Some(w) = working_tree.filter(|w| w.as_object().is_some_and(|o| !o.is_empty())) {
         put(&mut m, "workingTree", w);
@@ -556,7 +623,35 @@ mod tests {
     }
 
     fn run_input(results: Vec<Value>, limit: usize) -> ReportInput {
-        ReportInput { action: "check".into(), engines: vec![engine("biome", &["format", "lint"], &["typescript"], false)], results: Some(results), limit, ..Default::default() }
+        ReportInput { action: "check".into(), engines: vec![engine("biome", &["format", "lint"], &["typescript"], false)], results: Some(results), limit, ran: vec!["biome".into()], ..Default::default() }
+    }
+
+    /// The check/fix header names the engines that ran, not every engine that resolved.
+    #[test]
+    fn the_run_header_lists_only_engines_that_ran() {
+        let mut input = run_input(vec![json!({"id": "biome", "filesChecked": 1}), json!({"id": "ruff", "filesChecked": 0})], 20);
+        input.engines.push(engine("ruff", &["lint"], &["python"], false));
+        input.engines.push(Resolved { unavailable: Some("lane".into()), ..engine("shfmt", &["format"], &["bash"], false) });
+        let r = build_tidy_report(input);
+        assert_eq!(r["engines"], json!([{"id": "biome"}]));
+    }
+
+    /// byDir groups one level below the requested path a file came from, and byRule counts every
+    /// row, a row without a rule under "".
+    #[test]
+    fn directories_group_below_the_requested_path_and_rules_count_every_row() {
+        let rows = vec![
+            diag("native/core/crates/mixdog-services/src/a.rs", 1, "r", "warning", false),
+            diag("native/core/crates/mixdog-tools/src/b.rs", 1, "r", "warning", false),
+            diag("native/core/crates/c.rs", 1, "", "warning", false),
+            diag("lib/d.rs", 1, "r", "warning", false),
+        ];
+        let mut input = run_input(vec![json!({"id": "biome", "filesChecked": 4, "diagnostics": rows})], 20);
+        input.scope = json!(["native/core/crates", "."]);
+        let res = &build_tidy_report(input)["results"][0];
+        assert_eq!(res["byDir"], json!({"native/core/crates/mixdog-services": 1, "native/core/crates/mixdog-tools": 1, "native/core/crates": 1, "lib": 1}));
+        let sum: i64 = res["byRule"].as_object().unwrap().values().map(|r| r["count"].as_i64().unwrap()).sum();
+        assert_eq!((sum, res["byRule"][""]["count"].clone()), (4, json!(1)));
     }
 
     #[test]

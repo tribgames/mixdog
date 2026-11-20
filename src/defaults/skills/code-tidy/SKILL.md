@@ -51,25 +51,38 @@ fields; this file owns scope, order, and boundaries.
 
 ## 3. Deterministic layers
 1. `tidy action:'scan'` first (languages, engines used/missing,
-   `installHint`); it never downloads.
-2. Downloads are automatic under the default `auto` policy. Only when
-   `tidy.downloads` is `ask` does a result carry `needsApproval`: ask once,
-   listing engines and bytes, then re-call with `approveDownloads:true`; if
-   declined, skip those engines and say so.
-3. Engines run only through `tidy`, never installed by hand; report
+   `installHint`); it never downloads. Files come from `git ls-files`: outside
+   a git repository, or with a `.mixdog/tidy.json` tidy cannot honour, the
+   call fails with the reason; report it, never treat it as clean.
+2. Read `emptyPaths` (a requested path that yields no file: nested
+   repository or submodule, letter case, nothing listed) and `unprocessed`
+   (per language, files no formatter or linter processed, with the reason).
+   Those files are unchecked, not clean; structural rules do not stand in
+   for a formatter. An engine result's own `unprocessed` lists files it ran
+   on but could not process; its `error` summarizes them.
+3. Downloads are automatic under the default `auto` policy, and only for
+   engines that would run on a file in scope. Only when `tidy.downloads` is
+   `ask` does a result carry `needsApproval`: ask once, listing engines and
+   bytes, then re-call with `approveDownloads:true`; if declined, skip those
+   engines and say so.
+4. Engines run only through `tidy`, never installed by hand; report
    `installHint` and continue other checks. An ad-hoc `npx <engine>`, global
    binary, or package script is not verification. An engine `tidy` cannot
    resolve, or an unavailable structural engine (`check`/`fix` fail with a
    rebuild remedy; `scan` still works; retry with `structural:false`), leaves that check blocked,
    never clean.
-4. Plan with `fix` without `apply:true`: the dry run is diagnostics and
+5. Plan with `fix` without `apply:true`: the dry run is diagnostics and
    candidate files, not a frozen patch. For a restricted focus, avoid a
    combined apply that touches unrelated code.
-5. Apply with `apply:true` once the plan is settled (skip it when the dry run
+6. Apply with `apply:true` once the plan is settled (skip it when the dry run
    proposes nothing), then review the actual changes. Rules without a fix are
    diagnostics for the agent layer. Keep the engine pass a distinct change set
    from semantic edits. On engine or structural failure, truncation, or a
-   rejected edit, stop affected writes; a partial result is not success.
+   rejected edit, stop affected writes; a partial result is not success. An
+   engine reported `not run` after an apply stop wrote nothing. A structural
+   fix is written only where the file still holds the text its rule matched,
+   and no file whose real path leaves the project is written; such files are
+   rejected or listed in `unprocessed`.
 
 ## 4. Agent-level cleanup
 Read `references/principles.md` (what quality means here: reader load,

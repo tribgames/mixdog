@@ -455,7 +455,9 @@ impl SystemEngineResolver {
                 if stale {
                     // The caller's request is long gone by then; publish for the next poll.
                     tokio::spawn(async move {
-                        let version = probe_host_managed_module(&processes, &engine, None).await;
+                        // The status card is project-free: the module answers the same anywhere.
+                        let here = std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir());
+                        let version = probe_host_managed_module(&processes, &engine, &here, None).await;
                         cache.lock().unwrap().insert(key, (version, Some(Instant::now()), false));
                     });
                 }

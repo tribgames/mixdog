@@ -15,7 +15,7 @@ use crate::lane::on_lane;
 
 use super::catalog::engine_entry;
 use super::process::{Processes, RunOptions, map_limit, which};
-use super::resolve::{Resolved, first_existing, parse_version_text};
+use super::resolve::{Resolved, engine_dir, first_existing, parse_version_text};
 
 const NPX_CACHE_DIRS_MAX: usize = 40;
 const SHADOW_CAP: usize = 8;
@@ -88,27 +88,32 @@ fn gather_candidates(engines: &[Resolved], env: &HashMap<String, String>) -> Vec
     found
 }
 
-async fn probe_binary_version(processes: &Processes, bin: String) -> String {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let mut options = RunOptions::new(&cwd);
+/// A shadow's version as the project would see it: proxies such as rustup answer by directory.
+async fn probe_binary_version(processes: &Processes, bin: String, cwd: &Path) -> String {
+    let mut options = RunOptions::new(cwd);
     options.timeout = Duration::from_secs(5);
     let r = processes.run(&bin, &["--version".to_owned()], options).await;
+    if r.code != 0 || !r.error.is_empty() {
+        return String::new();
+    }
     parse_version_text(&format!("{}\n{}", r.stdout, r.stderr))
 }
 
 /// Same-named binaries that are not the engine tidy uses. Missing engines still report shadows:
 /// "nothing tidy runs" is exactly when a stray binary of that name gets mistaken for the engine.
+/// Versions are asked where each engine runs (`cwd` is the project).
 ///
 /// `Err` when the scan never ran: no rows there would read as "nothing shadows an engine".
-pub async fn detect_engine_shadows(processes: &Processes, engines: &[Resolved], env: &HashMap<String, String>) -> Result<Vec<Value>, String> {
+pub async fn detect_engine_shadows(processes: &Processes, engines: &[Resolved], env: &HashMap<String, String>, cwd: &Path) -> Result<Vec<Value>, String> {
     // The directory listing and file probes are one lane job; the version spawns stay async.
     let (owned_engines, owned_env) = (engines.to_vec(), env.clone());
     let mut found = on_lane(processes.durability(), move || gather_candidates(&owned_engines, &owned_env))
         .await
         .map_err(|_| "shadow check unavailable: the PATH and npx-cache scan could not be run (its lane did not run it), so this report does not say whether a same-named binary shadows an engine".to_owned())?;
     found.truncate(SHADOW_CAP);
-    let paths: Vec<String> = found.iter().map(|f| f.3.clone()).collect();
-    let versions = map_limit(paths, SHADOW_CAP, |p| probe_binary_version(processes, p)).await;
+    // Each shadow is asked where its engine runs: a configured `cwd`, else the project.
+    let probes: Vec<(String, PathBuf)> = found.iter().map(|f| (f.3.clone(), engine_dir(&engines[f.0], cwd).to_owned())).collect();
+    let versions = map_limit(probes, SHADOW_CAP, |(p, dir)| async move { probe_binary_version(processes, p, &dir).await }).await;
     Ok(shadow_rows(engines, &found, versions))
 }
 
@@ -189,13 +194,61 @@ mod tests {
         assert!(shadow_note(&missing[0]).contains("tidy has no biome (missing)"));
     }
 
+    /// A shadow's version is the one the project sees, and a probe that fails has none.
+    #[tokio::test]
+    async fn shadow_versions_are_asked_in_the_project_and_failures_have_none() {
+        let (bin_dir, project) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (name, body) = if cfg!(windows) {
+            ("probe.cmd", "@if exist toolchain-marker (echo fake 1.10.0) else if exist broken-marker (echo usage 3.4 & exit /b 2) else (echo fake 1.9.0)\r\n")
+        } else {
+            ("probe.sh", "#!/bin/sh\nif [ -e toolchain-marker ]; then echo fake 1.10.0; elif [ -e broken-marker ]; then echo usage 3.4; exit 2; else echo fake 1.9.0; fi\n")
+        };
+        let bin = bin_dir.path().join(name);
+        std::fs::write(&bin, body).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        std::fs::write(project.path().join("toolchain-marker"), "").unwrap();
+        let bin = bin.to_string_lossy().into_owned();
+        assert_eq!(probe_binary_version(&Processes::for_tests(), bin.clone(), project.path()).await, "1.10.0");
+        std::fs::remove_file(project.path().join("toolchain-marker")).unwrap();
+        std::fs::write(project.path().join("broken-marker"), "").unwrap();
+        assert_eq!(probe_binary_version(&Processes::for_tests(), bin, project.path()).await, "");
+    }
+
+    /// A shadow of an engine with a configured `cwd` is asked its version there.
+    #[tokio::test]
+    async fn a_shadow_is_asked_where_its_engine_runs() {
+        let (bin_dir, project) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (name, body) = if cfg!(windows) {
+            ("biome.cmd", "@if exist toolchain-marker (echo biome 1.10.0) else (echo biome 1.9.0)\r\n")
+        } else {
+            ("biome", "#!/bin/sh\nif [ -e toolchain-marker ]; then echo biome 1.10.0; else echo biome 1.9.0; fi\n")
+        };
+        std::fs::write(bin_dir.path().join(name), body).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(bin_dir.path().join(name), std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let web = project.path().join("web");
+        std::fs::create_dir_all(&web).unwrap();
+        std::fs::write(web.join("toolchain-marker"), "").unwrap();
+        let env = HashMap::from([("PATH".to_owned(), bin_dir.path().to_string_lossy().into_owned())]);
+        let managed = Resolved { cwd: Some(web.to_string_lossy().into_owned()), ..engine("biome", "managed", "/m/biome") };
+        let rows = super::detect_engine_shadows(&Processes::for_tests(), &[managed], &env, project.path()).await.unwrap();
+        assert_eq!(rows[0]["shadow"]["version"], "1.10.0", "{rows:?}");
+    }
+
     /// A scan that never ran is an error, not "no shadows".
     #[tokio::test]
     async fn a_shadow_scan_that_never_ran_is_an_error_not_an_empty_report() {
         let env = HashMap::new();
         let engines = [engine("biome", "managed", "/m/biome")];
         let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
-        let why = super::detect_engine_shadows(&Processes::for_tests(), &engines, &env).await.unwrap_err();
+        let why = super::detect_engine_shadows(&Processes::for_tests(), &engines, &env, Path::new(".")).await.unwrap_err();
         assert!(why.contains("does not say whether"), "{why}");
     }
 

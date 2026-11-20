@@ -15,13 +15,16 @@
 //    "severity":"warning","message":"...",
 //    "range":{"start":{"line":0,"column":0},"end":{"line":0,"column":9},
 //             "byteOffset":[0,9]},
-//    "fix":{"byteOffset":[0,9],"text":"..."}|null}
+//    "fix":{"byteOffset":[0,9],"sha256":"<64 hex>","text":"..."}|null}
 //
 // LINES AND COLUMNS ARE ZERO-BASED. `line` is a zero-based row; `column` is a
 // zero-based character (not byte) offset within that row, matching ast-grep's
 // own JSON output. `byteOffset` is a [start, end) byte range into the file as
 // read from disk. The `fix` key is emitted only when `--fix` was passed; it is
-// `null` for a match whose rule has no `fix`.
+// `null` for a match whose rule has no `fix`. `fix.sha256` is the SHA-256
+// (lower-case hex) of the exact bytes of the file this scan parsed: the range
+// holds only in those bytes, so a caller applies the fix only to a file that
+// still hashes to it.
 //
 // The last stdout line is always the summary:
 //
@@ -79,6 +82,10 @@ pub struct RangeJson {
 struct FixJson {
     #[serde(rename = "byteOffset")]
     byte_offset: [usize; 2],
+    // SHA-256 (lower-case hex) of the exact bytes of the file this scan parsed:
+    // the byte range holds only in those bytes, so a caller writes the fix only
+    // to a file that still hashes to this.
+    sha256: String,
     text: String,
 }
 
@@ -223,23 +230,23 @@ fn record_for(
     lang: ScanLang,
     rule: &RuleConfig<ScanLang>,
     node_match: &NodeMatch<'_, StrDoc<ScanLang>>,
-    include_fix: bool,
+    // `Some` with `--fix`: the digest of the source this match was found in.
+    source_sha256: Option<&str>,
 ) -> MatchRecord {
     let node = node_match.get_node();
     let range = node_match.range();
     let start = node_match.start_pos();
     let end = node_match.end_pos();
-    let fix = if include_fix {
-        Some(rule.fixer.first().map(|fixer| {
+    let fix = source_sha256.map(|sha256| {
+        rule.fixer.first().map(|fixer| {
             let edit = node_match.make_edit(&rule.matcher, fixer);
             FixJson {
                 byte_offset: [edit.position, edit.position + edit.deleted_length],
+                sha256: sha256.to_owned(),
                 text: String::from_utf8_lossy(&edit.inserted_text).into_owned(),
             }
-        }))
-    } else {
-        None
-    };
+        })
+    });
     MatchRecord {
         file: rel.to_string(),
         lang: lang.id(),
@@ -282,13 +289,18 @@ pub fn scan_source(
     // `separate_fix` only routes fixable rules into `diffs`; the match set is
     // the same either way, and both lists are merged below.
     let result = combined.scan(&root, true);
+    // The bytes parsed are exactly `source`, read whole from disk.
+    let digest = include_fix.then(|| {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(source.as_bytes()))
+    });
     let mut records = Vec::new();
     for (rule, node_match) in &result.diffs {
-        records.push(record_for(rel, lang, rule, node_match, include_fix));
+        records.push(record_for(rel, lang, rule, node_match, digest.as_deref()));
     }
     for (rule, node_matches) in &result.matches {
         for node_match in node_matches {
-            records.push(record_for(rel, lang, rule, node_match, include_fix));
+            records.push(record_for(rel, lang, rule, node_match, digest.as_deref()));
         }
     }
     records.sort_by(|a, b| a.sort_key.cmp(&b.sort_key));
@@ -861,9 +873,24 @@ mod tests {
                     "end": {"line": 0, "column": 16},
                     "byteOffset": [10, 16]
                 },
-                "fix": {"byteOffset": [10, 16], "text": "bar(1)"}
+                "fix": {"byteOffset": [10, 16], "sha256": "c7ef9c35a1fe910536b6ed190ad0a31145d0d509162adacab130a530f9fd6341", "text": "bar(1)"}
             })
         );
+    }
+
+    /// Every fix names the file it was computed from by the SHA-256 of the exact bytes parsed, so
+    /// two scans of different contents never share one.
+    #[test]
+    fn each_fix_carries_the_digest_of_the_parsed_bytes() {
+        let yaml = "id: rewrite-foo\nlanguage: typescript\nseverity: warning\nmessage: m\nrule:\n  pattern: foo($A)\nfix: bar($A)\n";
+        let digest = |source: &str| {
+            let records = scan_fixture("a.ts", source, yaml, true);
+            records.iter().map(|r| r.fix.as_ref().unwrap().as_ref().unwrap().sha256.clone()).collect::<Vec<_>>()
+        };
+        let one = digest("foo(1);\nfoo(2);\n");
+        assert_eq!(one.len(), 2);
+        assert!(one.iter().all(|d| *d == one[0] && d.len() == 64));
+        assert_ne!(digest("foo(1);\nfoo(3);\n")[0], one[0], "a same-length edit changes the digest");
     }
 
     #[test]

@@ -28,7 +28,7 @@ const MANIFEST_VERSION = 1;
 const MAX_ASSET_BYTES = 200 * 1024 * 1024;
 const PLATFORMS = Object.freeze(['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64']);
 
-/** @typedef {{ match: (name: string, ctx: { tag: string, version: string }) => boolean, archive?: 'none'|'zip'|'tar.gz', binNames?: string[] }} AssetSpec */
+/** @typedef {{ match: (name: string, ctx: { tag: string, version: string }) => boolean, archive?: 'none'|'zip'|'tar.gz'|'gz', binNames?: string[] }} AssetSpec */
 
 /**
  * Embedded engine table. `optional` engines (mago, air) are dropped unless
@@ -43,7 +43,7 @@ const ENGINES = Object.freeze([
     repo: 'biomejs/biome',
     license: 'MIT',
     kind: ['format', 'lint'],
-    languages: ['javascript', 'typescript'],
+    languages: ['javascript', 'typescript', 'json', 'css', 'yaml'],
     homepage: 'https://biomejs.dev',
     versionFromTag: (tag) => tag.replace(/^@biomejs\/biome@/, ''),
     binNames: ['biome', 'biome.exe'],
@@ -185,6 +185,55 @@ const ENGINES = Object.freeze([
       'win32-x64': exact('air-x86_64-pc-windows-msvc.zip'),
     },
   },
+  {
+    // Native executables only: darwin-x64 has none (its release asset is a JAR).
+    id: 'google-java-format',
+    repo: 'google/google-java-format',
+    license: 'Apache-2.0',
+    kind: ['format'],
+    languages: ['java'],
+    homepage: 'https://github.com/google/google-java-format',
+    binNames: ['google-java-format', 'google-java-format.exe'],
+    assets: {
+      'darwin-arm64': exact('google-java-format_darwin-arm64'),
+      'linux-arm64': exact('google-java-format_linux-arm64'),
+      'linux-x64': exact('google-java-format_linux-x86-64'),
+      'win32-x64': exact('google-java-format_windows-x86-64.exe'),
+    },
+  },
+  {
+    // Native executables only: darwin-x64 and linux-arm64 have none. The asset
+    // names carry the tag's own two-part version.
+    id: 'ktfmt',
+    repo: 'Kotlin/ktfmt',
+    license: 'Apache-2.0',
+    kind: ['format'],
+    languages: ['kotlin'],
+    homepage: 'https://github.com/Kotlin/ktfmt',
+    binNames: ['ktfmt', 'ktfmt.exe'],
+    assets: {
+      'darwin-arm64': tagged((v) => `ktfmt-macos-aarch64-${v}.tar.gz`),
+      'linux-x64': tagged((v) => `ktfmt-linux-x86_64-${v}.tar.gz`),
+      'win32-x64': tagged((v) => `ktfmt-windows-x86_64-${v}.zip`),
+    },
+  },
+  {
+    // Unix assets are the executable itself, gzipped.
+    id: 'taplo',
+    repo: 'tamasfe/taplo',
+    license: 'MIT',
+    kind: ['format'],
+    languages: ['toml'],
+    homepage: 'https://taplo.tamasfe.dev',
+    binNames: ['taplo', 'taplo.exe'],
+    assets: {
+      'darwin-arm64': exact('taplo-darwin-aarch64.gz'),
+      'darwin-x64': exact('taplo-darwin-x86_64.gz'),
+      'linux-arm64': exact('taplo-linux-aarch64.gz'),
+      'linux-x64': exact('taplo-linux-x86_64.gz'),
+      'win32-x64': exact('taplo-windows-x86_64.zip'),
+    },
+  },
 ]);
 
 function exact(name) {
@@ -193,6 +242,11 @@ function exact(name) {
 
 function versioned(build) {
   return { match: (candidate, ctx) => candidate === build(ctx.version) };
+}
+
+/** Named after the release tag without its leading `v`, whatever its shape. */
+function tagged(build) {
+  return { match: (candidate, ctx) => candidate === build(ctx.tag.replace(/^v/, '')) };
 }
 
 function mvdanAssets(prefix) {
@@ -305,6 +359,7 @@ function archiveOf(name, explicit) {
   if (explicit) return explicit;
   if (name.endsWith('.tar.gz')) return 'tar.gz';
   if (name.endsWith('.zip')) return 'zip';
+  if (name.endsWith('.gz')) return 'gz';
   return 'none';
 }
 
@@ -543,7 +598,10 @@ async function materializeAsset(engine, item, destDir) {
     return { ...result, platform: item.platform, name: item.name, url: item.url };
   }
   let binPath = item.name;
-  if (item.archive !== 'none') {
+  if (item.archive === 'gz') {
+    // A gzipped executable has no name of its own inside: it is installed as the engine's.
+    binPath = engine.binNames[0];
+  } else if (item.archive !== 'none') {
     const buf = await readFile(dest);
     const entries = item.archive === 'zip' ? listZip(buf) : listTarGz(buf);
     binPath = pickBinPath(entries, engine.binNames || [], item.name);

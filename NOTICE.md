@@ -464,7 +464,7 @@ Optional managed downloads for the tidy tool (`native/core/crates/mixdog-service
 not compiled into Mixdog. Redistributable engines may be mirrored to this
 repository's GitHub releases; GPL binaries are never attached to that mirror.
 
-### biome 2.5.13 — MIT
+### biome 2.6.8 — MIT
 
 <https://github.com/biomejs/biome>
 
@@ -495,6 +495,8 @@ Full license text: `LICENSES/shfmt-BSD-3-Clause.txt`
 ### shellcheck 0.11.0 — GPL-3.0
 
 <https://github.com/koalaman/shellcheck>
+
+License text: <https://github.com/koalaman/shellcheck/blob/v0.11.0/LICENSE>
 
 Downloaded from upstream, not redistributed.
 
@@ -538,6 +540,33 @@ Full license text: `LICENSES/mago-MIT.txt`
 <https://github.com/posit-dev/air>
 
 Full license text: `LICENSES/air-MIT.txt`
+
+### google-java-format 2.0.0 — Apache-2.0
+
+<https://github.com/google/google-java-format>
+
+The native executables of the upstream release; darwin-x64 has none and is
+omitted. Full license text: `LICENSES/Apache-2.0.txt`
+
+### ktfmt 0.65 — Apache-2.0
+
+<https://github.com/Kotlin/ktfmt>
+
+The native executables of the upstream release; darwin-x64 and linux-arm64 have
+none and are omitted. Full license text: `LICENSES/Apache-2.0.txt`
+
+### taplo 0.10.0 — MIT
+
+<https://github.com/tamasfe/taplo>
+
+Full license text: `LICENSES/taplo-MIT.txt`
+
+### PSScriptAnalyzer 1.25.0 — MIT
+
+<https://github.com/PowerShell/PSScriptAnalyzer>
+
+The module package from the PowerShell Gallery. Full license text:
+`LICENSES/psscriptanalyzer-MIT.txt`
 
 ### oh-my-pi — MIT
 

@@ -13,6 +13,7 @@ use mixdog_rt::DurabilityIo;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
+use crate::lane::on_lane;
 use crate::tidy::process::{ProcessResult, Processes, RunOptions};
 
 pub const DEFAULT_ENGINE_TIMEOUT: Duration = Duration::from_secs(120);
@@ -104,6 +105,9 @@ pub struct RunnerResult {
     pub files_checked: Option<usize>,
     /// Requested files the engine did not process because its own configuration ignores them.
     pub ignored: Vec<String>,
+    /// Requested files the engine could not process (unreadable, unparsable), each with the reason
+    /// it gave. `error` is for an engine that could not run; these are files of one that did.
+    pub unprocessed: Vec<(String, String)>,
 }
 
 impl RunnerResult {
@@ -200,21 +204,31 @@ pub fn tail600(text: &str) -> String {
     tail(text, 600)
 }
 
-/// Repo-relative, forward-slash path for report output.
+/// Repo-relative, forward-slash path for report output. Engines on Windows also print long-path
+/// forms (`\\?\C:\…`, `\\?\UNC\…`); those are read as the plain path.
 pub fn to_rel(cwd: &Path, file_path: &str) -> String {
     let value = js_trim(file_path);
     if value.is_empty() {
         return String::new();
     }
+    let plain = match value.strip_prefix("\\\\?\\UNC\\") {
+        Some(rest) => format!("\\\\{rest}"),
+        None => value.strip_prefix("\\\\?\\").unwrap_or(value).to_owned(),
+    };
     // A rooted path without a drive is absolute for engine output on any host.
-    let rel = if Path::new(value).is_absolute() || value.starts_with('/') { relative(cwd, Path::new(value)) } else { value.to_owned() };
+    let rel = if Path::new(&plain).is_absolute() || plain.starts_with('/') { relative(cwd, Path::new(&plain)) } else { plain };
     let rel = rel.replace('\\', "/");
     rel.strip_prefix("./").unwrap_or(&rel).to_owned()
 }
 
+/// Windows names one directory in any letter case; an engine prints the case the system gave it.
+fn same_component(a: &std::path::Component, b: &std::path::Component) -> bool {
+    if cfg!(windows) { a.as_os_str().to_string_lossy().to_lowercase() == b.as_os_str().to_string_lossy().to_lowercase() } else { a == b }
+}
+
 fn relative(base: &Path, target: &Path) -> String {
     let (b, t): (Vec<_>, Vec<_>) = (base.components().collect(), target.components().collect());
-    let common = b.iter().zip(&t).take_while(|(x, y)| x == y).count();
+    let common = b.iter().zip(&t).take_while(|(x, y)| same_component(x, y)).count();
     // A different root (another drive) has no relative form.
     if common == 0 {
         return target.to_string_lossy().into_owned();
@@ -222,18 +236,6 @@ fn relative(base: &Path, target: &Path) -> String {
     let mut parts: Vec<String> = vec!["..".into(); b.len() - common];
     parts.extend(t[common..].iter().map(|c| c.as_os_str().to_string_lossy().into_owned()));
     parts.join("/")
-}
-
-/// [`to_rel`] for engines that report Windows long paths (`\\?\C:\…`, `\\?\UNC\…`).
-pub fn to_rel_long_path(cwd: &Path, raw: &str) -> String {
-    let value = if let Some(rest) = raw.strip_prefix("\\\\?\\UNC\\") {
-        format!("\\\\{rest}")
-    } else if let Some(rest) = raw.strip_prefix("\\\\?\\") {
-        rest.to_owned()
-    } else {
-        raw.to_owned()
-    };
-    to_rel(cwd, &value)
 }
 
 /// Report severity for an engine level of error / warning / anything else.
@@ -255,61 +257,337 @@ pub fn position_at(source: &str, offset: usize) -> (i64, i64) {
     (line, (index - last_newline) as i64 + 1)
 }
 
-pub struct Chunked {
-    pub code: i32,
-    pub stdout: String,
+/// A path as an engine argument: one that begins with `-` would be read as an option.
+pub fn path_arg(file: &str) -> String {
+    if file.starts_with('-') { format!("./{file}") } else { file.to_owned() }
+}
+
+/// One spawn of an engine over a group of files.
+pub struct Invocation {
+    pub args: Vec<String>,
+    pub env: Option<HashMap<String, String>>,
+    pub input: Option<Vec<u8>>,
+}
+
+impl Invocation {
+    /// The engine's configured arguments, then `flags`, then the files.
+    pub fn over(req: &RunRequest, flags: &[&str], files: &[String]) -> Self {
+        Self { args: req.args.iter().cloned().chain(strings(flags)).chain(files.iter().map(|f| path_arg(f))).collect(), env: None, input: None }
+    }
+}
+
+/// What an engine reported about the files it processed.
+#[derive(Debug, Default)]
+pub struct Findings {
+    pub diagnostics: Vec<Diagnostic>,
+    pub changed: Vec<String>,
+    /// Files its own configuration made it skip.
+    pub ignored: Vec<String>,
+}
+
+/// What one spawn established about its group of files.
+pub enum Batch {
+    /// The engine processed the whole group.
+    Done(Findings),
+    /// It processed the group except the files it named, each with the reason it gave.
+    Partly(Findings, Vec<(String, String)>),
+    /// It did not, for the reason it gave.
+    Incomplete(String),
+    /// It cannot process any file, for the reason it gave: a configuration it rejects.
+    Refused(String),
+}
+
+/// One engine command over the requested files, group by group.
+#[derive(Debug, Default)]
+pub struct Pass {
+    pub findings: Findings,
+    /// Files the engine could not process, each with the reason it gave.
+    pub unprocessed: Vec<(String, String)>,
+    /// The engine could not run: it did not start, timed out, was cancelled, or failed the same way
+    /// on separate groups of files.
+    pub failure: Option<String>,
+    /// Files in the groups the engine completed.
+    pub processed: usize,
+    /// What the engine wrote to stderr while completing them.
     pub stderr: String,
-    pub timed_out: bool,
-    pub truncated: bool,
-    pub error: String,
 }
 
-/// Runs one engine over a file list, chunked, and merges the captured output.
-pub async fn run_chunked(req: &RunRequest, base_args: &[String], files: &[String], without_files: bool) -> Chunked {
-    run_chunked_with(req, base_args, files, without_files, None, None).await
-}
-
-pub async fn run_chunked_with(req: &RunRequest, base_args: &[String], files: &[String], without_files: bool, env: Option<&HashMap<String, String>>, input: Option<Vec<u8>>) -> Chunked {
-    let chunks = if without_files { vec![Vec::new()] } else { chunk_files(files, req.files_per_spawn) };
-    let mut merged = Chunked { code: 0, stdout: String::new(), stderr: String::new(), timed_out: false, truncated: false, error: String::new() };
-    for chunk in chunks {
-        let args: Vec<String> = base_args.iter().cloned().chain(chunk).collect();
-        let result = req.spawn.run(&req.bin, &args, &req.cwd, req.timeout, req.cancel.as_ref(), env, input.clone()).await;
-        merged.stdout.push_str(&result.stdout);
-        merged.stderr.push_str(&result.stderr);
-        merged.timed_out |= result.timed_out;
-        merged.truncated |= result.truncated;
-        if !result.error.is_empty() && merged.error.is_empty() {
-            merged.error = result.error.clone();
-        }
-        if result.code != 0 {
-            merged.code = result.code;
+impl Pass {
+    /// The result of an engine whose findings come from one command.
+    pub fn into_result(self) -> RunnerResult {
+        RunnerResult {
+            files_checked: Some(self.processed.saturating_sub(self.findings.ignored.len())),
+            diagnostics: self.findings.diagnostics,
+            changed_files: unique_paths(self.findings.changed),
+            ignored: self.findings.ignored,
+            unprocessed: self.unprocessed,
+            error: self.failure,
+            stderr_tail: tail600(&self.stderr),
+            ..Default::default()
         }
     }
-    merged
-}
 
-/// The engine could not start (missing binary, EACCES): one actionable diagnostic.
-pub fn spawn_failure_result(id: &str, error: &str, timed_out: bool, code: i32, stderr: &str) -> RunnerResult {
-    let message = if timed_out { format!("{id} timed out") } else { format!("{id} could not run: {}", if error.is_empty() { format!("exit {code}") } else { error.to_owned() }) };
-    RunnerResult {
-        diagnostics: vec![diagnostic(DiagnosticInit { code: &format!("{id}/spawn"), message: &message, ..Default::default() })],
-        stderr_tail: tail600(stderr),
-        error: Some(message),
-        ..Default::default()
+    /// Joins the pass of a second command over the same files (a linter beside a formatter): a file
+    /// counts as processed when both commands processed it.
+    pub fn and(mut self, other: Pass) -> Pass {
+        self.findings.diagnostics.extend(other.findings.diagnostics);
+        self.findings.changed.extend(other.findings.changed);
+        self.findings.ignored.extend(other.findings.ignored);
+        for (file, reason) in other.unprocessed {
+            if !self.unprocessed.iter().any(|(f, _)| *f == file) {
+                self.unprocessed.push((file, reason));
+            }
+        }
+        self.failure = self.failure.or(other.failure);
+        self.processed = self.processed.min(other.processed);
+        self.stderr.push_str(&other.stderr);
+        self
+    }
+
+    /// Joins the pass of the same command over other files.
+    pub fn plus(mut self, other: Pass) -> Pass {
+        self.findings.diagnostics.extend(other.findings.diagnostics);
+        self.findings.changed.extend(other.findings.changed);
+        self.findings.ignored.extend(other.findings.ignored);
+        self.unprocessed.extend(other.unprocessed);
+        self.failure = self.failure.or(other.failure);
+        self.processed += other.processed;
+        self.stderr.push_str(&other.stderr);
+        self
     }
 }
 
-/// The engine ran but did not complete (bad config, unreadable or unparsable input): the reason is
-/// the run's error, and nothing it was given counts as checked.
-pub fn engine_failure(id: &str, code: i32, stderr: &str) -> RunnerResult {
-    let detail = tail600(stderr);
-    let error = if detail.is_empty() { format!("{id} exited {code} without completing") } else { format!("{id} exited {code} without completing: {detail}") };
-    RunnerResult { error: Some(error), stderr_tail: detail, ..Default::default() }
+/// Whether `text` ends its lines with CR LF, decided by its first line ending.
+pub fn ends_lines_with_crlf(text: &[u8]) -> bool {
+    text.iter().position(|b| *b == b'\n').is_some_and(|at| at > 0 && text[at - 1] == b'\r')
 }
 
-pub fn spawn_failure(id: &str, r: &Chunked) -> RunnerResult {
-    spawn_failure_result(id, &r.error, r.timed_out, r.code, &r.stderr)
+/// The request's files by how they end their lines.
+#[derive(Debug, Default)]
+pub struct ByLineEnding {
+    pub crlf: Vec<String>,
+    /// LF, or no line ending at all.
+    pub lf: Vec<String>,
+    /// Files that could not be read, each with the reason.
+    pub unreadable: Vec<(String, String)>,
+}
+
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn sort_by_line_ending(cwd: &Path, files: Vec<String>) -> ByLineEnding {
+    let mut sorted = ByLineEnding::default();
+    for file in files {
+        match std::fs::read(cwd.join(&file)) {
+            Ok(text) if ends_lines_with_crlf(&text) => sorted.crlf.push(file),
+            Ok(_) => sorted.lf.push(file),
+            Err(e) => sorted.unreadable.push((file, format!("could not be read: {e}"))),
+        }
+    }
+    sorted
+}
+
+/// `req.files` by how they end their lines. `Err` when the read never ran.
+pub async fn files_by_line_ending(req: &RunRequest, id: &str) -> Result<ByLineEnding, String> {
+    let (cwd, files) = (req.cwd.clone(), req.files.clone());
+    on_lane(req.lane, move || sort_by_line_ending(&cwd, files)).await.map_err(|_| format!("{id} could not run: its lane did not read the files"))
+}
+
+/// The flags that tell an engine how to end lines.
+pub struct LineEndingFlags {
+    pub lf: &'static [&'static str],
+    pub crlf: &'static [&'static str],
+}
+
+/// One engine command over `req.files`, for an engine that ends lines by its configuration and
+/// not by the file: tidy does not report or rewrite a file for its line endings, so the files are
+/// run by how they end their lines, each group told its own. `plan` builds a spawn from the flags
+/// to add and a group of files. A file tidy cannot read is unprocessed for that reason and is not
+/// handed to the engine.
+pub async fn run_by_line_ending(req: &RunRequest, id: &str, command: Command, flags: &LineEndingFlags, plan: &(dyn Fn(&[&str], &[String]) -> Invocation + Sync), read: &(dyn Fn(&ProcessResult, &[String]) -> Batch + Sync)) -> Pass {
+    let files = match files_by_line_ending(req, id).await {
+        Ok(files) => files,
+        Err(why) => return Pass { failure: Some(why), ..Default::default() },
+    };
+    let mut pass = Pass { unprocessed: files.unreadable, ..Default::default() };
+    for (group, line_ending) in [(&files.lf, flags.lf), (&files.crlf, flags.crlf)] {
+        if pass.failure.is_none() {
+            pass = pass.plus(run_groups(req, id, command, group, req.files_per_spawn, &|some| plan(line_ending, some), read).await);
+        }
+    }
+    pass
+}
+
+/// Why a spawn says nothing about its files: the run was cancelled, the engine was killed at its
+/// time limit, or it never started. A cancelled or killed child still leaves partial output behind.
+pub fn stopped(req: &RunRequest, id: &str, r: &ProcessResult) -> Option<String> {
+    if req.cancel.as_ref().is_some_and(CancellationToken::is_cancelled) {
+        return Some(format!("{id} was cancelled"));
+    }
+    if r.timed_out {
+        return Some(format!("{id} timed out"));
+    }
+    (!r.error.is_empty()).then(|| format!("{id} could not run: {}", r.error))
+}
+
+/// What an engine that did not complete said: its stderr, else its stdout, with its exit code.
+pub fn said(r: &ProcessResult) -> String {
+    match [&r.stderr, &r.stdout].into_iter().map(|text| tail600(&strip_ansi(text))).find(|text| !text.is_empty()) {
+        Some(text) => format!("exit {}: {text}", r.code),
+        None => format!("exit {}", r.code),
+    }
+}
+
+/// The result of an engine that could not run.
+pub fn engine_stopped(why: String) -> RunnerResult {
+    RunnerResult { error: Some(why), ..Default::default() }
+}
+
+/// What a command does to the files it is given.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Command {
+    /// It reports on them: a group it did not complete is run again in halves, to find the file.
+    Reads,
+    /// It rewrites them: it is never run twice over a file, since a second run could make changes
+    /// the check did not announce. A group it did not complete is reported as it failed.
+    Writes,
+}
+
+struct Batches<'a> {
+    req: &'a RunRequest,
+    id: &'a str,
+    command: Command,
+    plan: &'a (dyn Fn(&[String]) -> Invocation + Sync),
+    read: &'a (dyn Fn(&ProcessResult, &[String]) -> Batch + Sync),
+}
+
+enum Attempt {
+    Stopped(String),
+    /// The group is settled: `left_out` are the files of it the engine said it did not process.
+    Done { findings: Findings, left_out: Vec<(String, String)>, stderr: String },
+    Incomplete { reason: String, truncated: bool },
+}
+
+impl Batches<'_> {
+    async fn attempt(&self, group: &[String]) -> Attempt {
+        let call = (self.plan)(group);
+        let r = self.req.spawn.run(&self.req.bin, &call.args, &self.req.cwd, self.req.timeout, self.req.cancel.as_ref(), call.env.as_ref(), call.input).await;
+        if let Some(why) = stopped(self.req, self.id, &r) {
+            return Attempt::Stopped(why);
+        }
+        // A report that was cut is not a report; what a writing command printed is not its result.
+        if r.truncated && self.command == Command::Reads {
+            return Attempt::Incomplete { reason: format!("{} printed more than tidy captures", self.id), truncated: true };
+        }
+        match (self.read)(&r, group) {
+            Batch::Done(findings) => Attempt::Done { findings, left_out: Vec::new(), stderr: r.stderr },
+            Batch::Partly(findings, left_out) => Attempt::Done { findings, left_out, stderr: r.stderr },
+            Batch::Incomplete(reason) => Attempt::Incomplete { reason, truncated: false },
+            Batch::Refused(reason) => Attempt::Stopped(format!("{} could not run: {reason}", self.id)),
+        }
+    }
+
+    /// Settles a group from its first attempt. A group a reading command did not complete is halved
+    /// and each half run again, down to the single files it fails on: an exit code speaks for the
+    /// whole group, never for a file. `false` ends the pass.
+    fn settle<'a>(&'a self, group: &'a [String], first: Attempt, pass: &'a mut Pass) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
+        Box::pin(async move {
+            match first {
+                Attempt::Stopped(why) => {
+                    pass.failure = Some(why);
+                    false
+                }
+                Attempt::Done { findings, left_out, stderr } => {
+                    pass.findings.diagnostics.extend(findings.diagnostics);
+                    pass.findings.changed.extend(findings.changed);
+                    pass.findings.ignored.extend(findings.ignored);
+                    pass.processed += group.len() - left_out.len();
+                    pass.unprocessed.extend(left_out);
+                    pass.stderr.push_str(&stderr);
+                    true
+                }
+                Attempt::Incomplete { reason, .. } if group.len() == 1 => {
+                    pass.unprocessed.push((group[0].clone(), reason));
+                    true
+                }
+                Attempt::Incomplete { reason, .. } if self.command == Command::Writes => {
+                    let reason = format!("{} failed over the {} files it was given, this one among them: {reason}", self.id, group.len());
+                    pass.unprocessed.extend(group.iter().map(|file| (file.clone(), reason.clone())));
+                    true
+                }
+                Attempt::Incomplete { .. } => {
+                    let (left, right) = group.split_at(group.len() / 2);
+                    let a = self.attempt(left).await;
+                    if let Attempt::Stopped(why) = &a {
+                        pass.failure = Some(why.clone());
+                        return false;
+                    }
+                    let b = self.attempt(right).await;
+                    // Groups with no file in common that fail word for word alike are not failing
+                    // on their files: the configuration or the invocation is what the engine rejects.
+                    if let (Attempt::Incomplete { reason: x, truncated: false }, Attempt::Incomplete { reason: y, truncated: false }) = (&a, &b)
+                        && x == y
+                    {
+                        pass.failure = Some(format!("{} failed the same way on separate groups of files: {x}", self.id));
+                        return false;
+                    }
+                    self.settle(left, a, pass).await && self.settle(right, b, pass).await
+                }
+            }
+        })
+    }
+}
+
+/// Runs one engine command over `files`, `per_spawn` of them at a time: `plan` builds the spawn
+/// for a group and `read` says whether the engine completed it.
+pub async fn run_groups(req: &RunRequest, id: &str, command: Command, files: &[String], per_spawn: usize, plan: &(dyn Fn(&[String]) -> Invocation + Sync), read: &(dyn Fn(&ProcessResult, &[String]) -> Batch + Sync)) -> Pass {
+    let batches = Batches { req, id, command, plan, read };
+    let mut pass = Pass::default();
+    for group in files.chunks(per_spawn.max(1)) {
+        let first = batches.attempt(group).await;
+        if !batches.settle(group, first, &mut pass).await {
+            break;
+        }
+    }
+    pass
+}
+
+/// Runs one reporting command over `files`.
+pub async fn run_batches(req: &RunRequest, id: &str, files: &[String], per_spawn: usize, plan: &(dyn Fn(&[String]) -> Invocation + Sync), read: &(dyn Fn(&ProcessResult, &[String]) -> Batch + Sync)) -> Pass {
+    run_groups(req, id, Command::Reads, files, per_spawn, plan, read).await
+}
+
+/// What a writing command established about a group: nothing to report beyond whether it
+/// completed, which `completed` reads from the exit.
+pub fn wrote(completed: &(dyn Fn(&ProcessResult) -> bool + Sync), r: &ProcessResult) -> Batch {
+    if completed(r) { Batch::Done(Findings::default()) } else { Batch::Incomplete(said(r)) }
+}
+
+/// A writing command over `req.files`.
+pub async fn run_writes(req: &RunRequest, id: &str, flags: &[&str], completed: &(dyn Fn(&ProcessResult) -> bool + Sync)) -> Pass {
+    run_groups(req, id, Command::Writes, &req.files, req.files_per_spawn, &|files| Invocation::over(req, flags, files), &|r, _| wrote(completed, r)).await
+}
+
+/// Splits `req.files` into those the engine's configuration lets it process and those it leaves
+/// out, by asking the engine to list them (`flags`, one path per line). An engine handed a path
+/// its project excludes either processes it anyway or skips it without a word; neither is a report.
+pub async fn selected_files(req: &RunRequest, id: &str, flags: &[&str], listed: fn(&ProcessResult) -> bool) -> Result<(Vec<String>, Vec<String>), String> {
+    let mut named = std::collections::HashSet::new();
+    for group in req.files.chunks(req.files_per_spawn.max(1)) {
+        let call = Invocation::over(req, flags, group);
+        let r = req.spawn.run(&req.bin, &call.args, &req.cwd, req.timeout, req.cancel.as_ref(), None, None).await;
+        if let Some(why) = stopped(req, id, &r) {
+            return Err(why);
+        }
+        if r.truncated || !listed(&r) {
+            return Err(format!("{id} could not list the files it would process: {}", said(&r)));
+        }
+        named.extend(parse_path_list(&r.stdout, &req.cwd));
+    }
+    Ok(req.files.iter().cloned().partition(|file| named.contains(&to_rel(&req.cwd, file))))
+}
+
+/// The exit of a command that succeeds with 0 and nothing else.
+pub fn exited_zero(r: &ProcessResult) -> bool {
+    r.code == 0
 }
 
 pub fn unique_paths(paths: impl IntoIterator<Item = String>) -> Vec<String> {
@@ -317,15 +595,17 @@ pub fn unique_paths(paths: impl IntoIterator<Item = String>) -> Vec<String> {
     paths.into_iter().filter(|p| !p.is_empty() && seen.insert(p.clone())).collect()
 }
 
-/// "One unformatted path per line" listing (`shfmt -l`, `prettier -l`).
+/// "One unformatted path per line" listing (`shfmt -l`, `prettier -l`). A path may begin with any
+/// character: `[id].tsx` is an ordinary file name.
 pub fn parse_path_list(stdout: &str, cwd: &Path) -> Vec<String> {
-    unique_paths(stdout.lines().map(js_trim).filter(|l| !l.is_empty() && !l.starts_with('[')).map(|l| to_rel(cwd, l)))
+    unique_paths(stdout.lines().map(js_trim).filter(|l| !l.is_empty()).map(|l| to_rel(cwd, l)))
 }
 
 /// Paths named by a per-line pattern (rustfmt/stylua diff headers, "Would reformat: <path>").
 /// The first non-empty capture group of each matching line is the path.
-pub fn parse_pattern_paths(output: &str, pattern: &JsRegex, cwd: &Path, strip: bool) -> Vec<String> {
-    let text = if strip { strip_ansi(output) } else { output.to_owned() };
+pub fn parse_pattern_paths(output: &str, pattern: &JsRegex, cwd: &Path) -> Vec<String> {
+    // Engines colour these lines into a pipe too (dprint does), so the colour always comes off.
+    let text = strip_ansi(output);
     unique_paths(
         text.lines()
             .filter_map(|line| pattern.captures(js_trim(line)).and_then(|c| (1..=9).find_map(|g| c.get(g).filter(|s| !s.is_empty()).map(str::to_owned))))
@@ -340,10 +620,10 @@ pub fn reformat_diagnostics(changed: &[String], id: &str, code: &str) -> Vec<Dia
         .collect()
 }
 
-/// Check-mode result for a formatter whose output names the files it would rewrite.
-pub fn parse_reformat_report(output: &str, pattern: &JsRegex, cwd: &Path, id: &str, code: &str, strip: bool) -> RunnerResult {
-    let changed = parse_pattern_paths(output, pattern, cwd, strip);
-    RunnerResult { diagnostics: reformat_diagnostics(&changed, id, code), changed_files: changed, ..Default::default() }
+/// What a formatter whose output names the files it would rewrite found.
+pub fn parse_reformat_report(output: &str, pattern: &JsRegex, cwd: &Path, id: &str, code: &str) -> Findings {
+    let changed = parse_pattern_paths(output, pattern, cwd);
+    Findings { diagnostics: reformat_diagnostics(&changed, id, code), changed, ..Default::default() }
 }
 
 /// Runner for format-only engines whose check mode lists the files they would rewrite (shfmt -l,
@@ -352,6 +632,8 @@ pub struct ListFormatter {
     pub id: &'static str,
     pub list_args: &'static [&'static str],
     pub write_args: &'static [&'static str],
+    /// Whether a listing run completed. The engines disagree on what exit 1 means.
+    pub listed: fn(&ProcessResult) -> bool,
 }
 
 fn strings(parts: &[&str]) -> Vec<String> {
@@ -364,26 +646,18 @@ impl Runner for ListFormatter {
         self.id
     }
     async fn check(&self, req: &RunRequest) -> RunnerResult {
-        let args: Vec<String> = req.args.iter().cloned().chain(strings(self.list_args)).collect();
-        let r = run_chunked(req, &args, &req.files, false).await;
-        if !r.error.is_empty() {
-            return spawn_failure(self.id, &r);
-        }
-        let changed = parse_path_list(&r.stdout, &req.cwd);
-        RunnerResult { diagnostics: reformat_diagnostics(&changed, self.id, self.id), changed_files: changed, stderr_tail: tail600(&r.stderr), ..Default::default() }
+        let read = |r: &ProcessResult, _: &[String]| {
+            if !(self.listed)(r) {
+                return Batch::Incomplete(said(r));
+            }
+            let changed = parse_path_list(&r.stdout, &req.cwd);
+            Batch::Done(Findings { diagnostics: reformat_diagnostics(&changed, self.id, self.id), changed, ..Default::default() })
+        };
+        run_batches(req, self.id, &req.files, req.files_per_spawn, &|files| Invocation::over(req, self.list_args, files), &read).await.into_result()
     }
     async fn fix(&self, req: &RunRequest) -> RunnerResult {
-        let args: Vec<String> = req.args.iter().cloned().chain(strings(self.write_args)).collect();
-        let r = run_chunked(req, &args, &req.files, false).await;
-        if !r.error.is_empty() {
-            return spawn_failure(self.id, &r);
-        }
-        RunnerResult { stderr_tail: tail600(&r.stderr), ..Default::default() }
+        run_writes(req, self.id, self.write_args, &exited_zero).await.into_result()
     }
-}
-
-pub fn args_with(req: &RunRequest, extra: &[&str]) -> Vec<String> {
-    req.args.iter().cloned().chain(strings(extra)).collect()
 }
 
 #[cfg(test)]
@@ -405,7 +679,10 @@ mod tests {
         assert_eq!(to_rel(cwd, abs), "src/a.rs");
         assert_eq!(to_rel(cwd, "./x\\y.rs"), "x/y.rs");
         assert_eq!(to_rel(cwd, "  "), "");
-        assert_eq!(to_rel_long_path(Path::new("C:\\repo"), "\\\\?\\C:\\repo\\a.rs"), "a.rs");
+        assert_eq!(to_rel(Path::new("C:\\repo"), "\\\\?\\C:\\repo\\a.rs"), "a.rs");
+        // Windows names a directory in any letter case; elsewhere a different case is a different directory.
+        assert_eq!(to_rel(Path::new("C:\\Repo"), "c:\\repo\\src\\a.rs"), if cfg!(windows) { "src/a.rs" } else { "c:/repo/src/a.rs" });
+        assert_eq!((path_arg("-x.sh"), path_arg("dir/-x.sh"), path_arg("x.sh")), ("./-x.sh".to_owned(), "dir/-x.sh".to_owned(), "x.sh".to_owned()));
     }
 
     #[test]
@@ -421,11 +698,11 @@ mod tests {
     #[test]
     fn path_lists_and_patterns_dedupe_in_order() {
         let cwd = Path::new("/r");
-        assert_eq!(parse_path_list("a.sh\n[warn] b\n\na.sh\nc.sh\n", cwd), ["a.sh", "c.sh"]);
+        assert_eq!(parse_path_list("a.sh\n[id].sh\n\na.sh\nc.sh\n", cwd), ["a.sh", "[id].sh", "c.sh"]);
         let re = JsRegex::new_static(r"^Would reformat:\s*(.+?)\s*$", "");
-        assert_eq!(parse_pattern_paths("Would reformat: x.R\nnoise\nWould reformat: x.R\n", &re, cwd, false), ["x.R"]);
+        assert_eq!(parse_pattern_paths("Would reformat: x.R\nnoise\nWould reformat: x.R\n", &re, cwd), ["x.R"]);
         let both = JsRegex::new_static(r"^(?:from\s+(.+?):|---\s*(.+?)\s*---)$", "");
-        assert_eq!(parse_pattern_paths("from a.json:\n--- b.md ---", &both, cwd, false), ["a.json", "b.md"]);
+        assert_eq!(parse_pattern_paths("\u{1b}[0m\u{1b}[1m\u{1b}[31mfrom\u{1b}[0m a.json:\n--- b.md ---", &both, cwd), ["a.json", "b.md"]);
     }
 
     struct Scripted(std::sync::Mutex<Vec<Vec<String>>>, ProcessResult);
@@ -444,15 +721,45 @@ mod tests {
         let spawn = Arc::new(Scripted(Default::default(), ProcessResult { stdout: "a.sh\n".into(), ..Default::default() }));
         let mut req = RunRequest::new(Path::new("/r"), "shfmt", (0..3).map(|n| format!("f{n}.sh")).collect(), spawn.clone(), mixdog_rt::testing::tokens().durability_io);
         req.files_per_spawn = 2;
-        let runner = ListFormatter { id: "shfmt", list_args: &["-l"], write_args: &["-w"] };
+        let runner = ListFormatter { id: "shfmt", list_args: &["-l"], write_args: &["-w"], listed: exited_zero };
         let out = runner.check(&req).await;
-        assert_eq!(out.changed_files, ["a.sh"]);
+        assert_eq!((out.changed_files.clone(), out.files_checked), (vec!["a.sh".to_owned()], Some(3)));
         assert!(out.diagnostics[0].fixable);
         assert_eq!(*spawn.0.lock().unwrap(), vec![vec!["-l", "f0.sh", "f1.sh"], vec!["-l", "f2.sh"]]);
         let failing = Arc::new(Scripted(Default::default(), ProcessResult { code: -1, error: "ENOENT".into(), ..Default::default() }));
-        req.spawn = failing;
+        req.spawn = failing.clone();
         let failed = runner.fix(&req).await;
-        assert_eq!(failed.diagnostics[0].code, "shfmt/spawn");
-        assert!(failed.diagnostics[0].message.contains("could not run: ENOENT"));
+        assert_eq!((failed.error.as_deref(), failed.files_checked), (Some("shfmt could not run: ENOENT"), Some(0)));
+        assert_eq!(failing.0.lock().unwrap().len(), 1, "an engine that cannot start is not asked again for the next group");
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_or_timed_out_run_is_a_failure_whatever_the_killed_engine_printed() {
+        let partial = ProcessResult { code: -1, stdout: "a.sh\n".into(), ..Default::default() };
+        let mut req = RunRequest::new(Path::new("/r"), "shfmt", vec!["a.sh".into(), "b.sh".into()], Arc::new(Scripted(Default::default(), partial.clone())), mixdog_rt::testing::tokens().durability_io);
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        req.cancel = Some(cancel);
+        let runner = ListFormatter { id: "shfmt", list_args: &["-l"], write_args: &["-w"], listed: exited_zero };
+        let cancelled = runner.check(&req).await;
+        assert_eq!((cancelled.error.as_deref(), cancelled.files_checked, cancelled.changed_files.len()), (Some("shfmt was cancelled"), Some(0), 0));
+        req.cancel = None;
+        req.spawn = Arc::new(Scripted(Default::default(), ProcessResult { timed_out: true, error: "timed out after 120000ms".into(), ..partial }));
+        assert_eq!(runner.fix(&req).await.error.as_deref(), Some("shfmt timed out"));
+    }
+
+    #[tokio::test]
+    async fn a_group_whose_output_was_cut_is_split_until_each_file_answers_in_full() {
+        struct Cut;
+        #[async_trait]
+        impl Spawn for Cut {
+            async fn run(&self, _: &str, args: &[String], _: &Path, _: Duration, _: Option<&CancellationToken>, _: Option<&HashMap<String, String>>, _: Option<Vec<u8>>) -> ProcessResult {
+                let files = &args[1..];
+                ProcessResult { stdout: files.iter().map(|f| format!("{f}\n")).collect(), truncated: files.len() > 1, ..Default::default() }
+            }
+        }
+        let req = RunRequest::new(Path::new("/r"), "shfmt", (0..5).map(|n| format!("f{n}.sh")).collect(), Arc::new(Cut), mixdog_rt::testing::tokens().durability_io);
+        let out = ListFormatter { id: "shfmt", list_args: &["-l"], write_args: &["-w"], listed: exited_zero }.check(&req).await;
+        assert_eq!((out.changed_files.len(), out.files_checked, out.error, out.unprocessed.len()), (5, Some(5), None, 0));
     }
 }
