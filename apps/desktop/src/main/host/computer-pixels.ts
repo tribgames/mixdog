@@ -110,8 +110,11 @@ function checked(params: WireFields<HostComputerPixelsParams>): Checked {
 
 export function registerComputerPixels(connection: HostConnection, deps: ComputerPixelsDeps): void {
   let loaded: Promise<PixelSources> | undefined;
-  const sourcesOf = (): Promise<PixelSources> =>
-    deps.sources ? Promise.resolve(deps.sources) : (loaded ??= electronPixelSources());
+  const sourcesOf = (): Promise<PixelSources> => {
+    if (deps.sources) return Promise.resolve(deps.sources);
+    loaded ??= electronPixelSources();
+    return loaded;
+  };
   connection.handleRequest(HOST_COMPUTER_PIXELS, async (params, signal): Promise<HostComputerPixelsResult> => {
     const wire = objectParams<HostComputerPixelsParams>(params, HOST_COMPUTER_PIXELS);
     const { request, format, quality } = checked(wire);

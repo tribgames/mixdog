@@ -110,7 +110,9 @@ function recordingLane(answer = async () => ({ ok: true })) {
     } else if (event.type === 'serverRequestResolved')
       pending.splice(0, pending.length, ...pending.filter((r) => r.id !== event.params.requestId));
     else if (event.type === 'status' && event.status.state !== 'ready') pending.length = 0;
-    listeners.forEach((listener) => listener(event));
+    listeners.forEach((listener) => {
+      listener(event);
+    });
   };
   // The client the connection exposes: what it holds (`threadSubscription`) and what it was told to let go (`unsubscribeThread`).
   const link = { client: null, released: [] };

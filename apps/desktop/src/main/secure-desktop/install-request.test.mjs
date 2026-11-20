@@ -173,7 +173,7 @@ function outstandingChild() {
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 test('an elevation still running at the report deadline latches: repeated requests launch once', async () => {
-  // The reviewer's probe: two timeouts used to mean two launches.
+  // Two report-deadline timeouts in a row must not mean two launches.
   const child = outstandingChild();
   const { port, calls } = fakePort({ states: ['not-installed'], elevations: [child.promise] });
   const installer = createSecureDesktopInstaller(port, { reportAfterMs: 5 });

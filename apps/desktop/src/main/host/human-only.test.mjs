@@ -16,7 +16,10 @@ function fakeConnection() {
     failBegin: (value) => {
       failBegin = value;
     },
-    close: () => closers.forEach((close) => close()),
+    close: () =>
+      closers.forEach((close) => {
+        close();
+      }),
     request: async (method, params) => {
       requests.push([method, params]);
       if (method === 'host/humanOnly/begin') {

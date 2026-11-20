@@ -191,7 +191,6 @@ interface ScreenSourceDeps {
   shutdownDeadlineMs?: number;
 }
 
-/** B, G, R, X bytes per pixel at the locked geometry's pixel size. */
 export type ScreenVideoPath = RemoteScreenVideoPath;
 /** The cursor in video pixels of geometry `generation`. */
 export type ScreenCursor = { x: number; y: number; generation: number };
@@ -821,7 +820,7 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
     // and its result is dropped. Either way no copy stays here.
     endCredentialRequest();
     router.cancel();
-    subscriptions.splice(0).forEach((off) => off());
+    for (const off of subscriptions.splice(0)) off();
     emitStatus({ state: 'stopped', reason, helper: status.helper, control: false, helperInfo: status.helperInfo });
     for (const listener of stopListeners) listener(reason);
     deps.indicator.hide();

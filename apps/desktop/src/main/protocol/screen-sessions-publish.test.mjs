@@ -18,7 +18,12 @@ function harness() {
   registerScreenSessions(window, ipc);
   const sent = [];
   const link = { down: false, listeners: new Set() };
-  const protocol = { onEvent: (listener) => (link.listeners.add(listener), () => link.listeners.delete(listener)) };
+  const protocol = {
+    onEvent: (listener) => {
+      link.listeners.add(listener);
+      return () => link.listeners.delete(listener);
+    },
+  };
   const status = (state) => {
     link.down = state !== 'ready';
     for (const listener of [...link.listeners]) listener({ type: 'status', status: { state } });

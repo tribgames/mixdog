@@ -176,7 +176,11 @@ test('a hit guard naming another snapshot is -32010 and nothing is sent', async 
 });
 
 test('expect is checked again right before a pointer press', async () => {
-  const h = harness({ script: (event, _n, state) => void (event.type === 'keyUp' && (state.documentGeneration += 1)) });
+  const h = harness({
+    script: (event, _n, state) => {
+      if (event.type === 'keyUp') state.documentGeneration += 1;
+    },
+  });
   await assert.rejects(
     h.call({
       expect: { documentId: 'p1:1' },

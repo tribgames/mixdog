@@ -24,8 +24,6 @@ const MAX_MARKS_PER_CALL = 20;
 const SESSION_ID = /^[\w.:-]{1,200}$/;
 const CALL_ID = /^[\w.:|-]{1,200}$/;
 
-export type VisualizeAction = 'open' | 'close' | 'annotate' | 'capture' | 'export' | 'check' | 'inspect' | 'act';
-
 /** Viewport bounds `inspect` accepts, in CSS px. */
 const INSPECT_VIEWPORT_MIN = 200;
 const INSPECT_VIEWPORT_MAX_WIDTH = 3000;

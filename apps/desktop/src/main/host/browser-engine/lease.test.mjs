@@ -50,7 +50,10 @@ function harness() {
     notes,
     leases,
     release: (params) => notifications.get('host/browser/lease/release')(params),
-    close: () => closers.forEach((close) => close()),
+    close: () =>
+      closers.forEach((close) => {
+        close();
+      }),
   };
 }
 
@@ -262,7 +265,10 @@ function drivenHarness() {
     driving,
     log,
     release: (params) => notifications.get('host/browser/lease/release')(params),
-    close: () => closers.forEach((close) => close()),
+    close: () =>
+      closers.forEach((close) => {
+        close();
+      }),
   };
 }
 

@@ -128,8 +128,7 @@ async function resolve(host: PagesHost, ctx: EngineContext, params: Record<strin
   }
   const tabRef =
     typeof tab?.pageId === 'string' ? tab.pageId : typeof tab?.index === 'number' ? `v${Math.trunc(tab.index)}` : '';
-  // As the old runner took it: absent stays absent (a tab named without `background` is the hidden page it is), and an explicit
-  // `false` reveals it.
+  // Absent stays absent (a tab named without `background` is the hidden page it is), and an explicit `false` reveals it.
   const background = typeof params.background === 'boolean' ? params.background : undefined;
   await lifecycle.restoreSession(sessionId);
   const known = new Set(sessionPages(host, sessionId).map((entry) => entry.guest));

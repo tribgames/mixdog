@@ -54,7 +54,7 @@ test('facts describe the page and carry the current seq', () => {
 });
 
 test('a document change sends facts after the queued events, with the next seq', () => {
-  const { guest, state, log, publisher } = harness();
+  const { guest, state, log } = harness();
   const before = state.for(guest).documentGeneration;
   state.beginDocument(guest);
   assert.equal(log.length, 2);

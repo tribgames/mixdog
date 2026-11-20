@@ -207,9 +207,15 @@ export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
 
   function screenReplay(clientId: string, origin: RemoteWebrtcOrigin): ScreenReplay {
     let byOrigin = screenReplays.get(clientId);
-    if (!byOrigin) screenReplays.set(clientId, (byOrigin = new WeakMap()));
+    if (!byOrigin) {
+      byOrigin = new WeakMap();
+      screenReplays.set(clientId, byOrigin);
+    }
     let replay = byOrigin.get(origin);
-    if (!replay) byOrigin.set(origin, (replay = new ScreenReplay()));
+    if (!replay) {
+      replay = new ScreenReplay();
+      byOrigin.set(origin, replay);
+    }
     return replay;
   }
 
@@ -364,5 +370,3 @@ export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
     },
   };
 }
-
-export type RemoteWebrtcRelay = ReturnType<typeof createRemoteWebrtcRelay>;

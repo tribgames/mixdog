@@ -53,5 +53,3 @@ export function createRemoteRelayInputOrder() {
     },
   };
 }
-
-export type RemoteRelayInputOrder = ReturnType<typeof createRemoteRelayInputOrder>;

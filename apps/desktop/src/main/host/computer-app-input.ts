@@ -131,7 +131,8 @@ function wheelCommand(input: Validated): ComputerCommand {
   const delta = horizontal ? dx : dy;
   const modifiers = input.modifiers ? { modifiers: input.modifiers } : {};
   if (delta === 0) return { action: 'scroll', ...modifiers };
-  const direction = horizontal ? (delta < 0 ? 'left' : 'right') : delta < 0 ? 'up' : 'down';
+  const [negative, positive] = horizontal ? (['left', 'right'] as const) : (['up', 'down'] as const);
+  const direction = delta < 0 ? negative : positive;
   return { action: 'scroll', direction, amount: Math.abs(delta) / NOTCH, ...modifiers };
 }
 

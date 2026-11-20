@@ -75,7 +75,11 @@ export function registerComputerLease(
   const own = runtime !== undefined;
   let ownLock: HostForegroundLock | undefined;
   const lockOf = (): HostForegroundLock | undefined => {
-    if (own) return runtime ? (ownLock ??= createHostForegroundLock(runtime)) : undefined;
+    if (own) {
+      if (!runtime) return undefined;
+      ownLock ??= createHostForegroundLock(runtime);
+      return ownLock;
+    }
     return process.platform === 'win32' ? processForegroundLock() : undefined;
   };
   // The core's helper ids are strings; the owner numbers its workers, never reusing one.
@@ -126,7 +130,10 @@ export function registerComputerLease(
         instances.delete(helper);
         return unavailable('gone');
       }
-      if (instance === undefined) instances.set(helper, (instance = nextLeaseInstance()));
+      if (instance === undefined) {
+        instance = nextLeaseInstance();
+        instances.set(helper, instance);
+      }
       const number = instance;
       const answering = new Promise<HostComputerForegroundLeaseResult | undefined>((resolve) => {
         const timer = setTimeout(resolve, ANSWER_WAIT_MS, undefined);

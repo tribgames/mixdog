@@ -167,7 +167,9 @@ export function decideScreenSource(inputs: ScreenSwitchInputs): ScreenSourceDeci
   const locked = lockScreen && !onSecure;
 
   if (onSecure) {
-    const reason: RemoteScreenStatus['reason'] = lockScreen ? 'lock' : local?.consent ? 'uac' : 'secure';
+    let reason: RemoteScreenStatus['reason'] = 'secure';
+    if (lockScreen) reason = 'lock';
+    else if (local?.consent) reason = 'uac';
     if (
       inputs.helperInstalled &&
       usable &&

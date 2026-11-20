@@ -23,7 +23,10 @@ function fakeStore() {
       for (const l of [...listeners]) l({ type: 'section', section, key });
     },
     clear: () => map.clear(),
-    emit: (change) => listeners.forEach((l) => l(change)),
+    emit: (change) =>
+      listeners.forEach((l) => {
+        l(change);
+      }),
     section: (section, key = null) => map.get(section)?.get(key ?? ''),
     sections: (section) => [...(map.get(section)?.values() ?? [])],
     // The app feed the store was last folded from; a test moves it to another core by assigning its epoch.
@@ -71,7 +74,9 @@ function fakeClient() {
       } else if (event.type === 'serverRequestResolved')
         pending.splice(0, pending.length, ...pending.filter((r) => r.id !== event.params.requestId));
       else if (event.type === 'status' && event.status.state !== 'ready') pending.length = 0;
-      handlers.forEach((h) => h(event));
+      handlers.forEach((h) => {
+        h(event);
+      });
     },
     close: async () => {},
   };
@@ -136,7 +141,9 @@ test('a call that arrives before the first connection is open waits for it, and 
 test('closing while the first connection is still opening ends what waited for it', async () => {
   const client = fakeClient();
   let closedUnused = false;
-  client.close = async () => void (closedUnused = true);
+  client.close = async () => {
+    closedUnused = true;
+  };
   let finishOpen;
   const connection = createProtocolConnection({
     open: () => new Promise((resolve) => (finishOpen = () => resolve(client))),
@@ -151,12 +158,16 @@ test('closing while the first connection is still opening ends what waited for i
   ];
   // How each ended, read after the close has run: one left waiting stays `pending` here and fails the comparison.
   const ended = waiting.map(() => 'pending');
-  waiting.forEach((wait, index) =>
+  for (const [index, wait] of waiting.entries()) {
     wait.then(
-      () => (ended[index] = 'fulfilled'),
-      (error) => (ended[index] = error.message)
-    )
-  );
+      () => {
+        ended[index] = 'fulfilled';
+      },
+      (error) => {
+        ended[index] = error.message;
+      }
+    );
+  }
   await connection.close();
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(ended, Array(4).fill('The core connection is closed.'));
@@ -267,10 +278,11 @@ test('past the follow cap only ended sign-ins are let go: a pending one keeps it
   let next = 0;
   const { client, connection, lost } = await loginWindow({});
   const answer = client.call;
-  client.call = async (method, params) =>
-    method === 'mcp/beginMcpOAuthLogin'
-      ? (client.calls.push({ method, params }), { flowId: flowIds[next++] })
-      : answer(method, params);
+  client.call = async (method, params) => {
+    if (method !== 'mcp/beginMcpOAuthLogin') return answer(method, params);
+    client.calls.push({ method, params });
+    return { flowId: flowIds[next++] };
+  };
   // The first flow ends before the cap is passed; every other stays pending.
   await connection.call('mcp/beginMcpOAuthLogin', {});
   client.emit(note('feed/snapshot', { feedId: 'login:f0', state: { flowId: 'f0', state: 'complete' } }));
@@ -402,7 +414,9 @@ test('reopen replaces the client: the old one is closed and silenced, the snapsh
     second.store.set('config', null, 3, { theme: 'new' });
   };
   let closedFirst = false;
-  first.close = async () => void (closedFirst = true);
+  first.close = async () => {
+    closedFirst = true;
+  };
   const clients = [first, second];
   const connection = createProtocolConnection({ open: async () => clients.shift() });
   await connection.start();
@@ -465,7 +479,9 @@ function gatedClients(count) {
     const gate = { client: fakeClient(), closed: 0 };
     gate.opened = new Promise((resolve) => (gate.open = () => resolve(gate.client)));
     gate.subscribed = new Promise((resolve) => (gate.subscribe = resolve));
-    gate.client.close = async () => void (gate.closed += 1);
+    gate.client.close = async () => {
+      gate.closed += 1;
+    };
     return gate;
   });
   return gates;
@@ -592,8 +608,15 @@ test('ensureOpen leaves a client the automatic recovery restored alone: no secon
   const clients = [first, fakeClient()];
   let opened = 0;
   let closed = 0;
-  first.close = async () => void (closed += 1);
-  const connection = createProtocolConnection({ open: async () => ((opened += 1), clients.shift()) });
+  first.close = async () => {
+    closed += 1;
+  };
+  const connection = createProtocolConnection({
+    open: async () => {
+      opened += 1;
+      return clients.shift();
+    },
+  });
   await connection.start();
   const lost = [];
   connection.attach({ push() {}, notification() {}, loginFeedLost: (flowId) => lost.push(flowId) });
@@ -618,7 +641,12 @@ test('ensureOpen joins a reopen in flight and reopens a client that is not ready
   const first = fakeClient();
   const clients = [first, fakeClient(), fakeClient()];
   let opened = 0;
-  const connection = createProtocolConnection({ open: async () => ((opened += 1), clients.shift()) });
+  const connection = createProtocolConnection({
+    open: async () => {
+      opened += 1;
+      return clients.shift();
+    },
+  });
   await connection.start();
   first.emit({ type: 'status', status: { state: 'reconnecting' } });
   await Promise.all([connection.ensureOpen(), connection.ensureOpen()]);

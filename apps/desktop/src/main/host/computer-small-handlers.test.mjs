@@ -259,14 +259,15 @@ test('a command relayed under its scope endpoint: the scope fences each request,
     assertPublic() {},
     answerBridgeCommand: async () => assert.fail('a host with the scoped entry is not run unfenced'),
     // A two-request command as the worker pool runs it under the endpoint: each request admitted and counted there.
-    async answerScopedCommand(command, endpoint) {
+    async answerScopedCommand(_command, endpoint) {
       const request = (name, settled) => {
         endpoint.commit();
         sent.push(name);
         endpoint.track(settled);
         return settled;
       };
-      await request('first', (entered.open(), reply.opened));
+      entered.open();
+      await request('first', reply.opened);
       request('second', Promise.resolve());
       return { ok: true, value: { text: 'done' } };
     },

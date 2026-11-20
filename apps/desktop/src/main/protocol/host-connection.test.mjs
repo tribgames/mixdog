@@ -394,7 +394,9 @@ test('an answer the link can no longer carry is reported and nothing is thrown',
         throw new Error('The core connection is not open.');
       },
       sendBinary() {},
-      onEvent: (handler) => void (listener = handler),
+      onEvent: (handler) => {
+        listener = handler;
+      },
       client: () => client,
       onReplaced() {},
     },

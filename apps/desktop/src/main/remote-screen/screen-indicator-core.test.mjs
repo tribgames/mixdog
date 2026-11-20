@@ -203,7 +203,9 @@ test('a display lost during a recreate is recovered when one returns', async () 
 
 test('the page may only report a press or Stop', async () => {
   let stops = 0;
-  const stop = async () => void (stops += 1);
+  const stop = async () => {
+    stops += 1;
+  };
   assert.deepEqual(await handleRemoteIndicatorControl({ action: 'press', control: 'stop' }, stop), { accepted: true });
   assert.equal(stops, 0);
   assert.deepEqual(await handleRemoteIndicatorControl({ action: 'stop', generation: 0 }, stop), { accepted: true });

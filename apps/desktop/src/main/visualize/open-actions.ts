@@ -151,6 +151,17 @@ function promoteVerify(ctx: Pick<OpenContext, 'tabs'>, sessionId: string, tab: T
   ctx.tabs.enforceLimit(sessionId);
 }
 
+/** The files an open names, relative to the working directory when inside it. */
+function describeFiles(cwd: string, files: FileTarget[]): string {
+  return files
+    .map((target) => {
+      // A file outside the working directory is named by its full path.
+      const name = insidePath(cwd, target.path) ? relative(cwd, target.path).replace(/\\/g, '/') : target.path;
+      return `${name || target.label} (${target.kind})`;
+    })
+    .join(', ');
+}
+
 /** A held open's load check (nothing renders the tab until the turn ends):
  *  the problems its pages or inline content show off screen, as a section of
  *  the result; '' when there are none or nothing here can check them. */
@@ -258,6 +269,7 @@ async function openInline(
   if (!verify) ctx.views.rememberTab(sessionId, tab, true);
   ctx.publish(sessionId, verify ? undefined : tab.id, undefined, verify ? undefined : request.callId);
   const what = `inline ${content.kind}${content.title ? ` "${content.title}"` : ''}`;
+  // A verify placement stays synchronous: the load check below must start before another open can replace the panes.
   let placed: string;
   if (verify) placed = verifyPlacement(ctx, sessionId, tab, what);
   else if (held) placed = await heldPlacement(ctx.deps, sessionId, tab, what);
@@ -420,13 +432,8 @@ export function createOpenActions(ctx: OpenContext) {
     if (!held && !verify) state.active = tab.id;
     if (!verify) ctx.views.rememberTab(sessionId, tab, true);
     ctx.publish(sessionId, verify ? undefined : tab.id, undefined, verify ? undefined : request.callId);
-    const shown = files
-      .map((target) => {
-        // A file outside the working directory is named by its full path.
-        const shown = insidePath(cwd, target.path) ? relative(cwd, target.path).replace(/\\/g, '/') : target.path;
-        return `${shown || target.label} (${target.kind})`;
-      })
-      .join(', ');
+    const shown = describeFiles(cwd, files);
+    // A verify placement stays synchronous: the load check below must start before another open can replace the panes.
     let placed: string;
     if (verify) placed = verifyPlacement(ctx, sessionId, tab, shown);
     else if (held) placed = await heldPlacement(deps, sessionId, tab, shown);

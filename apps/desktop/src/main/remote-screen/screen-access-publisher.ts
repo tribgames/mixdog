@@ -158,5 +158,3 @@ export function createScreenAccessPublisher(deps: ScreenAccessPublisherDeps) {
     },
   };
 }
-
-export type ScreenAccessPublisher = ReturnType<typeof createScreenAccessPublisher>;
