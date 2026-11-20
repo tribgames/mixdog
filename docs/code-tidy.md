@@ -184,7 +184,13 @@ reported as unprocessed. They run in the project directory like every other
 engine, so configured arguments mean the same for every file; what the engine
 would have found from the file's own place is passed to it (ktfmt the file's
 path, rustfmt the package edition and the directory of a nested
-`rustfmt.toml`, unless the project's arguments already give them).
+`rustfmt.toml`, unless the project's arguments already give them). Which Rust
+files are formatted at all is asked of cargo and rustfmt: rustfmt walks, in
+check mode, every target root `cargo metadata` lists for the file's workspace
+and its path dependencies, as `cargo fmt --all` does. A file of such a package
+that rustfmt does not format, because a skip attribute leaves it out or no
+target reaches it, is reported as ignored. A file outside any package, or in
+one cargo cannot load, is formatted alone.
 
 tidy does not report or rewrite a file for its line endings alone: an LF file
 stays LF and a CR LF file stays CR LF, whatever the engine's configuration
