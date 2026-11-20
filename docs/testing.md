@@ -382,7 +382,6 @@ desktop or the native toolchain):
 `electron.vite.config.ts`, an injected script string):
 `apps/desktop/src/main/remote-access-window.test.mjs`,
 `apps/desktop/src/main/desktop-pet-window.test.mjs`,
-`apps/desktop/src/main/jitter-probe-switch.test.mjs`,
 `apps/desktop/src/main/ssh/remote-bootstrap.test.mjs`,
 `apps/desktop/src/renderer/monaco-setup.test.mjs` (the Vite config lines),
 `apps/desktop/src/main/packaging-artifact.live.test.mjs` (the built `daemon.cjs`

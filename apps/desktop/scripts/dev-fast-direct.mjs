@@ -769,7 +769,6 @@ async function stageTree(source, destination) {
 export function packageExcludesOutputFile(path) {
   return (
     path === 'out/main/capture-window.js' ||
-    /^out\/main\/(?:.*\/)?jitter-probe[^/]*(?:\/|$)/.test(path) ||
     path.endsWith('.map')
   );
 }

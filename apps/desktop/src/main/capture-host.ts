@@ -2,17 +2,6 @@
 // profile that core starts from is described here: the settings the shipped surface reads, the Lead route, the files
 // of the project the tool showcase edits, and the scripted model answers of that showcase.
 
-// MIXDOG_JITTER_PROBE: '1' = streaming/follow pass, 'entry' = cold-entry and
-// tool-toggle pass, 'keys' = keyboard paging pass, 'switch' = rapid session
-// switching, warm paint handoff, and side-panel geometry pass, 'width' = the
-// window-width rewrap pass.
-export function jitterProbeEnabled(): boolean {
-  const mode = String(process.env.MIXDOG_JITTER_PROBE || '');
-  return (
-    mode === '1' || mode === 'entry' || mode === 'keys' || mode === 'switch' || mode === 'width' || mode === 'select'
-  );
-}
-
 /** The settings the capture profile stores, in the shape their getters answer. The scripted model endpoint answers its
  *  queue in request order, so no request of the core's own (a session title) may take a slot: AI titles are off here. */
 export const CAPTURE_SETTINGS_VALUES = {
