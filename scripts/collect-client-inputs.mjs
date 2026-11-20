@@ -7,7 +7,7 @@
 // Fixture: native/core/crates/mixdog-app-protocol/src/boundary/validate/fixtures/clients-accepted.json
 //   [{ client: "tui"|"phone"|"protocol-client"|"desktop", method, params, source: "file:symbol", case? }]
 // Every row is an input a client sends today and the core must accept: the Rust validators (s2a-core-val-*) and the
-// TypeScript parity replay it. `params` is absent for a notification the protocol gives no params (`initialized`).
+// TypeScript tests replay it. `params` is absent for a notification the protocol gives no params (`initialized`).
 //
 // Where the rows come from: the method list of each client is re-derived from its sender files (`SENDERS`: a literal
 // method name that the protocol's method table lists) and from the session actions of packages/protocol-client

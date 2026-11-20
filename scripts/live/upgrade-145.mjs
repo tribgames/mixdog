@@ -241,6 +241,19 @@ function verifyBackups(backupRoot, dataDir, expected) {
   throw new Error(`no matching complete owned backup: ${[...new Set(failures)].join(', ') || 'no manifests'}`);
 }
 
+/** Throws unless `rows` holds every expected id and each expected record is a subset of its row. */
+function assertListed(method, rows, ids, records) {
+  const missing = missingIds(ids, rows);
+  if (missing.length) throw new Error(`${method} lacks ${missing.join(', ')}`);
+  for (const record of records ?? []) {
+    const differ = subsetProblems(
+      rows.find((row) => row.id === record.id),
+      record
+    );
+    if (differ.length) throw new Error(`${method} differs at ${record.id}: ${differ.join(', ')}`);
+  }
+}
+
 /** The checks of one start: each reads a thing back through the core. */
 export function checksFor({ expect, dataDir, backupRoot, performWrite = false }) {
   const list = [
@@ -272,15 +285,7 @@ export function checksFor({ expect, dataDir, backupRoot, performWrite = false })
       name: 'SSH hosts',
       run: async ({ core }) => {
         const rows = await core.call('connections/ssh/list', {});
-        const missing = missingIds(expect.sshHosts, rows);
-        if (missing.length) throw new Error(`connections/ssh/list lacks ${missing.join(', ')}`);
-        for (const record of expect.sshHostRecords ?? []) {
-          const differ = subsetProblems(
-            rows.find((row) => row.id === record.id),
-            record
-          );
-          if (differ.length) throw new Error(`connections/ssh/list differs at ${record.id}: ${differ.join(', ')}`);
-        }
+        assertListed('connections/ssh/list', rows, expect.sshHosts, expect.sshHostRecords);
         return `${(expect.sshHosts ?? []).length} host(s)`;
       },
     },
@@ -323,15 +328,7 @@ export function checksFor({ expect, dataDir, backupRoot, performWrite = false })
       name: 'paired PCs',
       run: async ({ core }) => {
         const rows = await core.call('remoteHosts/list', {});
-        const missing = missingIds(expect.remoteHosts, rows);
-        if (missing.length) throw new Error(`remoteHosts/list lacks ${missing.join(', ')}`);
-        for (const record of expect.remoteHostRecords ?? []) {
-          const differ = subsetProblems(
-            rows.find((row) => row.id === record.id),
-            record
-          );
-          if (differ.length) throw new Error(`remoteHosts/list differs at ${record.id}: ${differ.join(', ')}`);
-        }
+        assertListed('remoteHosts/list', rows, expect.remoteHosts, expect.remoteHostRecords);
         return `${rows.length} PC(s)`;
       },
     });

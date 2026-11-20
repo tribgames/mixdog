@@ -63,7 +63,7 @@ export async function startFixtures() {
       return send(200, JSON.stringify({ q: url.searchParams.get('q') }), 'application/json');
     return send(200, html('lat blank', '<p>blank</p>'));
   });
-  const frame = createServer((req, res) => {
+  const frame = createServer((_req, res) => {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
     res.end(
       html(

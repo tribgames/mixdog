@@ -86,7 +86,7 @@ export function resolveProviderApiKey(provider, config) {
   return config?.apiKey || getAgentApiKey(provider) || '';
 }
 
-/** Presence twin of resolveProviderApiKey, same precedence, no key value read. */
+/** Whether resolveProviderApiKey would find a key: same precedence, no key value read. */
 export function hasProviderApiKey(provider, config) {
   if (config?.apiKeyEnv) return Boolean(process.env[config.apiKeyEnv]);
   return Boolean(config?.apiKey) || hasAgentApiKey(provider);
