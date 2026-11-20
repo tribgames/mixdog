@@ -381,6 +381,74 @@ async fn an_empty_end_after_only_todo_bookkeeping_delivers_the_kept_answer_as_th
 }
 
 #[tokio::test]
+async fn an_answer_the_reminder_cut_short_is_not_delivered_before_the_next_answer() {
+    let list = List::open(&["First", "Second"]);
+    let h = Harness::new(vec![
+        turn(vec![text("Status: done. Full report."), done(StopReason::EndTurn)]),
+        turn(vec![call("c1", "todo", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("Status: done. Nothing changed."), done(StopReason::EndTurn)]),
+    ]);
+    let output = finish(with_todos(&h, &list, vec![todo_tool(&list)]).await).await;
+    let report = output.response.report_content.as_deref().unwrap_or(&output.response.content);
+    assert_eq!(report.trim(), "Status: done. Nothing changed.");
+}
+
+fn report_of(output: &RunOutput) -> &str {
+    output.response.report_content.as_deref().unwrap_or(&output.response.content)
+}
+
+#[tokio::test]
+async fn a_runtime_notice_does_not_displace_the_answer_the_reminder_cut_short() {
+    let list = List::open(&["First"]);
+    let mut script = vec![turn(vec![text("The answer."), done(StopReason::EndTurn)]), turn(vec![call("c1", "todo", json!({})), done(StopReason::ToolUse)])];
+    script.extend((0..4).map(|_| cut("")));
+    let h = Harness::new(script);
+    let output = finish(with_todos(&h, &list, vec![todo_tool(&list)]).await).await;
+    assert_eq!(report_of(&output), format!("The answer.\n\n{EXHAUSTED}"));
+}
+
+#[tokio::test]
+async fn text_from_an_earlier_recovery_attempt_replaces_the_answer_the_reminder_cut_short() {
+    let list = List::open(&["First"]);
+    let mut script = vec![
+        turn(vec![text("The answer."), done(StopReason::EndTurn)]),
+        turn(vec![call("c1", "todo", json!({})), done(StopReason::ToolUse)]),
+        cut("Again, the "),
+    ];
+    script.extend((0..3).map(|_| cut("")));
+    let h = Harness::new(script);
+    let output = finish(with_todos(&h, &list, vec![todo_tool(&list)]).await).await;
+    assert_eq!(report_of(&output), format!("Again, the \n\n{EXHAUSTED}"));
+}
+
+#[tokio::test]
+async fn every_segment_of_an_answer_the_reminder_cut_short_is_left_out() {
+    let list = List::open(&["First"]);
+    let h = Harness::new(vec![
+        cut("part one "),
+        turn(vec![text("part two"), done(StopReason::EndTurn)]),
+        turn(vec![call("c1", "todo", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("Final."), done(StopReason::EndTurn)]),
+    ]);
+    let output = finish(with_todos(&h, &list, vec![todo_tool(&list)]).await).await;
+    assert_eq!(report_of(&output).trim(), "Final.");
+}
+
+#[tokio::test]
+async fn the_report_of_a_failed_turn_keeps_its_answers_in_order() {
+    let list = List::open(&["First"]);
+    let mut h = Harness::new(vec![
+        turn(vec![text("A"), done(StopReason::EndTurn)]),
+        turn(vec![text("    B"), done(StopReason::EndTurn)]),
+        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
+        rejection(ErrorKind::Auth, None),
+    ]);
+    h.hooks = Some(Arc::new(StopHook::new(1, "again")));
+    let failure = with_todos(&h, &list, vec![todo_tool(&list), Echo::tool()]).await.run().await.expect_err("the request fails");
+    assert_eq!(failure.carried_report, "A\n\n    B", "an indented block keeps its indentation");
+}
+
+#[tokio::test]
 async fn an_empty_end_after_new_work_is_still_an_empty_turn() {
     let list = List::open(&["First"]);
     let mut script = vec![
