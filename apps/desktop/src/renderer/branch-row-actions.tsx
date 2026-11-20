@@ -8,6 +8,25 @@ import { t } from './i18n';
 import { ScmContextMenu, type ScmContextMenuItem } from './ScmContextMenu';
 import { invokeWorktree, worktreeFailure, worktreeFailureText } from './worktree-branch-model';
 
+function actionPrompt(action: DesktopBranchManagementAction, branch: string, target: string): string {
+  if (action === 'merge') {
+    return t(
+      'Merge "{{branch}}" into "{{target}}"? This creates a merge commit. Uncommitted changes are not included and nothing is pushed.',
+      { branch, target }
+    );
+  }
+  if (action === 'remove-worktree') {
+    return t(
+      'Remove the worktree folder for "{{branch}}"? The branch and conversation history are kept. In-use or unsafe folders will not be removed.',
+      { branch }
+    );
+  }
+  return t('Delete the local branch "{{branch}}"? Only a branch merged into "{{target}}" can be deleted.', {
+    branch,
+    target,
+  });
+}
+
 /** A branch row's shell: the row itself, its "…" trigger, and the same menu on
  *  right-click or a touch long-press (touch screens show no "…"). */
 export function BranchRowActions({
@@ -62,22 +81,7 @@ export function BranchRowActions({
   };
   const act = async (action: DesktopBranchManagementAction) => {
     if (!state || busy || locked) return;
-    const message =
-      action === 'merge'
-        ? t(
-            'Merge "{{branch}}" into "{{target}}"? This creates a merge commit. Uncommitted changes are not included and nothing is pushed.',
-            { branch, target: state.target ?? '' }
-          )
-        : action === 'remove-worktree'
-          ? t(
-              'Remove the worktree folder for "{{branch}}"? The branch and conversation history are kept. In-use or unsafe folders will not be removed.',
-              { branch }
-            )
-          : t('Delete the local branch "{{branch}}"? Only a branch merged into "{{target}}" can be deleted.', {
-              branch,
-              target: state.target ?? '',
-            });
-    const confirmed = await confirmAction(message, {
+    const confirmed = await confirmAction(actionPrompt(action, branch, state.target ?? ''), {
       danger: action !== 'merge',
       key: `branch-${action}:${projectPath}:${branch}`,
     });
@@ -165,6 +169,7 @@ export function BranchRowActions({
       fail(error);
     }
   };
+  const lockedTitle = locked ? t("Can't switch while work is running") : undefined;
   const items: ScmContextMenuItem[] = [
     { id: 'copy', label: t('Copy branch name'), icon: <Copy size={14} />, onSelect: () => void copy() },
     {
@@ -180,7 +185,7 @@ export function BranchRowActions({
       label: t('Merge into {{target}}', { target: state?.target ?? '…' }),
       icon: <GitMerge size={14} />,
       disabled: !state?.target || state.target === branch || locked || busy,
-      title: locked ? t("Can't switch while work is running") : undefined,
+      title: lockedTitle,
       onSelect: () => void act('merge'),
     },
     {
@@ -188,12 +193,7 @@ export function BranchRowActions({
       label: t('Remove worktree folder'),
       icon: <Trash2 size={14} />,
       disabled: state?.kind !== 'managed' || locked || busy,
-      title:
-        state?.kind !== 'managed'
-          ? t('Only app-managed worktree folders can be removed.')
-          : locked
-            ? t("Can't switch while work is running")
-            : undefined,
+      title: state?.kind !== 'managed' ? t('Only app-managed worktree folders can be removed.') : lockedTitle,
       onSelect: () => void act('remove-worktree'),
     },
     {
@@ -202,11 +202,7 @@ export function BranchRowActions({
       icon: <Trash2 size={14} />,
       danger: true,
       disabled: !state || !!state.path || !state.target || state.target === branch || locked || busy,
-      title: state?.path
-        ? t('This branch is checked out. Remove or leave its worktree first.')
-        : locked
-          ? t("Can't switch while work is running")
-          : undefined,
+      title: state?.path ? t('This branch is checked out. Remove or leave its worktree first.') : lockedTitle,
       onSelect: () => void act('delete-branch'),
     },
   ];

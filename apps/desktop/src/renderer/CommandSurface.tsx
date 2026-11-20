@@ -124,8 +124,7 @@ export function CommandSurface({
   if (surface === 'stats' && !open) return null;
 
   // These surfaces read their headline from the snapshot they already hold, so
-  // they paint complete at once and fill in the measured detail when it lands
-  // (user: 컨텍스트창 왜 바로 안 열리고 로딩이 심하지).
+  // they paint complete at once and fill in the measured detail when it lands.
   const paintsFromSnapshot = surface === 'context' || surface === 'inherit' || surface === 'stats';
   const showStatsErrorOnly = surface === 'stats' && Boolean(error) && !data.getUsageStats;
   const showLoadingPlaceholder = loading && !paintsFromSnapshot;
@@ -183,9 +182,9 @@ export function CommandSurface({
               clicked from — neither belongs behind a loading cover. */}
             <PaneSurfaceGate ready={!loading || paintsFromSnapshot} label={t('Loading {{title}}…', { title })}>
               <div className="command-surface-content">
-                {/* The dialog heading already names the surface, so the old
-              "/usage — Read-only …" restatement only pushed the content down
-              (user decision). Keep the sentence for screen readers only. */}
+                {/* The dialog heading already names the surface, so a visible
+              "/usage — Read-only …" restatement only pushes the content down.
+              Keep the sentence for screen readers only. */}
                 <p id="command-surface-description" className="sr-only">
                   {t('{{title}} for the active session.', { title })}
                 </p>

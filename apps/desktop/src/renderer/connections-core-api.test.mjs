@@ -26,7 +26,9 @@ function world({ identity = { id: 'local', kind: 'local', name: 'pc' }, replies 
     connection: () => identity,
     openExternal: async (url) => void opened.push(url),
   });
-  const emit = (event) => [...handlers].forEach((h) => h(event));
+  const emit = (event) => {
+    for (const h of [...handlers]) h(event);
+  };
   const note = (method, params, feed) =>
     emit({ type: 'notification', notification: { method, params, ...(feed ? { feed: { id: feed } } : {}) } });
   const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -359,9 +361,9 @@ test('before_the_first_open_calls_and_listeners_wait_for_it', async () => {
     calls.map((c) => c.method),
     ['connections/ssh/list', 'connections/subscribe']
   );
-  [...handlers].forEach((h) =>
-    h({ type: 'notification', notification: { method: 'connections/ssh/progress', params: { step: 1 } } })
-  );
+  for (const h of [...handlers]) {
+    h({ type: 'notification', notification: { method: 'connections/ssh/progress', params: { step: 1 } } });
+  }
   assert.deepEqual(heard, [{ step: 1 }], 'a listener added before the open hears the client once it is open');
 });
 
@@ -400,7 +402,10 @@ const rig = (first) => {
   let changed = () => undefined;
   const api = createConnectionsCoreApi({
     client: () => current,
-    onClientChange: (listener) => ((changed = listener), () => undefined),
+    onClientChange: (listener) => {
+      changed = listener;
+      return () => undefined;
+    },
     connection: () => undefined,
     openExternal: async () => undefined,
   });
@@ -451,7 +456,10 @@ test('a_listener_added_before_the_replacement_is_accepted_does_not_cost_the_feed
   const second = makeClient('b');
   const calls = [];
   const orig = second.call;
-  second.call = (method, params) => (calls.push(method), orig(method, params));
+  second.call = (method, params) => {
+    calls.push(method);
+    return orig(method, params);
+  };
   const r = rig(first);
   r.api.subscribeSshHostsChanged(() => undefined);
   await tick();
@@ -469,7 +477,10 @@ test('a_feed_id_answered_by_the_old_client_after_the_switch_is_not_the_new_clien
   const second = makeClient('b');
   const calls = [];
   const orig = second.call;
-  second.call = (method, params) => (calls.push(method), orig(method, params));
+  second.call = (method, params) => {
+    calls.push(method);
+    return orig(method, params);
+  };
   const r = rig(first);
   const off = r.api.subscribeSshHostsChanged(() => undefined);
   await tick();

@@ -30,11 +30,9 @@ const OPEN_PLACEMENT =
 
 function resultText(value: unknown): string {
   if (typeof value === 'string') return value;
-  const content = Array.isArray(value)
-    ? value
-    : value && typeof value === 'object'
-      ? (value as { content?: unknown }).content
-      : undefined;
+  let content: unknown;
+  if (Array.isArray(value)) content = value;
+  else if (value && typeof value === 'object') content = (value as { content?: unknown }).content;
   if (!Array.isArray(content)) return '';
   return content
     .map((part) => (part && typeof part === 'object' ? String((part as { text?: unknown }).text ?? '') : ''))

@@ -3,7 +3,7 @@
  *
  * The native date and time inputs hand their popups to Chromium, which paints
  * its own calendar and clock in its own metrics — a frame that never matched
- * ours (user: 프레임이랑 이런게 너무 우리거랑 안 맞는 느낌). Every pixel here
+ * ours. Every pixel here
  * is our own markup, so a range reads like the surface holding it.
  *
  * A range is two clicks. Clocks stay optional: blank means the whole day,

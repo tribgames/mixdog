@@ -12,7 +12,9 @@ function fakeClient(pending = []) {
   const responses = [];
   return {
     responses,
-    emit: (event) => listeners.forEach((l) => l(event)),
+    emit: (event) => {
+      for (const l of listeners) l(event);
+    },
     listeners,
     failRespond: false,
     pendingServerRequests: () => pending,

@@ -286,17 +286,18 @@ export function disabledMentionedSkills(text: string, catalog: ComposerSkillCata
 function HighlightSegments({ segments }: { segments: ComposerHighlightSegment[] }) {
   return (
     <>
-      {segments.map((segment, index) =>
-        segment.skill || segment.slash ? (
-          // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional runs of one string
-          <span key={index} className={segment.slash ? 'composer-slash-token' : 'skill-mention-token'}>
-            {segment.text}
-          </span>
-        ) : (
-          // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional runs of one string
-          <React.Fragment key={index}>{segment.text}</React.Fragment>
-        )
-      )}
+      {segments.map((segment, index) => {
+        if (segment.skill || segment.slash) {
+          return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional runs of one string
+            <span key={index} className={segment.slash ? 'composer-slash-token' : 'skill-mention-token'}>
+              {segment.text}
+            </span>
+          );
+        }
+        // biome-ignore lint/suspicious/noArrayIndexKey: segments are positional runs of one string
+        return <React.Fragment key={index}>{segment.text}</React.Fragment>;
+      })}
     </>
   );
 }

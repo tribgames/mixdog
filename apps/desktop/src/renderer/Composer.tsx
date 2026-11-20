@@ -51,7 +51,6 @@ import {
   stashedComposerDraft,
   takeDraftPromotion,
   takeStashedComposerAttachments,
-  takeStashedComposerTags,
 } from './composer-draft';
 import { useComposerDictation } from './use-composer-dictation';
 import { useComposerAttachments } from './use-composer-attachments';
@@ -83,7 +82,6 @@ import {
   composerPlaceholder,
 } from './composer-surfaces';
 import { disabledMentionedSkills, useComposerSkillHighlight, useSkillCatalog } from './composer-skill-mentions';
-import { isInMarkdownCode } from '../../../../packages/protocol-client/src/rows/skill-mentions.mjs';
 import { ComposerBanners } from './ComposerBanners';
 import {
   type ComposerModelControlProps,
@@ -100,15 +98,12 @@ import {
   RoomAskChip,
   RoomAskPalette,
   RoomMentionChip,
-  contentAsking,
   draftAskingMore,
   roomAskCandidates,
   roomAskTargets,
-  roomTagCandidates,
-  roomTagTargets,
-  roomTaggedMembers,
   useComposerRoomMembers,
 } from './composer-room-ask';
+import { useComposerRoomTags } from './use-composer-room-tags';
 import { useVisualizeFeedback, visualizeFeedbackPending } from './visualize-feedback-store';
 
 // Perf diagnostics (MIXDOG_DESKTOP_PERF=1): keystroke→paint latency, logged
@@ -222,11 +217,10 @@ function switchComposerIdentity({
   );
   // Scope settles ASYNC after a session switch/promotion; when the user is
   // ALREADY typing in the composer, the in-flight text carries over instead
-  // of being wiped (user bug: draft vanished + scroll jumped mid-sentence).
+  // of being wiped.
   const typingElement = textarea.current;
   const typingLive = document.activeElement === typingElement;
-  // A fresh New Task pane is the exception: it ALWAYS opens clean (user:
-  // 새작업 pulled the previous pane's text and attachments along).
+  // A fresh New Task pane is the exception: it ALWAYS opens clean.
   const freshDraft = composerScopeOpensFreshDraft(identityScope);
   // Chips attached there but not yet sent are parked with it, and the
   // incoming tab gets back the chips it parked. A New Task promoted to the
@@ -305,7 +299,7 @@ export type ComposerProps = {
   /** A conversation's workflow / delegation rows in the model menu. */
   sessionChoices?: RouteSessionChoice[];
   /** Session readout seated right after the model trigger — the context
-   *  gauge (user: 컨텍스트는 모델 선택기 옆). */
+   *  gauge. */
   modelAside?: ReactNode;
   /** The line under the card's left end: the last turn's speed and cache hit. */
   usageReadout?: ReactNode;
@@ -635,28 +629,21 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     plain: agentMode,
   });
   const { setCaretOffset, slash, mention, skillMention } = palettes;
-  // Agent mode's `@` in a room: pick members, who then answer the message
-  // once each in pick order (sent on the room's `/ask` path). A 1:1 thread's
-  // `@` opens nothing yet.
-  const [tagged, setTagged] = useState<string[]>(() => takeStashedComposerTags(identityScope));
-  const addTagged = (agentId: string) =>
-    setTagged((current) => (current.includes(agentId) ? current : [...current, agentId]));
-  const taggedRef = useRef(tagged);
-  taggedRef.current = tagged;
-  const taggedScope = useRef(identityScope);
-  const [tagDismissed, setTagDismissed] = useState('');
-  // The highlighted candidate; ↑/↓ move it, Enter/Tab pick it.
-  const [tagIndex, setTagIndex] = useState(0);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a new `@` query starts from the first candidate
-  useEffect(() => setTagIndex(0), [mention.signature]);
-  // Tags picked in the tab being left are parked with its text; the incoming
-  // tab gets back the tags it parked.
-  useEffect(() => {
-    if (taggedScope.current === identityScope) return;
-    stashComposerTags(taggedScope.current, taggedRef.current);
-    taggedScope.current = identityScope;
-    setTagged(takeStashedComposerTags(identityScope));
-  }, [identityScope]);
+  const tags = useComposerRoomTags({
+    identityScope,
+    agentMode,
+    roomMembers,
+    draft,
+    draftRef,
+    setDraft,
+    textarea,
+    setCaretOffset,
+    mention,
+    composerFocused,
+    paneActive,
+    submit,
+  });
+  const taggedRef = tags.taggedRef;
   // A composer that goes away inside the app run (pane closed or rebuilt)
   // parks what it holds exactly as a tab switch does, and a fresh one opens
   // with what its identity parked.
@@ -670,42 +657,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
       stashComposerAttachments(scope, attachmentsRef.current);
       stashComposerTags(scope, taggedRef.current);
     };
-  }, [attachmentsRef, replaceAttachments]);
-  const taggedMembers = roomTaggedMembers(tagged, roomMembers);
-  // An `@` inside Markdown code (a fence or inline span) is text, not a tag.
-  const tagMatch =
-    agentMode && roomMembers && mention.match && !isInMarkdownCode(draft, mention.match.start) ? mention.match : null;
-  const tagCandidates =
-    tagMatch && composerFocused && paneActive && tagDismissed !== mention.signature
-      ? roomTagCandidates(tagMatch.query, roomMembers).filter((member) => !tagged.includes(member.id))
-      : [];
-  const tagMember = (agentId: string) => {
-    const match = tagMatch;
-    if (!match) return;
-    const current = draftRef.current;
-    const next = `${current.slice(0, match.start)}${current.slice(match.end)}`.replace(/^\s+/, '');
-    draftRef.current = next;
-    setDraft(next);
-    setTagged((current) => (current.includes(agentId) ? current : [...current, agentId]));
-    queueMicrotask(() => {
-      const field = textarea.current;
-      if (!field) return;
-      field.focus();
-      const caret = Math.min(match.start, next.length);
-      field.setSelectionRange(caret, caret);
-      setCaretOffset(caret);
-    });
-  };
-  const submitTagged: typeof submit = taggedMembers.length
-    ? async (content, options) => {
-        const accepted = await submit(
-          contentAsking(content, roomTagTargets(taggedMembers, roomMembers ?? [])),
-          options
-        );
-        if (accepted === true) setTagged([]);
-        return accepted;
-      }
-    : submit;
+  }, [attachmentsRef, replaceAttachments, taggedRef]);
   const skillHighlight = useComposerSkillHighlight({
     textarea,
     text: draft,
@@ -747,10 +699,6 @@ export const Composer = memo(function Composer(props: ComposerProps) {
       hasConversation,
       fallback: COMPOSER_PLACEHOLDERS[0],
     });
-  // Autosize is CSS-native now (field-sizing: content). The old layout-effect
-  // path forced TWO whole-document synchronous reflows per keystroke
-  // (height:auto → scrollHeight read) — the measured source of typing lag on
-  // long transcripts.
   // biome-ignore lint/correctness/useExhaustiveDependencies: setDraggingFiles identity is not guaranteed stable here; the effect must run only when transitioning changes
   useEffect(() => {
     if (!transitioning) return;
@@ -850,7 +798,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     restoredAttachments,
     executeSlash,
     rememberPrompt: history.rememberPrompt,
-    submit: submitTagged,
+    submit: tags.submitTagged,
     abort,
     onQueuedRestored,
     selectedSkill: skillSelection.name,
@@ -945,12 +893,13 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     setComposerFocused(false);
   };
   const onTextareaKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const composing = composingRef.current || event.nativeEvent.isComposing || event.keyCode === 229;
     const removeSkill = shouldRemoveSelectedSkill({
       selected: skillSelection.name,
       key: event.key,
       start: event.currentTarget.selectionStart,
       end: event.currentTarget.selectionEnd,
-      composing: composingRef.current || event.nativeEvent.isComposing || event.keyCode === 229,
+      composing,
       repeat: event.repeat,
       modified: event.ctrlKey || event.metaKey || event.altKey,
     });
@@ -960,35 +909,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
       skillSelection.select('');
       return;
     }
-    const composing = composingRef.current || event.nativeEvent.isComposing || event.keyCode === 229;
-    if (
-      tagCandidates.length > 0 &&
-      !composing &&
-      (event.key === 'Enter' ||
-        event.key === 'Tab' ||
-        event.key === 'Escape' ||
-        event.key === 'ArrowUp' ||
-        event.key === 'ArrowDown')
-    ) {
-      event.preventDefault();
-      event.stopPropagation();
-      const count = tagCandidates.length;
-      if (event.key === 'Escape') setTagDismissed(mention.signature);
-      else if (event.key === 'ArrowDown') setTagIndex((index) => (index + 1) % count);
-      else if (event.key === 'ArrowUp') setTagIndex((index) => (index - 1 + count) % count);
-      else tagMember(tagCandidates[Math.min(tagIndex, count - 1)].id);
-      return;
-    }
-    if (
-      tagged.length > 0 &&
-      event.key === 'Backspace' &&
-      event.currentTarget.selectionStart === 0 &&
-      event.currentTarget.selectionEnd === 0
-    ) {
-      event.preventDefault();
-      setTagged((current) => current.slice(0, -1));
-      return;
-    }
+    if (tags.handleKeyDown(event, composing)) return;
     onKeyDown(event);
   };
   const onTextareaPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -1079,12 +1000,12 @@ export const Composer = memo(function Composer(props: ComposerProps) {
         {askCandidates.length > 0 && !slash.open && (
           <RoomAskPalette anchor={paletteAnchor} members={askCandidates} onSelect={askMember} />
         )}
-        {tagCandidates.length > 0 && (
+        {tags.candidates.length > 0 && (
           <RoomAskPalette
             anchor={paletteAnchor}
-            members={tagCandidates}
-            selected={Math.min(tagIndex, tagCandidates.length - 1)}
-            onSelect={tagMember}
+            members={tags.candidates}
+            selected={tags.selected}
+            onSelect={tags.pick}
           />
         )}
         {mention.open && (
@@ -1140,12 +1061,8 @@ export const Composer = memo(function Composer(props: ComposerProps) {
         )}
         <div className="composer-input-row">
           {askTargets.length > 0 && <RoomAskChip members={askTargets} />}
-          {taggedMembers.map((member) => (
-            <RoomMentionChip
-              key={member.id}
-              member={member}
-              onRemove={() => setTagged((current) => current.filter((id) => id !== member.id))}
-            />
+          {tags.members.map((member) => (
+            <RoomMentionChip key={member.id} member={member} onRemove={() => tags.remove(member.id)} />
           ))}
           {skillSelection.name && (
             <span className="composer-selected-skill">
@@ -1157,6 +1074,8 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           )}
           <div className="composer-text-field">
             {skillHighlight.layer}
+            {/* Autosize is CSS-native (field-sizing: content). Resetting the height and reading scrollHeight in a
+                layout effect forced two whole-document synchronous reflows per keystroke on long transcripts. */}
             {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: the textarea drives the slash/mention popup and reports whether it is open */}
             <textarea
               ref={textarea}
@@ -1193,7 +1112,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           setGoalDialogOpen={setGoalDialogOpen}
           addMenuRequest={addMenuRequest}
           roomMembers={roomMembers}
-          onAskMember={agentMode ? addTagged : askMember}
+          onAskMember={agentMode ? tags.add : askMember}
           agentMode={agentMode}
           goalDisabled={goalDisabled}
           executeSlash={executeSlash}

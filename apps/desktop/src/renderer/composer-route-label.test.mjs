@@ -49,7 +49,7 @@ function Line({ choices }) {
   return React.createElement(
     'div',
     { className: 'composer-model-line', style: { padding: '0px' } },
-    React.createElement('button', { className: 'model-trigger', onClick: () => (opened += 1) }),
+    React.createElement('button', { type: 'button', className: 'model-trigger', onClick: () => (opened += 1) }),
     parts && React.createElement(ComposerRouteLabel, { parts })
   );
 }
@@ -127,9 +127,9 @@ test('route label: pressing it keeps the model menu open but closes any other me
         'div',
         { className: 'composer-model-line' },
         React.createElement(ComposerRouteLabel, { parts: { workflow: '', mode: 'Solo' } }),
-        React.createElement('button', { ref: trigger, className: 'model-trigger' })
+        React.createElement('button', { type: 'button', ref: trigger, className: 'model-trigger' })
       ),
-      React.createElement('button', { ref: otherTrigger, className: 'other-trigger' }),
+      React.createElement('button', { type: 'button', ref: otherTrigger, className: 'other-trigger' }),
       React.createElement('p', { className: 'elsewhere' })
     );
   }
@@ -226,8 +226,13 @@ function Bar({
                 if (element) Object.defineProperty(element, 'scrollWidth', { configurable: true, value: 260 });
               },
             })
-          : readout && React.createElement('button', { className: 'composer-usage-readout', 'data-full-width': '200' }),
-        label && React.createElement('button', { className: 'composer-route-label', ref: sized(120) }),
+          : readout &&
+              React.createElement('button', {
+                type: 'button',
+                className: 'composer-usage-readout',
+                'data-full-width': '200',
+              }),
+        label && React.createElement('button', { type: 'button', className: 'composer-route-label', ref: sized(120) }),
         controlsInLine && controls
       )
   );
@@ -328,7 +333,7 @@ test('card line: simple shows nothing, basic the readout alone, detail the reado
   t.after(() => setComposerStyle('basic'));
   const props = {
     card: true,
-    usageReadout: React.createElement('button', { className: 'composer-usage-readout' }),
+    usageReadout: React.createElement('button', { type: 'button', className: 'composer-usage-readout' }),
     sessionChoices: BOTH,
   };
   const render = async (style, extra = {}) => {

@@ -85,10 +85,18 @@ export function createBrowserPageClient(options: {
   let pendingText: { action: TextInput; token: string } | null = null;
   let pendingComposition: { action: CompositionInput; token: string } | null = null;
 
+  function orderOf(action: DesktopBrowserPageAction): number {
+    let order = inputOrder.get(action);
+    if (order === undefined) {
+      order = ++nextInputOrder;
+      inputOrder.set(action, order);
+    }
+    return order;
+  }
+
   function preserveText(action?: DesktopBrowserPageAction): void {
     if ((action?.type === 'text' || action?.type === 'composition-end') && action.text) {
-      if (!inputOrder.has(action)) inputOrder.set(action, ++nextInputOrder);
-      unconfirmedText.set(inputOrder.get(action)!, action.text);
+      unconfirmedText.set(orderOf(action), action.text);
       options.unconfirmedText?.(
         [...unconfirmedText]
           .sort(([a], [b]) => a - b)
@@ -225,7 +233,7 @@ export function createBrowserPageClient(options: {
     if (!disposed && !page && !needsPixels && options.api.browserPageMetadata) {
       return pollMetadata().then(() => control(action));
     }
-    if (!inputOrder.has(action)) inputOrder.set(action, ++nextInputOrder);
+    orderOf(action);
     if (pendingText?.action !== action) pendingText = null;
     if (pendingComposition?.action !== action) pendingComposition = null;
     // Coalescing may never cross a click, key, or another kind of input.

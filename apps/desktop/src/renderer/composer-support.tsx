@@ -84,7 +84,7 @@ export const MAX_PERSISTED_PROMPT_HISTORY = 100;
 export const COMPOSER_PROJECT_PATHS_MIME = MIXDOG_PROJECT_PATHS_MIME;
 const PROMPT_HISTORY_STORAGE_PREFIX = 'mixdog.desktop.prompt-history.v1:';
 const MAX_PERSISTED_PROMPT_HISTORY_CHARS = 2_000_000;
-// One quiet line (user decision): no rotating tips, no syntax lecture.
+// One quiet line: no rotating tips, no syntax lecture.
 export const COMPOSER_PLACEHOLDERS = ['Ask anything…'] as const;
 
 const PROJECT_CONTEXT_LOCAL = '__mixdog_local__';

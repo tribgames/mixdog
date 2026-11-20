@@ -35,7 +35,10 @@ test('an address requested before the pane exists loads once when the guest appe
   const binding = bindRequestedAddress(
     'early',
     () => guest,
-    (url) => (loaded.push(url), true)
+    (url) => {
+      loaded.push(url);
+      return true;
+    }
   );
   assert.deepEqual(loaded, []);
   guest = fakeGuest(true);
@@ -48,7 +51,10 @@ test('an address requested before the pane exists loads once when the guest appe
   bindRequestedAddress(
     'early',
     () => guest,
-    (url) => (again.push(url), true)
+    (url) => {
+      again.push(url);
+      return true;
+    }
   ).dispose();
   assert.deepEqual(again, []);
 });
@@ -60,7 +66,10 @@ test('an address survives a guest element replacement and loads exactly once', (
   const binding = bindRequestedAddress(
     'swap',
     () => current,
-    (url) => (loaded.push(url), true)
+    (url) => {
+      loaded.push(url);
+      return true;
+    }
   );
   requestBrowserPage('swap', 'http://localhost:2/');
   assert.deepEqual(loaded, []);
@@ -127,7 +136,10 @@ test('a new-tab request reaches the pane with its flag and settles once', () => 
   const binding = bindRequestedAddress(
     'newtab',
     () => guest,
-    (url, newTab) => (calls.push([url, newTab]), true)
+    (url, newTab) => {
+      calls.push([url, newTab]);
+      return true;
+    }
   );
   requestBrowserPage('newtab', 'http://localhost:3/', { newTab: true });
   requestBrowserPage('newtab', 'http://localhost:4/');

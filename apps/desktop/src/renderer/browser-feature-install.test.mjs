@@ -42,7 +42,10 @@ window.mixdogDesktop = {
   sections: {
     core: async () => false,
     snapshot: async () => ({ status: 'ready', entries: [...latest.values()] }),
-    subscribe: (next) => (listeners.add(next), () => void listeners.delete(next)),
+    subscribe: (next) => {
+      listeners.add(next);
+      return () => void listeners.delete(next);
+    },
   },
 };
 
@@ -56,8 +59,14 @@ test('the Browser toggle follows the pushed desktop section: unknown until it ar
   const root = createRoot(host);
   const seenA = [];
   const seenB = [];
-  const ProbeA = () => (seenA.push(useBrowserFeatureInstalled()), null);
-  const ProbeB = () => (seenB.push(useBrowserFeatureInstalled()), null);
+  const ProbeA = () => {
+    seenA.push(useBrowserFeatureInstalled());
+    return null;
+  };
+  const ProbeB = () => {
+    seenB.push(useBrowserFeatureInstalled());
+    return null;
+  };
   try {
     await act(async () => {
       root.render(React.createElement(React.Fragment, null, React.createElement(ProbeA), React.createElement(ProbeB)));

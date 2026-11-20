@@ -166,18 +166,15 @@ export function Conversation(props: ConversationProps) {
   const relay = approvals.relay;
   const relayId = relay?.id ?? '';
   const relayDrafts = relay?.draftsRef;
-  const handoffQuestionsContext = useMemo(
-    () =>
-      readOnly || draftMode || !routeSessionId || !handoffQuestions?.length
-        ? null
-        : {
-            chatSessionId: routeSessionId,
-            questions: handoffQuestions,
-            agentMode,
-            relay: relayId && relayDrafts ? { id: relayId, draftsRef: relayDrafts } : null,
-          },
-    [readOnly, draftMode, routeSessionId, handoffQuestions, agentMode, relayId, relayDrafts]
-  );
+  const handoffQuestionsContext = useMemo(() => {
+    if (readOnly || draftMode || !routeSessionId || !handoffQuestions?.length) return null;
+    return {
+      chatSessionId: routeSessionId,
+      questions: handoffQuestions,
+      agentMode,
+      relay: relayId && relayDrafts ? { id: relayId, draftsRef: relayDrafts } : null,
+    };
+  }, [readOnly, draftMode, routeSessionId, handoffQuestions, agentMode, relayId, relayDrafts]);
 
   return (
     <SteerContext.Provider value={readOnly ? null : steer.context}>

@@ -21,7 +21,10 @@ function localApi(snapshot) {
     sections: {
       subscribe: () => () => undefined,
       snapshot: () => Promise.resolve({ entries: [], ...snapshot }),
-      reconnect: () => (reconnects.push(true), Promise.resolve()),
+      reconnect: () => {
+        reconnects.push(true);
+        return Promise.resolve();
+      },
     },
   };
 }

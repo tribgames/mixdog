@@ -117,8 +117,7 @@ export function InheritBody({
 
   // The dialog frame IS this surface's card: the header already names it, the
   // readings fill the body, and the decision owns its own band under one
-  // hairline (user: 세션승계창 이상하다 — the old boxed group repeated the
-  // title and pushed its button straight through the card's bottom edge).
+  // hairline.
   const waiting = checking || Boolean(loading);
   // A conversation the chosen model cannot hold has no "as it is" option.
   const originalDisabled = Boolean(fit?.known && !fit.fits);

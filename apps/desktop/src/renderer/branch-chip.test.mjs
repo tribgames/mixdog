@@ -783,7 +783,10 @@ test('large repository confirms once and resends with confirmLarge', async (t) =
   menuReply = menuFor();
   const { trigger } = await mount(t);
   const prompts = [];
-  overrideConfirmAction((text) => (prompts.push(text), true));
+  overrideConfirmAction((text) => {
+    prompts.push(text);
+    return true;
+  });
   let attempts = 0;
   handlers.requestWorktree = (request) => {
     attempts += 1;
@@ -1743,7 +1746,11 @@ test('a New Task first send carries its worktree choice; a large repository conf
   const coded = (code) => new Error(`Error invoking remote method 'mixdog:submit-new-task': Error: ${code}: refused`);
   // No choice: one plain send.
   const plain = [];
-  assert.equal(await model.submitDraftWithWorktree(async (worktree) => (plain.push(worktree), 'sent'), false), 'sent');
+  const sendPlain = async (worktree) => {
+    plain.push(worktree);
+    return 'sent';
+  };
+  assert.equal(await model.submitDraftWithWorktree(sendPlain, false), 'sent');
   assert.deepEqual(plain, [undefined]);
 
   // Large repository: ask once, resend with confirmLarge.
@@ -1756,7 +1763,10 @@ test('a New Task first send carries its worktree choice; a large repository conf
       return 'accepted';
     },
     true,
-    (message) => (prompts.push(message), true)
+    (message) => {
+      prompts.push(message);
+      return true;
+    }
   );
   assert.equal(result, 'accepted');
   assert.deepEqual(sent, [{}, { confirmLarge: true }]);

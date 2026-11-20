@@ -102,7 +102,7 @@ export function pendingPromptTranscriptItems(
   // (measured 77ms to 4s on the daemon-hosted session runtime): the bottom-pinned
   // timeline lost the prompt's height, snapped back, then snapped forward
   // again when the durable row arrived — the double kick the reader sees as
-  // one big jerk (user: 프롬프트 입력 들어갈 때 스크롤이 크게 투둑 튄다).
+  // one big jerk.
   // The optimistic row is therefore held until its OWN durable row lands.
   const rows: PendingPromptItem[] = [];
   const ordered = [...byId.values()].sort((left, right) => left.submittedAt - right.submittedAt);

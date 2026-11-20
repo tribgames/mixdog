@@ -13,8 +13,7 @@ import { readDesktopStatus } from './settings/desktop-status-cache';
 import { useDesktopStatus } from './settings/use-desktop-status';
 
 /** The last known marker outlives the renderer, so the first paint of the next
- *  start already draws every Browser Use entry (user: 처음에 NEW TASK에 브라우저
- *  아이콘이 안 나왔다 생김). It only stands in while the section is unknown. */
+ *  start already draws every Browser Use entry. It only stands in while the section is unknown. */
 const BROWSER_FEATURE_INSTALLED_KEY = 'mixdog.desktop.browser-feature-installed.v1';
 
 function readStoredBrowserFeatureInstalled(): boolean | null {

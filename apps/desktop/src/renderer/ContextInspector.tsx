@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type Dispatch, type ReactNode, type SetStateAction, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import type { DesktopCapability } from '../shared/contract';
 import { t } from './i18n';
@@ -88,8 +88,7 @@ const ROLE_LABELS: Record<string, string> = {
 // Tool results are rows of their own now, so this sub-line is only a trace of
 // which tools the turn called — the sizes live in the Tool results category.
 // One name per tool, most-used first, and only the leading few: listing every
-// call let the line, and with it the row, grow without bound (user: 저것 때문에
-// 아이템 길이가 달라져).
+// call let the line, and with it the row, grow without bound.
 export function toolResultLine(entry: Entry): string {
   const calls = new Map<string, number>();
   for (const row of entry.toolResults || []) calls.set(row.name, (calls.get(row.name) || 0) + 1);
@@ -114,6 +113,140 @@ function entryLabel(entry: Entry): string {
   }
   if (entry.kind === 'overhead' || entry.kind === 'reasoning') return t(entry.label);
   return entry.label;
+}
+
+/** The contents of the detail section for one entry's preview with a way back
+ *  to the list. The bar matches the dialog header: back glyph, entry name,
+ *  size. A plain function, not a component: the section around it stays one
+ *  element across preview and list, so its live region is updated, not
+ *  remounted. */
+function entryPreviewContents({
+  preview,
+  entry,
+  onClose,
+}: {
+  preview: Preview;
+  entry: Entry | undefined;
+  onClose(): void;
+}) {
+  return (
+    <>
+      <header className="context-detail-bar">
+        <button type="button" className="context-detail-icon" onClick={onClose} aria-label={t('Close preview')}>
+          <ChevronLeft size={16} />
+        </button>
+        <h3>{entry ? entryLabel(entry) : ''}</h3>
+        <span>{entry ? `≈${entry.tokens.toLocaleString()}` : ''}</span>
+      </header>
+      {preview.truncated ? (
+        <p className="context-inspector-note context-detail-note">{t('Preview limited to 32,000 characters.')}</p>
+      ) : null}
+      {/* biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable preview region must be keyboard-focusable to scroll */}
+      <div className="context-preview-content markdown" data-scrollable tabIndex={0}>
+        <MarkdownBody
+          key={preview.id}
+          text={contextPreviewMarkdown(preview.text, entry?.kind)}
+          copyControl={CopyControl}
+        />
+      </div>
+    </>
+  );
+}
+
+/** A category's entries, grouped like the reference tools do: message rows by
+ *  role (tool results already live inside their assistant turn), tool rows by
+ *  how they ride the wire. Every group starts closed and opens only when its
+ *  head is clicked. */
+function entryListContents({
+  category,
+  entries,
+  expanded,
+  setExpanded,
+  tokenTitle,
+  onPreview,
+  onClose,
+}: {
+  category: Category;
+  entries: Entry[];
+  expanded: Record<string, boolean>;
+  setExpanded: Dispatch<SetStateAction<Record<string, boolean>>>;
+  tokenTitle(entry: { tokens: number; estimatedTokens?: number }): string | undefined;
+  onPreview?(entry: Entry): void;
+  onClose(): void;
+}) {
+  const groups = new Map<string, Entry[]>();
+  for (const entry of entries) {
+    const key = entry.group || '';
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(entry);
+    else groups.set(key, [entry]);
+  }
+  const rank = (key: string) => {
+    const index = GROUP_ORDER.indexOf(key);
+    return index < 0 ? GROUP_ORDER.length : index;
+  };
+  const ordered = [...groups.entries()].sort(([a, aRows], [b, bRows]) => {
+    const byOrder = rank(a) - rank(b);
+    if (byOrder) return byOrder;
+    return sumTokens(bRows) - sumTokens(aRows);
+  });
+  const grouped = ordered.length > 1;
+  const row = (entry: Entry) => (
+    <button
+      type="button"
+      key={entry.id}
+      disabled={!onPreview}
+      onClick={() => onPreview?.(entry)}
+      data-state={entry.state}
+      title={tokenTitle(entry)}
+    >
+      <span>
+        {entryLabel(entry)}
+        {entry.state === 'deferred' ? <small className="context-entry-badge">{t('Deferred')}</small> : null}
+        {entry.toolResults?.length ? <small className="context-entry-tools">{toolResultLine(entry)}</small> : null}
+      </span>
+      <strong>{entry.state === 'deferred' ? '—' : `≈${entry.tokens.toLocaleString()}`}</strong>
+    </button>
+  );
+  return (
+    <>
+      <header className="context-detail-bar">
+        <i aria-hidden="true" data-context-key={category.key} />
+        <h3>{t(category.label)}</h3>
+        <span title={tokenTitle(category)}>
+          {t('{{count}} items', { count: category.count })} · ≈{category.tokens.toLocaleString()}
+        </span>
+        <button type="button" className="context-detail-icon" onClick={onClose} aria-label={t('Close entries')}>
+          <X size={16} />
+        </button>
+      </header>
+      <div className="context-entry-list">
+        {!grouped && entries.map(row)}
+        {grouped &&
+          ordered.map(([key, rows]) => {
+            const open = expanded[key] ?? false;
+            const total = sumTokens(rows);
+            return (
+              <div className="context-entry-group" key={key} data-open={open ? 'true' : undefined}>
+                <button
+                  type="button"
+                  className="context-entry-group-head"
+                  aria-expanded={open}
+                  onClick={() => setExpanded((current) => ({ ...current, [key]: !open }))}
+                >
+                  <ChevronRight size={14} aria-hidden="true" />
+                  <span>{groupLabel(key)}</span>
+                  <small>{t('{{count}} items', { count: rows.length })}</small>
+                  <strong>{key === 'deferred' ? '—' : `≈${total.toLocaleString()}`}</strong>
+                </button>
+                {open ? rows.map(row) : null}
+              </div>
+            );
+          })}
+        {!entries.length && <p className="mx-empty-state">{t('No entries.')}</p>}
+      </div>
+    </>
+  );
 }
 
 export function ContextInspector({
@@ -167,8 +300,7 @@ export function ContextInspector({
       ? t('Raw estimate: ≈{{tokens}}', { tokens: entry.estimatedTokens.toLocaleString() })
       : undefined;
   // The list stays put until the content is actually here. Swapping it for a
-  // "Loading preview…" pane first meant one click resized the pane twice
-  // (user: 상세항목 눌러서 들어갈때 툭 튀고); the read is a local snapshot, so
+  // "Loading preview…" pane first meant one click resized the pane twice; the read is a local snapshot, so
   // the wait is a frame, not a spinner's worth of time.
   const openPreview = async (entry: Entry) => {
     if (!request) return;
@@ -198,7 +330,7 @@ export function ContextInspector({
     windowTokens > 0 ? `${Math.round((tokens / windowTokens) * 1000) / 10}%` : '';
   // Every block already knows its category, so hovering one can say which
   // share it belongs to and how big that share is — the same numbers as the
-  // row in the list (user: 그리드에 호버하면 팝업 ... 어떤거 얼마나 먹었는지).
+  // row in the list.
   const cellKey = (node: EventTarget | null) => (node instanceof HTMLElement ? node.dataset.contextKey || '' : '');
   const cellSummary = (key: string) => {
     if (key === 'free') {
@@ -215,7 +347,7 @@ export function ContextInspector({
       .filter(Boolean)
       .join(' · ');
   };
-  // Hovering a block answers in place (user: 호버하면 플로팅되는 팝업) instead
+  // Hovering a block answers in place instead
   // of only lighting its run up, so the map can be read without tracking the
   // colour back to a row in the list.
   const trackBubble = (mapNode: HTMLElement, target: EventTarget | null) => {
@@ -267,117 +399,24 @@ export function ContextInspector({
         <p>{t('Select a category to list its entries here.')}</p>
       </div>
     );
-  } else if (preview) {
-    // Same 48px bar as the dialog header: back glyph, entry name, size.
+  } else {
     detail = (
       <section
-        className="context-entry-section context-entry-preview"
+        className={preview ? 'context-entry-section context-entry-preview' : 'context-entry-section'}
         aria-label={t('Context entries')}
-        aria-live="polite"
+        aria-live={preview ? 'polite' : undefined}
       >
-        <header className="context-detail-bar">
-          <button type="button" className="context-detail-icon" onClick={closePreview} aria-label={t('Close preview')}>
-            <ChevronLeft size={16} />
-          </button>
-          <h3>{previewEntry ? entryLabel(previewEntry) : ''}</h3>
-          <span>{previewEntry ? `≈${previewEntry.tokens.toLocaleString()}` : ''}</span>
-        </header>
-        {preview.truncated ? (
-          <p className="context-inspector-note context-detail-note">{t('Preview limited to 32,000 characters.')}</p>
-        ) : null}
-        {/* biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable preview region must be keyboard-focusable to scroll */}
-        <div className="context-preview-content markdown" data-scrollable tabIndex={0}>
-          <MarkdownBody
-            key={preview.id}
-            text={contextPreviewMarkdown(preview.text, previewEntry?.kind)}
-            copyControl={CopyControl}
-          />
-        </div>
-      </section>
-    );
-  } else {
-    // Group entries like the reference tools do: message rows by role (tool
-    // results already live inside their assistant turn), tool rows by how
-    // they ride the wire.
-    const groups = new Map<string, Entry[]>();
-    for (const entry of entries) {
-      const key = entry.group || '';
-      const bucket = groups.get(key);
-      if (bucket) bucket.push(entry);
-      else groups.set(key, [entry]);
-    }
-    const ordered = [...groups.entries()].sort(([a, aRows], [b, bRows]) => {
-      const rank = (key: string) => {
-        const index = GROUP_ORDER.indexOf(key);
-        return index < 0 ? GROUP_ORDER.length : index;
-      };
-      const byOrder = rank(a) - rank(b);
-      if (byOrder) return byOrder;
-      return sumTokens(bRows) - sumTokens(aRows);
-    });
-    const grouped = ordered.length > 1;
-    // Every group starts closed and opens only when its head is clicked
-    // (user: 카테고리 누르면 타입이 열려있냐 다 닫혀있지 않고).
-    const isOpen = (key: string) => expanded[key] ?? false;
-    const row = (entry: Entry) => (
-      <button
-        type="button"
-        key={entry.id}
-        disabled={!request}
-        onClick={() => void openPreview(entry)}
-        data-state={entry.state}
-        title={tokenTitle(entry)}
-      >
-        <span>
-          {entryLabel(entry)}
-          {entry.state === 'deferred' ? <small className="context-entry-badge">{t('Deferred')}</small> : null}
-          {entry.toolResults?.length ? <small className="context-entry-tools">{toolResultLine(entry)}</small> : null}
-        </span>
-        <strong>{entry.state === 'deferred' ? '—' : `≈${entry.tokens.toLocaleString()}`}</strong>
-      </button>
-    );
-    detail = (
-      <section className="context-entry-section" aria-label={t('Context entries')}>
-        <header className="context-detail-bar">
-          <i aria-hidden="true" data-context-key={selected.key} />
-          <h3>{t(selected.label)}</h3>
-          <span title={tokenTitle(selected)}>
-            {t('{{count}} items', { count: selected.count })} · ≈{selected.tokens.toLocaleString()}
-          </span>
-          <button
-            type="button"
-            className="context-detail-icon"
-            onClick={() => selectCategory('')}
-            aria-label={t('Close entries')}
-          >
-            <X size={16} />
-          </button>
-        </header>
-        <div className="context-entry-list">
-          {!grouped && entries.map(row)}
-          {grouped &&
-            ordered.map(([key, rows]) => {
-              const open = isOpen(key);
-              const total = sumTokens(rows);
-              return (
-                <div className="context-entry-group" key={key} data-open={open ? 'true' : undefined}>
-                  <button
-                    type="button"
-                    className="context-entry-group-head"
-                    aria-expanded={open}
-                    onClick={() => setExpanded((current) => ({ ...current, [key]: !open }))}
-                  >
-                    <ChevronRight size={14} aria-hidden="true" />
-                    <span>{groupLabel(key)}</span>
-                    <small>{t('{{count}} items', { count: rows.length })}</small>
-                    <strong>{key === 'deferred' ? '—' : `≈${total.toLocaleString()}`}</strong>
-                  </button>
-                  {open ? rows.map(row) : null}
-                </div>
-              );
+        {preview
+          ? entryPreviewContents({ preview, entry: previewEntry, onClose: closePreview })
+          : entryListContents({
+              category: selected,
+              entries,
+              expanded,
+              setExpanded,
+              tokenTitle,
+              onPreview: request ? (entry) => void openPreview(entry) : undefined,
+              onClose: () => selectCategory(''),
             })}
-          {!entries.length && <p className="mx-empty-state">{t('No entries.')}</p>}
-        </div>
       </section>
     );
   }

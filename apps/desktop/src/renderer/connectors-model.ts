@@ -67,6 +67,12 @@ export function connectorAccountRows(servers: readonly Row[]): Row[] {
       const accountOff = account.enabled === false;
       const off = server.enabled === false || accountOff;
       const connected = server.connected === true && !accountOff && !authRequired && !error;
+      let status = server.status;
+      if (off) {
+        if (accountOff) status = 'disabled';
+      } else if (connected) status = 'connected';
+      else if (authRequired) status = 'sign-in required';
+      else if (error) status = 'failed';
       return {
         ...base,
         ...(accountOff ? { enabled: false } : {}),
@@ -77,17 +83,7 @@ export function connectorAccountRows(servers: readonly Row[]): Row[] {
         ...(account.appPassword ? { appPassword: account.appPassword } : {}),
         ...(account.ownClient === true ? { ownClient: true } : {}),
         connected,
-        status: off
-          ? accountOff
-            ? 'disabled'
-            : server.status
-          : connected
-            ? 'connected'
-            : authRequired
-              ? 'sign-in required'
-              : error
-                ? 'failed'
-                : server.status,
+        status,
         error: authRequired ? null : error || server.error || null,
         ...(authRequired && !off ? { authRequired: true } : {}),
       };

@@ -87,7 +87,8 @@ export function BranchChip({
   const rows = branchRows(menu, sessionId, query);
   const base = workspace.mergeTarget || workspace.branch || '';
   const forked = state.kind !== 'branch';
-  const label = recovery ? t('Worktree missing') : (draft ? getBranchIntent(intentKey)?.branch : null) || state.label;
+  const draftBranch = draft ? getBranchIntent(intentKey)?.branch : null;
+  const label = recovery ? t('Worktree missing') : draftBranch || state.label;
   return (
     <div
       className="composer-branch-context"

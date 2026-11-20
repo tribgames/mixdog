@@ -2,8 +2,7 @@ import { createPortal } from 'react-dom';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 
-/** The file-drop overlay. Notices and errors no longer stack above the input
- *  card; they go to the toast lane (user: 되도록 컴포저 위에 안 떴으면). */
+/** The file-drop overlay. Notices and errors go to the toast lane, not above the input card. */
 export function ComposerBanners({
   draggingFiles,
   transitioning,

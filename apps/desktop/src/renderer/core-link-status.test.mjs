@@ -18,7 +18,10 @@ function mount(t, first) {
     connection: { kind: 'local', name: 'MY-PC' },
     sections: {
       snapshot: async () => first,
-      subscribe: (next) => (listeners.add(next), () => listeners.delete(next)),
+      subscribe: (next) => {
+        listeners.add(next);
+        return () => listeners.delete(next);
+      },
     },
   };
   const root = createRoot(document.getElementById('root'));
@@ -28,7 +31,10 @@ function mount(t, first) {
   });
   return {
     root,
-    push: (status, link) => act(async () => listeners.forEach((l) => l({ kind: 'status', status, link }))),
+    push: (status, link) =>
+      act(async () => {
+        for (const l of listeners) l({ kind: 'status', status, link });
+      }),
     toast: () => document.body.querySelector('.conn-link-banner')?.textContent ?? null,
   };
 }

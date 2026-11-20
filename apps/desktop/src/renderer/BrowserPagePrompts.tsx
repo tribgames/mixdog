@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { BROWSER_PERMISSION_MAX_SITES } from '../shared/browser-permission-policy';
 import type { DesktopBrowserPageAction, DesktopBrowserPageFrame } from '../shared/contract';
 import { t } from './i18n';
@@ -83,19 +83,19 @@ export function BrowserPagePrompts({
       if (!waiting) void answer({ type: 'answer-dialog', requestId: dialog.id, accept: !cancellable });
     } else if (chooser) void answer({ type: 'choose-files', requestId: chooser.id, cancel: true });
   };
-  const body = leaving
-    ? t('Changes you made may not be saved.')
-    : waiting
-      ? t('This page is waiting for a dialog open on another page.')
-      : notice
-        ? t('This page tried to open a dialog, which was dismissed.')
-        : devices
-          ? t('{{origin}} wants to connect to a HID device. Pick the device to connect.', {
-              origin: withoutScheme(dialog?.permission?.origin ?? ''),
-            })
-          : asking
-            ? permissionBody(dialog?.permission)
-            : dialog?.message;
+  let body: ReactNode = dialog?.message;
+  if (leaving) body = t('Changes you made may not be saved.');
+  else if (waiting) body = t('This page is waiting for a dialog open on another page.');
+  else if (notice) body = t('This page tried to open a dialog, which was dismissed.');
+  else if (devices) {
+    body = t('{{origin}} wants to connect to a HID device. Pick the device to connect.', {
+      origin: withoutScheme(dialog?.permission?.origin ?? ''),
+    });
+  } else if (asking) body = permissionBody(dialog?.permission);
+  let confirmLabel = t('OK');
+  if (leaving) confirmLabel = t('Leave');
+  else if (devices) confirmLabel = t('Connect');
+  else if (asking) confirmLabel = t('Allow');
   return (
     <section
       className="browser-page-prompt mx-dialog"
@@ -190,7 +190,7 @@ export function BrowserPagePrompts({
             <footer>
               {cancellable && (
                 <button type="button" disabled={busy} onClick={asking && !devices ? deny : dismiss}>
-                  {devices ? t('Cancel') : asking ? t('Deny') : t('Cancel')}
+                  {asking && !devices ? t('Deny') : t('Cancel')}
                 </button>
               )}
               <button
@@ -201,7 +201,7 @@ export function BrowserPagePrompts({
                 // biome-ignore lint/a11y/noAutofocus: a page dialog must put focus on its default action
                 autoFocus={dialog.type !== 'prompt' && !asking}
               >
-                {leaving ? t('Leave') : devices ? t('Connect') : asking ? t('Allow') : t('OK')}
+                {confirmLabel}
               </button>
             </footer>
           )}

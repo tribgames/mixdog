@@ -18,9 +18,10 @@ test('a server window’s lost-connection banner has "View log" and opens its ow
     subscribeConnectionLink: () => () => undefined,
     subscribeConnectionNotice: () => () => undefined,
     getConnectionLink: () => Promise.resolve({ state: { status: 'lost', code: 'unreachable', message: 'gone' } }),
-    sshDiagnosticsLog: (ref) => (
-      refs.push(ref), Promise.resolve({ lines: ['12:00:00.000 tunnel exited code 255 after 40 ms'], copyText: '' })
-    ),
+    sshDiagnosticsLog: (ref) => {
+      refs.push(ref);
+      return Promise.resolve({ lines: ['12:00:00.000 tunnel exited code 255 after 40 ms'], copyText: '' });
+    },
     sshServerLog: () => Promise.resolve({ ok: true, text: 'daemon.log tail', copyText: 'daemon.log tail' }),
   };
   dom.window.mixdogDesktop = api;
