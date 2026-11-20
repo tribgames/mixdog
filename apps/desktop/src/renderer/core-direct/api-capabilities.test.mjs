@@ -48,9 +48,15 @@ async function setup({
   };
   const hostCalls = [];
   const host = {
-    enableAllowAllActions: async () => (hostCalls.push(['enableAllowAllActions']), { value: 'settings' }),
+    enableAllowAllActions: async () => {
+      hostCalls.push(['enableAllowAllActions']);
+      return { value: 'settings' };
+    },
     observeSignIn: (...a) => void hostCalls.push(['observeSignIn', ...a]),
-    invokePcQuotaCapability: async (request) => (hostCalls.push(['pcInvoke', request.capability]), null),
+    invokePcQuotaCapability: async (request) => {
+      hostCalls.push(['pcInvoke', request.capability]);
+      return null;
+    },
     readPcQuotaCapabilities: async (requests) => requests.map(() => null),
     ...hostOverrides,
   };

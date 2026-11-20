@@ -13,6 +13,7 @@ import { isSshConnectionWindow } from '../desktop-connection.ts';
 import type { DirectContext } from './context.ts';
 import { sessionLanesOf } from './api-sessions.ts';
 import { withDirectErrors } from './errors.ts';
+import { hostPlatform } from './host-platform.ts';
 
 export type FilesApi = Pick<DesktopApi, DirectKey<'files'>>;
 
@@ -28,11 +29,6 @@ const isAbsolutePath = (path: string): boolean => /^([\\/]|[A-Za-z]:[\\/])/.test
  *  connection is waiting, and a read is one call after another, so a window larger than the 512 KiB control reserve is no burden. */
 const READ_WINDOW_CHARS = 2_097_152;
 const hasToken = (token: unknown): token is string => typeof token === 'string' && token !== '';
-
-const hostPlatform = (): 'win32' | 'darwin' | 'linux' => {
-  const name = typeof navigator === 'object' ? String(navigator.platform ?? '') : '';
-  return /^win/i.test(name) ? 'win32' : /^mac/i.test(name) ? 'darwin' : 'linux';
-};
 
 type FileTarget = { root: string; rel: string; accessToken?: string };
 
@@ -155,9 +151,9 @@ export function createFilesApi(ctx: DirectContext, options: FilesApiOptions = {}
       if (push.kind !== 'sections') return;
       for (const { section, entry } of push.changes) {
         if (!entry) continue;
-        const listeners =
-          section === 'lspDiagnostics' ? diagnosticListeners : section === 'lspStatus' ? statusListeners : null;
-        if (listeners) for (const listener of [...listeners]) listener(entry.value as never);
+        if (section !== 'lspDiagnostics' && section !== 'lspStatus') continue;
+        const listeners = section === 'lspDiagnostics' ? diagnosticListeners : statusListeners;
+        for (const listener of [...listeners]) listener(entry.value as never);
       }
     },
     notification(): void {},

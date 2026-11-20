@@ -113,7 +113,12 @@ test('api_installed_before_the_connection_opens_and_an_early_call_waits_for_it',
   let release;
   const opening = new Promise((resolve) => (release = resolve));
   let opens = 0;
-  const live = createRendererConnection({ open: () => ((opens += 1), opening) });
+  const live = createRendererConnection({
+    open: () => {
+      opens += 1;
+      return opening;
+    },
+  });
   const target = { mixdogDesktopHost: hostOf({ connection: { id: 'local', kind: 'local', name: 'pc' } }) };
   // Installed at once, though the open is still pending: the window can paint.
   await installDirectDesktopApi({ target, connection: live });

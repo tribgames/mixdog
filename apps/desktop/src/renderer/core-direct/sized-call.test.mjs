@@ -11,10 +11,14 @@ const harness = () => {
   const blobs = [];
   const client = {
     server: { limits: { maxInboundFrameBytes: FRAME, maxBlobPutChunkBytes: 190000 } },
-    call: async (method, params) => (sent.push({ method, params }), { ok: true }),
-    putBlob: async (bytes, mediaType) => (
-      blobs.push({ bytes, mediaType }), { blob: { digest: `sha256:${blobs.length}`, bytes: bytes.length, mediaType } }
-    ),
+    call: async (method, params) => {
+      sent.push({ method, params });
+      return { ok: true };
+    },
+    putBlob: async (bytes, mediaType) => {
+      blobs.push({ bytes, mediaType });
+      return { blob: { digest: `sha256:${blobs.length}`, bytes: bytes.length, mediaType } };
+    },
   };
   return { client, sent, blobs };
 };

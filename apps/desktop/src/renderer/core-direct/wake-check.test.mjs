@@ -11,11 +11,22 @@ function rig() {
   const stop = watchWake({
     check: () => checks.push(at),
     now: () => at,
-    setInterval: (run) => ((tick = run), 'timer'),
+    setInterval: (run) => {
+      tick = run;
+      return 'timer';
+    },
     clearInterval: () => (tick = () => undefined),
     events: { addEventListener: (_t, run) => online.add(run), removeEventListener: (_t, run) => online.delete(run) },
   });
-  return { checks, online, stop, pass: (ms) => ((at += ms), tick()) };
+  return {
+    checks,
+    online,
+    stop,
+    pass: (ms) => {
+      at += ms;
+      return tick();
+    },
+  };
 }
 
 test('a clock that jumps far past the poll interval (a machine that slept) asks the core; an ordinary tick does not', () => {

@@ -81,7 +81,7 @@ export async function play(world, driver, ops) {
         break;
       case 'accept':
         await world.waitFor(
-          (e, i) => e.ev === 'socket' && world.sockets[e.n - 1] && !world.accepted(world.sockets[e.n - 1])
+          (e) => e.ev === 'socket' && world.sockets[e.n - 1] && !world.accepted(world.sockets[e.n - 1])
         );
         lastSocket = await world.accept(op.flags);
         awaitingConnected = true;

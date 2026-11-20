@@ -16,9 +16,18 @@ function setup({ answers = {}, sections = {} } = {}) {
   const storeListeners = new Set();
   const replaced = new Set();
   const connection = {
-    onEvent: (l) => (eventListeners.add(l), () => eventListeners.delete(l)),
-    onReplaced: (l) => (replaced.add(l), () => replaced.delete(l)),
-    onStoreChange: (l) => (storeListeners.add(l), () => storeListeners.delete(l)),
+    onEvent: (l) => {
+      eventListeners.add(l);
+      return () => eventListeners.delete(l);
+    },
+    onReplaced: (l) => {
+      replaced.add(l);
+      return () => replaced.delete(l);
+    },
+    onStoreChange: (l) => {
+      storeListeners.add(l);
+      return () => storeListeners.delete(l);
+    },
     notify: (method, params) => notes.push({ method, params }),
     whenSynced: async () => undefined,
     snapshot: () => ({
@@ -44,9 +53,18 @@ function setup({ answers = {}, sections = {} } = {}) {
     calls,
     notes,
     sections,
-    emit: (event) => eventListeners.forEach((l) => l(event)),
-    store: (change) => storeListeners.forEach((l) => l(change)),
-    replace: () => replaced.forEach((l) => l()),
+    emit: (event) =>
+      eventListeners.forEach((l) => {
+        l(event);
+      }),
+    store: (change) =>
+      storeListeners.forEach((l) => {
+        l(change);
+      }),
+    replace: () =>
+      replaced.forEach((l) => {
+        l();
+      }),
   };
 }
 const delta = (tab, text, seq = 1) => ({

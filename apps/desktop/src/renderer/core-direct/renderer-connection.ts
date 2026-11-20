@@ -46,8 +46,10 @@ const isAbsentFeed = (error: unknown): boolean => {
 };
 const removalsOf = (route: ScopedFeedRoute): DesktopSectionChange[] =>
   [...route.held.values()].map(({ section, key }) => ({ section, key, entry: null }));
-const toStatus = (state: string): DesktopProtocolStatus =>
-  state === 'ready' ? 'ready' : state === 'closed' ? 'closed' : 'reconnecting';
+const toStatus = (state: string): DesktopProtocolStatus => {
+  if (state === 'ready' || state === 'closed') return state;
+  return 'reconnecting';
+};
 
 /** What a window of this connection hears: the scoped-feed notifications (`fs/changed`, `system/ports/updated`, login
  *  updates), the loss of a sign-in feed, and the section changes of the scoped feeds it watches (`push`). */

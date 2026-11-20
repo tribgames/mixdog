@@ -21,7 +21,7 @@ import { t } from '../i18n';
 export const richMarkdownLowlight = createLowlight(common);
 
 type MarkedExtensionList = {
-  extensions?: Array<{ level?: string; start?: (this: unknown, src: string) => number | void }>;
+  extensions?: Array<{ level?: string; start?: (this: unknown, src: string) => number | undefined }>;
 };
 
 /**

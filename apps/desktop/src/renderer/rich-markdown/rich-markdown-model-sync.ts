@@ -263,7 +263,7 @@ export class RichMarkdownModelSync {
     if (next >= 0 && !blocks.at(-1)?.eq(old[next].node)) return false;
     const mapped = mapBlocks(windowText, nodes, windowStart);
     if (!mapped) return false;
-    const from = prev >= 0 ? prev : 0;
+    const from = Math.max(prev, 0);
     const to = next >= 0 ? next + 1 : old.length;
     const entries = [
       ...old.slice(0, from),
@@ -426,7 +426,7 @@ export class RichMarkdownModelSync {
     const delta = region.length - (hi - lo);
     const windowStart = prev >= 0 ? old[prev].start : 0;
     const windowEnd = next >= 0 ? old[next].end + delta : nextLf.length;
-    const windowNodes = childrenOf(doc, prev >= 0 ? prev : 0, next >= 0 ? next + m - n + 1 : m);
+    const windowNodes = childrenOf(doc, Math.max(prev, 0), next >= 0 ? next + m - n + 1 : m);
     if (!this.readsBackAs(nextLf.slice(windowStart, windowEnd), windowNodes)) return null;
     const mapped = mapBlocks(region, run, lo);
     const blocks = mapped

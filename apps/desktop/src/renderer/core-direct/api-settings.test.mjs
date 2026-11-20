@@ -29,8 +29,14 @@ function world({ replies = {}, entries = [], pcClient = null } = {}) {
     unwatchFiles: async () => undefined,
     snapshot: () => ({ status: 'ready', entries: held }),
     whenSynced: async () => undefined,
-    onEvent: (listener) => (events.add(listener), () => events.delete(listener)),
-    onStoreChange: (listener) => (stores.add(listener), () => stores.delete(listener)),
+    onEvent: (listener) => {
+      events.add(listener);
+      return () => events.delete(listener);
+    },
+    onStoreChange: (listener) => {
+      stores.add(listener);
+      return () => stores.delete(listener);
+    },
     client: () => ({ store: {} }),
   };
   const ctx = { connection, window: () => undefined, pcClient: () => pcClient, call: connection.call, setSender() {} };
@@ -189,7 +195,10 @@ test('system_fonts_of_a_server_window_are_this_pcs', async () => {
   const pcSent = [];
   const pcClient = {
     server: { connection: { window: { role: 'server:c1' } } },
-    call: async (method, params) => (pcSent.push({ method, params }), { families: ['Local'] }),
+    call: async (method, params) => {
+      pcSent.push({ method, params });
+      return { families: ['Local'] };
+    },
   };
   const { api, sent } = world({ replies: { 'desktop/fonts/list': { families: ['OnServer'] } }, pcClient });
   assert.deepEqual(await api.listSystemFonts(), ['Local']);

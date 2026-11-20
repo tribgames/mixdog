@@ -7,7 +7,12 @@ import { createTakeoverApi } from './api-takeover.ts';
 
 const setup = (answer = async () => ({})) => {
   const calls = [];
-  const ctx = { call: async (method, params) => (calls.push({ method, params }), answer(method, params)) };
+  const ctx = {
+    call: async (method, params) => {
+      calls.push({ method, params });
+      return answer(method, params);
+    },
+  };
   return { calls, api: createTakeoverApi(ctx) };
 };
 

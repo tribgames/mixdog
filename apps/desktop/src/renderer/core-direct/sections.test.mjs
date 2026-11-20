@@ -20,7 +20,10 @@ function fakeClient() {
       sections: (name) => [...entries.values()].filter((e) => e.section === name),
       section: (section, key = null) => entries.get(`${section}\0${key ?? ''}`),
       appFeed: () => ({ epoch: 'e1' }),
-      subscribe: (l) => (storeListeners.add(l), () => storeListeners.delete(l)),
+      subscribe: (l) => {
+        storeListeners.add(l);
+        return () => storeListeners.delete(l);
+      },
     },
     async call(method, params) {
       calls.push({ method, params });
@@ -32,20 +35,33 @@ function fakeClient() {
     unsubscribeThread: async () => undefined,
     respond: () => undefined,
     pendingServerRequests: () => [],
-    on: (l) => (listeners.add(l), () => listeners.delete(l)),
+    on: (l) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
     close: async () => undefined,
-    emit: (event) => listeners.forEach((l) => l(event)),
+    emit: (event) =>
+      listeners.forEach((l) => {
+        l(event);
+      }),
     put(entry) {
       entries.set(`${entry.section}\0${entry.key ?? ''}`, entry);
-      storeListeners.forEach((l) => l({ type: 'section', section: entry.section, key: entry.key }));
+      storeListeners.forEach((l) => {
+        l({ type: 'section', section: entry.section, key: entry.key });
+      });
     },
     /** An app snapshot of another core folded by the same client: the whole store swapped, each section announced, then `appSnapshot`. */
     refold(next) {
       const announced = [...entries.values(), ...next];
       entries.clear();
       for (const entry of next) entries.set(`${entry.section}\0${entry.key ?? ''}`, entry);
-      for (const { section, key } of announced) storeListeners.forEach((l) => l({ type: 'section', section, key }));
-      storeListeners.forEach((l) => l({ type: 'appSnapshot' }));
+      for (const { section, key } of announced)
+        storeListeners.forEach((l) => {
+          l({ type: 'section', section, key });
+        });
+      storeListeners.forEach((l) => {
+        l({ type: 'appSnapshot' });
+      });
     },
   };
 }
