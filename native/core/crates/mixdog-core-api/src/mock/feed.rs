@@ -59,6 +59,8 @@ struct State {
 struct Subscriber {
     lane: Arc<dyn Lane>,
     window: Window,
+    /// The position its lane was attached at.
+    since: u64,
 }
 
 /// A snapshot to encode after the feed lock is released.
@@ -207,13 +209,24 @@ impl FeedSource for MockFeed {
                 }
             }
         }
-        state.subs.insert(req.sub, Subscriber { lane, window });
+        state.subs.insert(req.sub, Subscriber { lane, window, since: decision.start_seq - 1 });
         drop(state);
 
         if let Some(job) = encode {
             shared.encode(job);
         }
         Ok(decision)
+    }
+
+    fn carries(&self, sub: &SubscriptionId, window: &Window, resume: &ResumeFrom) -> Option<AttachDecision> {
+        let shared = &self.shared;
+        let state = shared.lock();
+        let held = state.subs.get(sub)?;
+        (held.window == *window
+            && resume.window == *window
+            && resume.position.epoch == shared.epoch
+            && (held.since..=state.seq).contains(&resume.position.seq))
+            .then(|| AttachDecision::carried(shared.position(state.seq), resume))
     }
 
     fn detach(&self, sub: SubscriptionId) {

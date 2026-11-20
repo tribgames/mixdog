@@ -88,6 +88,10 @@
 //! );
 //! ```
 //!
+//! A connection that asks again for a feed it already follows, in the same window and from a
+//! position its subscription delivers on from, is not attached a second time: that subscription
+//! carries on ([`FeedSource::carries`]), so nothing it delivered reaches the connection twice.
+//!
 //! Scoped feeds come from [`ScopedFeeds::create`] and end with [`ScopedFeed::close`]; between
 //! the two they are ordinary feeds on this same attach and publish path.
 //!
@@ -183,6 +187,14 @@ pub struct AttachDecision {
     pub live_seq: u64,
 }
 
+impl AttachDecision {
+    /// The decision for a held subscription that carries on ([`FeedSource::carries`]) in a feed at `head`: a replay
+    /// after `resume`, whose frames the subscription delivered or still holds in its lane.
+    pub fn carried(head: FeedPosition, resume: &ResumeFrom) -> Self {
+        Self { mode: AttachMode::Replay, epoch: head.epoch, start_seq: resume.position.seq + 1, live_seq: head.seq + 1 }
+    }
+}
+
 /// A registered subscription. The server must write its response with
 /// [`ConnectionSink::send_control_release`] using `release`.
 #[must_use]
@@ -231,6 +243,13 @@ pub trait FeedSource: Send + Sync {
     /// a core state error of the feed's owner (for example `threadClosing`), registering
     /// nothing.
     fn attach(&self, req: AttachRequest) -> Result<AttachDecision, CoreError>;
+
+    /// Whether `sub`, a subscription the asking connection holds on this feed, already carries what a new one for
+    /// `window` resumed from `resume` would: it is registered here for that window, and `resume` names that window and
+    /// a position of this epoch that its lane delivers on from (at or after the position the lane was attached at, up
+    /// to the head). The answer is then the decision of a replay with nothing left to send
+    /// ([`AttachDecision::carried`]). `None`: attach anew. A source that wraps another answers with the other's.
+    fn carries(&self, sub: &SubscriptionId, window: &Window, resume: &ResumeFrom) -> Option<AttachDecision>;
 
     /// Removes the subscription and closes its lane. Unknown ids are ignored.
     fn detach(&self, sub: SubscriptionId);

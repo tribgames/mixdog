@@ -102,6 +102,9 @@ struct State {
 struct Subscriber {
     lane: Arc<dyn Lane>,
     window: Window,
+    /// The position its lane was attached at: what the lane carries is the replay or the snapshot of that attach, and
+    /// every frame after this seq.
+    since: u64,
 }
 
 /// A snapshot slot to hand to its flight once the feed lock is released.
@@ -358,7 +361,7 @@ impl FeedSource for CoreFeed {
                 }
             }
         }
-        state.subs.insert(req.sub, Subscriber { lane, window });
+        state.subs.insert(req.sub, Subscriber { lane, window, since: decision.start_seq - 1 });
         state.watched = true;
         drop(state);
 
@@ -374,6 +377,18 @@ impl FeedSource for CoreFeed {
             }
         }
         Ok(decision)
+    }
+
+    fn carries(&self, sub: &SubscriptionId, window: &Window, resume: &ResumeFrom) -> Option<AttachDecision> {
+        let shared = &self.shared;
+        let state = shared.lock();
+        let held = state.subs.get(sub)?;
+        // A lagged lane carries on too: its recovery snapshot is what the connection is owed next.
+        (held.window == *window
+            && resume.window == *window
+            && resume.position.epoch == shared.epoch
+            && (held.since..=state.seq).contains(&resume.position.seq))
+            .then(|| AttachDecision::carried(FeedPosition { epoch: shared.epoch.clone(), seq: state.seq }, resume))
     }
 
     fn detach(&self, sub: SubscriptionId) {

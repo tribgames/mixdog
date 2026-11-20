@@ -200,6 +200,19 @@ impl Connection {
         Ok(())
     }
 
+    /// Runs `answer` with the subscription this connection holds live on `feed`, if it holds one: the answer is
+    /// queued while that subscription is the registered one, as one step for every reader of the subscriptions
+    /// ([`Self::send_attach_response`]).
+    pub(crate) fn answer_held_subscription<T>(
+        &self,
+        feed: &FeedId,
+        answer: impl FnOnce(&SubscriptionId) -> Option<T>,
+    ) -> Option<T> {
+        let subs = lock(&self.subs);
+        let held = subs.as_ref()?.get(feed).filter(|sub| sub.live)?;
+        answer(&held.id)
+    }
+
     pub(crate) fn remove_subscription(&self, feed: &FeedId) -> Option<Sub> {
         lock(&self.subs).as_mut().and_then(|subs| subs.remove(feed))
     }

@@ -61,6 +61,7 @@ use mixdog_core_api::Subscribe;
 use mixdog_core_api::ThreadHandle;
 use mixdog_core_api::call::WindowRole;
 use mixdog_core_api::call::WindowScope;
+use mixdog_core_api::feed::AttachDecision;
 use mixdog_core_api::feed::AttachMode;
 use mixdog_core_api::feed::FeedPosition;
 use mixdog_core_api::feed::ResumeFrom;
@@ -71,6 +72,7 @@ use mixdog_core_api::ids::FeedId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::OpId;
 use mixdog_core_api::ids::ServerRequestId;
+use mixdog_core_api::ids::SubscriptionId;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::ids::TurnId;
 use mixdog_core_api::ops::OpScope;
@@ -429,6 +431,27 @@ fn namespace(method: &'static str) -> &'static str {
 
 fn empty_result() -> Value {
     json!({})
+}
+
+/// The response of a subscribing request: its `result` with subscription `sub` as `decision` attached it.
+fn subscribed_frame(
+    id: &RequestId,
+    mut result: serde_json::Map<String, Value>,
+    sub: &SubscriptionId,
+    decision: &AttachDecision,
+) -> Bytes {
+    let subscription = Subscription {
+        id: sub.clone(),
+        mode: match decision.mode {
+            AttachMode::Replay => SubscriptionMode::Replay,
+            AttachMode::Snapshot => SubscriptionMode::Snapshot,
+        },
+        epoch: decision.epoch.clone(),
+        start_seq: decision.start_seq,
+        live_seq: decision.live_seq,
+    };
+    result.insert("subscription".to_owned(), serde_json::to_value(subscription).expect("subscription serializes"));
+    response_frame(id, &Value::Object(result))
 }
 
 impl Shared {
@@ -1213,9 +1236,10 @@ impl Shared {
         }
     }
 
-    /// A subscribing reply (P §6.4): allocate the subscription, attach, and write the
-    /// response with the lane release, so no lane frame can precede it. Server requests
-    /// follow the response (P §8.3).
+    /// A subscribing reply (P §6.4). A connection that already follows the feed, in this window and from a position
+    /// of this epoch, is answered with the subscription it holds ([`FeedSource::carries`]): its lane delivers on, so
+    /// nothing it delivered is sent again. Otherwise: allocate the subscription, attach, and write the response with
+    /// the lane release, so no lane frame can precede it. Server requests follow the response (P §8.3).
     fn finish_subscribe(&self, conn: &Connection, id: &RequestId, sub: Subscribe) {
         let Subscribe {
             result,
@@ -1223,31 +1247,27 @@ impl Shared {
             window,
             resume_from,
         } = sub;
+        let Value::Object(result) = result else {
+            let error = internal("subscribing reply without an object result");
+            return self.reject_core(conn, id, &error);
+        };
+        let feed_id = feed.feed_id();
+        let carried = resume_from.as_ref().is_some_and(|resume| {
+            conn.answer_held_subscription(&feed_id, |held| {
+                let decision = feed.carries(held, &window, resume)?;
+                Some(conn.sink.send_control(subscribed_frame(id, result.clone(), held, &decision)))
+            })
+            .is_some()
+        });
+        if carried {
+            return;
+        }
         let sub_id = conn.next_subscription_id();
         let attached = match subscribe(&feed, sub_id.clone(), window, resume_from, &*conn.sink) {
             Ok(attached) => attached,
             Err(error) => return self.reject_core(conn, id, &error),
         };
-        let Value::Object(mut result) = result else {
-            feed.detach(sub_id);
-            let error = internal("subscribing reply without an object result");
-            return self.reject_core(conn, id, &error);
-        };
-        let subscription = Subscription {
-            id: sub_id.clone(),
-            mode: match attached.decision.mode {
-                AttachMode::Replay => SubscriptionMode::Replay,
-                AttachMode::Snapshot => SubscriptionMode::Snapshot,
-            },
-            epoch: attached.decision.epoch.clone(),
-            start_seq: attached.decision.start_seq,
-            live_seq: attached.decision.live_seq,
-        };
-        result.insert(
-            "subscription".to_owned(),
-            serde_json::to_value(subscription).expect("subscription serializes"),
-        );
-        let feed_id = feed.feed_id();
+        let frame = subscribed_frame(id, result, &sub_id, &attached.decision);
         let registered = conn.register_subscription(
             feed_id.clone(),
             Sub {
@@ -1261,7 +1281,6 @@ impl Shared {
             Registered::Replaced(Some(old)) => old.feed.detach(old.id),
             Registered::Replaced(None) => {}
         }
-        let frame = response_frame(id, &Value::Object(result));
         let release = attached.release;
         if conn
             .send_attach_response(&feed_id, &sub_id, || conn.sink.send_control_release(frame, release))

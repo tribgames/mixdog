@@ -355,9 +355,60 @@ test('a joiner observes the original request\'s actual departure, not the moment
   await client.close();
 });
 
-// The core answers a resume of a thread this connection already follows with a new lane: the old lane's frames written before the
-// answer, the answer, then the replay `(resumeFrom.seq, S]` and live frames on the new lane (server.rs `finish_subscribe`, writer.rs
-// write order). `resumeFrom` is the folded position, so a frame the old lane delivered past it while the resume was out comes again.
+// A resume of a thread this connection already follows, in the same window, is answered by the subscription the core holds for it
+// (server.rs `finish_subscribe`, `FeedSource::carries`): the decision is a replay after the folded position, the lane it already had
+// delivers on, and no frame comes a second time. The answer and the lane's frames are written in either order.
+test('a resume the core answers with the subscription it holds repeats nothing, and the feed runs on', async (t) => {
+  const { conn, client } = await setup();
+  t.after(() => client.close());
+  const violations: string[] = [];
+  client.on((e) => {
+    if (e.type === 'protocolViolation') violations.push(e.what);
+  });
+  const frame = (seq: number) => ({ method: 'thread/frame', params: {}, feed: { id: 't1', epoch: 'te', seq } });
+  const opened = client.resumeThread('t1', { lastItems: 50 });
+  conn.serverSend(reply(JSON.parse(await conn.nextSent()).id, 'snapshot', 'te', 1));
+  await opened;
+  conn.serverSend({ method: 'thread/snapshot', params: {}, feed: { id: 't1', epoch: 'te', seq: 0 } });
+  conn.serverSend(frame(1));
+  await tick();
+  const folds: number[] = [];
+  client.store.subscribe((change) => {
+    if (change.type === 'thread') folds.push(client.store.thread('t1')!.feed.seq);
+  });
+
+  // A frame of the lane before the answer.
+  const again = client.resumeThread('t1', { lastItems: 50 });
+  const request = JSON.parse(await conn.nextSent());
+  assert.equal(request.params.resumeFrom.seq, 1);
+  conn.serverSend(frame(2));
+  conn.serverSend(reply(request.id, 'replay', 'te', 2, 3));
+  conn.serverSend(frame(3));
+  await again;
+  await tick();
+  assert.deepEqual(folds, [2, 3]);
+
+  // The answer before the lane's frames up to the head it names.
+  const third = client.resumeThread('t1', { lastItems: 50 });
+  const later = JSON.parse(await conn.nextSent());
+  assert.equal(later.params.resumeFrom.seq, 3);
+  conn.serverSend(reply(later.id, 'replay', 'te', 4, 6));
+  conn.serverSend(frame(4));
+  conn.serverSend(frame(5));
+  await third;
+  await tick();
+  assert.deepEqual(violations, []);
+  assert.deepEqual(folds, [2, 3, 4, 5], 'each event folds once, in order');
+
+  // The feed is held to continuity throughout.
+  conn.serverSend(frame(7));
+  assert.deepEqual(violations, ['feed gap on t1']);
+});
+
+// The client's own tolerance of a replay that crosses frames it already has. A core that attaches a resume anew while the connection
+// still holds a subscription of the thread writes the old lane's frames first, then the answer, then the replay `(resumeFrom.seq, S]`
+// and live frames on the new lane (writer.rs write order); `resumeFrom` is the folded position, so a frame the old lane delivered
+// past it while the resume was out comes again. Only the answer and the frames matter here, not what made the core attach anew.
 test('a replay that repeats frames the old subscription already delivered is not a gap, and nothing folds twice', async (t) => {
   const { conn, client } = await setup();
   t.after(() => client.close());

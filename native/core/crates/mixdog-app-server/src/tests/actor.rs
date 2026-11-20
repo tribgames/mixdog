@@ -234,6 +234,10 @@ impl FeedSource for ActorThread {
         self.thread.attach(req)
     }
 
+    fn carries(&self, sub: &SubscriptionId, window: &mixdog_core_api::feed::Window, resume: &mixdog_core_api::feed::ResumeFrom) -> Option<AttachDecision> {
+        self.thread.carries(sub, window, resume)
+    }
+
     fn detach(&self, sub: SubscriptionId) {
         self.thread.detach(sub);
     }
