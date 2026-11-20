@@ -168,9 +168,7 @@ impl<T: Send> EventSource<T> for VecSource<T> {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Provider
-// ---------------------------------------------------------------------------
 
 /// Line wire: `t:<text>` text delta, `ka` provider keepalive, `done` terminal.
 #[derive(Default)]
@@ -583,9 +581,7 @@ impl TransportKeepalive for MockKeepalive {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Tool and approval
-// ---------------------------------------------------------------------------
 
 #[derive(Default)]
 pub struct MockProgress(pub Mutex<Vec<ToolProgress>>);
@@ -727,9 +723,7 @@ impl Tool for FailingTool {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Files
-// ---------------------------------------------------------------------------
 
 /// Files and directories in memory. Directories are explicit entries.
 #[derive(Default)]
@@ -917,9 +911,7 @@ impl FileService for MockFileService {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Processes
-// ---------------------------------------------------------------------------
 
 struct MockProc {
     info: ProcessInfo,
@@ -1054,9 +1046,7 @@ impl ProcessManager for MockProcessManager {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Repository
-// ---------------------------------------------------------------------------
 
 /// A repository whose key changes with each piece of evidence.
 pub struct MockRepoInspector {
@@ -1111,9 +1101,7 @@ impl RepoInspector for MockRepoInspector {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Extension pool
-// ---------------------------------------------------------------------------
 
 struct ExtCallSource {
     frames: VecDeque<ExtFrame>,
@@ -1167,9 +1155,7 @@ impl ExtPool for MockExtPool {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Computer and media
-// ---------------------------------------------------------------------------
 
 /// A 2×2 BGRA source producing `frames` frames.
 pub struct MockFrameSource {
@@ -1320,9 +1306,7 @@ impl VideoTrack for MockVideoTrack {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Login and ownership
-// ---------------------------------------------------------------------------
 
 struct LoginInner {
     queue: VecDeque<LoginState>,

@@ -119,9 +119,7 @@ impl LinkDialer for SshDialer {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Failures
-// ---------------------------------------------------------------------------------------------
 
 /// The core refused this desktop's `initialize` for its version (the client's terminal `VersionRefused`): nothing a retry
 /// changes, the session stops with the words the compatibility check gives.
@@ -180,9 +178,7 @@ fn ssh_login(login: ModelLogin) -> Option<SshModelLogin> {
     (login == ModelLogin::Server).then_some(SshModelLogin::Server)
 }
 
-// ---------------------------------------------------------------------------------------------
 // What the layers under the machine do
-// ---------------------------------------------------------------------------------------------
 
 /// The ssh half of a link: the current session (a stopped one is replaced, never mutated) and what it was opened with.
 struct Bound {
@@ -329,9 +325,7 @@ impl EndpointResolver for SessionResolver {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Following the client
-// ---------------------------------------------------------------------------------------------
 
 /// The list a `system/ports/updated` update carries; nothing for an update that is not a list.
 fn listening_ports(params: Option<&serde_json::Value>) -> Option<Vec<ServerPort>> {
@@ -527,9 +521,7 @@ impl Follower {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // The link
-// ---------------------------------------------------------------------------------------------
 
 /// This PC's core attached to one server's core.
 pub struct ServerLink {
@@ -1027,9 +1019,7 @@ impl LinkActions for ServerLink {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // The pool
-// ---------------------------------------------------------------------------------------------
 
 /// This PC going to sleep or waking up.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

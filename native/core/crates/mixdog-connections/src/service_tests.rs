@@ -50,7 +50,7 @@ async fn settle() {
     }
 }
 
-// ----- fakes: the links --------------------------------------------------------------------------------------------------
+// fakes: the links
 
 struct WatchGuard(Arc<AtomicUsize>);
 
@@ -333,7 +333,7 @@ impl FeedLinks for FakeLinks {
     }
 }
 
-// ----- fakes: the host, the notifier, the machine -------------------------------------------------------------------------
+// fakes: the host, the notifier, the machine
 
 #[derive(Default)]
 struct FakeWindows {
@@ -586,7 +586,7 @@ impl RelayPairing for FakeRelay {
     }
 }
 
-// ----- the rig ------------------------------------------------------------------------------------------------------------
+// the rig
 
 struct Rig {
     service: ConnectionsService,
@@ -601,7 +601,7 @@ struct Rig {
     _dir: tempfile::TempDir,
 }
 
-// ----- callers and calls --------------------------------------------------------------------------------------------------
+// callers and calls
 
 fn host_ctx() -> CallContext {
     let mut ctx = CallContext::connection(HOST, Origin::Local, CancellationToken::new());
@@ -633,7 +633,7 @@ fn denied(result: Result<Value, CoreError>) -> bool {
     matches!(result, Err(CoreError::PermissionDenied { .. }))
 }
 
-// ----- the table ----------------------------------------------------------------------------------------------------------
+// the table
 
 #[test]
 fn methods_are_the_policy_table_and_the_window_notification() {
@@ -832,7 +832,7 @@ async fn callers_are_held_to_the_table() {
     assert!(call(&rig, "remoteHosts/list", json!({}), main_ctx()).await.is_ok());
     assert!(call(&rig, "remoteHosts/list", json!({}), host_ctx()).await.is_ok());
 }
-// ----- the feed and the ports view ----------------------------------------------------------------------------------------
+// the feed and the ports view
 
 #[tokio::test]
 async fn a_subscription_is_limited_to_the_scope_the_caller_may_have() {
@@ -877,7 +877,7 @@ async fn a_link_that_attaches_while_its_ports_are_viewed_starts_sampling() {
     settle().await;
     assert_eq!(*locked(&link.viewed), vec![true]);
 }
-// ----- the saved servers ---------------------------------------------------------------------------------------------------
+// the saved servers
 
 #[tokio::test]
 async fn saved_servers_are_listed_renamed_updated_and_forgotten() {
@@ -919,7 +919,7 @@ async fn a_params_value_of_the_wrong_shape_is_refused_at_the_boundary() {
     let result = call(&rig, "connections/ssh/rename", json!({ "id": 5 }), main_ctx()).await;
     assert!(matches!(result, Err(CoreError::InvalidParams { .. })), "{result:?}");
 }
-// ----- connecting ----------------------------------------------------------------------------------------------------------
+// connecting
 
 #[tokio::test]
 async fn connecting_opens_the_window_and_remembers_it_and_a_cancel_withdraws_an_attempt() {
@@ -999,7 +999,7 @@ async fn the_cleanup_reports_its_progress_to_the_caller_and_closes_the_window_fi
             .await;
     assert!(message_of(&refused.expect_err("refused")).contains("operationId"));
 }
-// ----- diagnostics ---------------------------------------------------------------------------------------------------------
+// diagnostics
 
 #[tokio::test]
 async fn diagnostics_answer_this_pc_for_any_server_and_a_server_window_for_its_own() {
@@ -1017,7 +1017,7 @@ async fn diagnostics_answer_this_pc_for_any_server_and_a_server_window_for_its_o
     let copy = call(&rig, "connections/ssh/diagnosticsCopy", json!({ "ref": "box" }), main_ctx()).await.expect("copy");
     assert!(copy["text"].as_str().expect("text").contains("9.9.9"));
 }
-// ----- the logins on a server ----------------------------------------------------------------------------------------------
+// the logins on a server
 
 #[tokio::test]
 async fn the_server_logins_route_and_their_updates_reach_the_window_that_began_them() {
@@ -1068,7 +1068,7 @@ async fn the_server_logins_route_and_their_updates_reach_the_window_that_began_t
     settle().await;
     assert_eq!(rig.notifier.of("connections/ssh/serverLoginUpdated").len(), 1);
 }
-// ----- the link of a server window -----------------------------------------------------------------------------------------
+// the link of a server window
 
 #[tokio::test]
 async fn the_link_state_is_answered_and_a_missing_link_is_null() {
@@ -1156,7 +1156,7 @@ async fn the_endpoint_of_an_attached_server_is_the_hosts() {
     let missing = call(&rig, "connections/endpoint", json!({ "connectionId": "gone" }), host_ctx()).await;
     assert!(message_of(&missing.expect_err("refused")).contains("not attached"));
 }
-// ----- reopening the windows -----------------------------------------------------------------------------------------------
+// reopening the windows
 
 #[tokio::test]
 async fn the_reopen_setting_and_its_progress_are_answered() {
@@ -1280,7 +1280,7 @@ async fn dispose_closes_every_link_and_the_logins() {
     assert!(!rig.links.has("box"));
     assert_eq!(rig.logins.calls(), vec!["dispose"]);
 }
-// ----- what follows a link ------------------------------------------------------------------------------------------------
+// what follows a link
 
 #[tokio::test]
 async fn each_attached_link_is_followed_until_it_closes_or_is_replaced() {
@@ -1315,7 +1315,7 @@ async fn a_notice_of_a_link_reaches_the_windows_that_view_it() {
     assert_eq!(notices.len(), 1);
     assert_eq!((notices[0].0, notices[0].1.clone()), (WINDOW, json!({ "connectionId": "box", "notice": { "kind": "model-sign-in", "provider": "openai" } })));
 }
-// ----- "Connect to another PC" ---------------------------------------------------------------------------------------------
+// "Connect to another PC"
 
 #[tokio::test]
 async fn a_code_saves_the_host_and_answers_the_address_the_window_loads() {

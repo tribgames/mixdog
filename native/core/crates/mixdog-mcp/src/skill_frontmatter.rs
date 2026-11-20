@@ -169,7 +169,6 @@ struct Edit {
     text: Vec<String>,
 }
 
-// ---------------------------------------------------------------------------------------------
 // Locating the keys.
 
 struct Entry {
@@ -268,7 +267,6 @@ fn entries(lines: &[&str]) -> Result<Vec<Entry>, SkillDocumentError> {
     Ok(out)
 }
 
-// ---------------------------------------------------------------------------------------------
 // The value of an existing key.
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -557,7 +555,6 @@ fn closing_quote(lines: &[&str], line: usize, byte: usize, quote: char) -> Optio
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Printing a pair, as the `yaml` package's `stringifyPair` does for a scalar value.
 
 /// `commentString`: every non-empty line gets its `#`; a line of one space is just `#`.
@@ -955,7 +952,6 @@ fn block_string(value: &str, kind: Kind, comment: Option<&str>, ctx: &Ctx) -> (S
     (format!("|{header}\n{indent}{start}{value}{end}"), comment_done)
 }
 
-// ---------------------------------------------------------------------------------------------
 // `foldFlowLines`, over UTF-16 units like the original.
 
 #[derive(Clone, Copy, PartialEq, Eq)]

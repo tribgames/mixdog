@@ -23,7 +23,7 @@ fn size(scale: u32) -> PetGeometry {
     pet_geometry(scale)
 }
 
-// ---- Prefs -------------------------------------------------------------------------------------
+// Prefs
 
 #[test]
 fn an_unset_overlay_is_off_and_pinned() {
@@ -150,7 +150,7 @@ fn a_missing_or_damaged_file_reads_as_the_default() {
     assert_eq!(prefs.scale, 150);
 }
 
-// ---- Placement ---------------------------------------------------------------------------------
+// Placement
 
 #[test]
 fn the_bot_scales_50_to_200_only_the_sprite_grows() {
@@ -310,7 +310,7 @@ fn the_here_anchor_keeps_the_distance_from_the_nearest_corner() {
     assert_eq!(pet_here_position(&bottom_right, CONTENT), PetPos { x: 1200.0, y: 800.0 });
 }
 
-// ---- The service -------------------------------------------------------------------------------
+// The service
 
 struct Rig {
     root: tempfile::TempDir,
@@ -406,7 +406,7 @@ async fn another_method_is_not_this_services() {
     assert_eq!(rig.service.methods(), &["desktopPet/state/read", "desktopPet/state/write", "desktopPet/placement/resolve"]);
 }
 
-// ---- The placement method ----------------------------------------------------------------------
+// The placement method
 
 #[test]
 fn the_placement_method_answers_each_rule_as_the_function_does() {

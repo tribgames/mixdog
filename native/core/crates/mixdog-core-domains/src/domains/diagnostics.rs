@@ -146,7 +146,7 @@ fn unavailable() -> Option<Verdict> {
 
 type Reported = Result<Option<Verdict>, ProbeFailed>;
 
-// --- JavaScript value semantics the reports rely on -------------------------------------
+// JavaScript value semantics the reports rely on
 
 fn truthy(value: Option<&Value>) -> bool {
     match value {
@@ -178,7 +178,7 @@ fn name_of(entry: &Value) -> String {
     js_text(named.or(entry.get("id")))
 }
 
-// --- The reports ------------------------------------------------------------------------
+// The reports
 
 fn report_update(package_version: Option<&str>, update: &Value) -> Option<Verdict> {
     let current = if truthy(update.get("currentVersion")) {
@@ -589,7 +589,7 @@ fn report_session_log(status: &Value) -> Option<Verdict> {
     }
 }
 
-// --- Local installation state -----------------------------------------------------------
+// Local installation state
 
 /// Whether a file can really be created in `dir` and removed again (the permission attribute of a directory says nothing on
 /// Windows): true only when both happened, so a folder that takes the file but not its removal is not "writable". `cancel` is
@@ -670,7 +670,7 @@ fn log_files(dir: &std::path::Path) -> Reported {
     })
 }
 
-// --- The checks -------------------------------------------------------------------------
+// The checks
 
 /// A status that is an object (not an array): anything else leaves the default row.
 fn object(probe: Probe) -> Result<Option<Value>, ProbeFailed> {

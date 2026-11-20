@@ -132,7 +132,7 @@ impl FinalAnswers for LinkAnswers {
     }
 }
 
-// ---- the final-answer watcher: one implementation for this PC's session notifier and for a server's
+// the final-answer watcher: one implementation for this PC's session notifier and for a server's
 
 /// What a roster row says about a session's turn.
 pub struct TurnFacts {
@@ -433,7 +433,7 @@ impl<T> AnswerWatch<T> {
     }
 }
 
-// ---- a server's notifier
+// a server's notifier
 
 /// What the notifier shows and decides with.
 pub struct NotifierEnv {

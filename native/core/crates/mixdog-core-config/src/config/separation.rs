@@ -74,7 +74,7 @@ pub(super) fn needs_separation(root: &Doc) -> bool {
     !root.is_empty() && version_of(root) < DEFAULTS_VERSION
 }
 
-// ---- the pass -------------------------------------------------------------------------------
+// the pass
 
 /// `stripChannelsDefaults` then `withoutDefaults(…, {})`: the channels section without a default
 /// webhook; `None` when nothing is left.
@@ -431,7 +431,7 @@ pub(super) fn separate_defaults_in_config(root: &Doc, data_dir: &Path) -> Doc {
     next
 }
 
-// ---- the file -------------------------------------------------------------------------------
+// the file
 
 /// `statSync(path).mode & 0o777`.
 #[cfg(unix)]

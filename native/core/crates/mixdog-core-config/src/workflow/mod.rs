@@ -220,7 +220,7 @@ impl WorkflowConfig {
         self.config.save_agent_config(before, after, false).await.map(|_| ()).map_err(config_failure)
     }
 
-    // --- workflow packs ---
+    // workflow packs
 
     async fn get_pack(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let params: mixdog_app_protocol::v2::params::ConfigGetWorkflowPackParams = decode(req)?;
@@ -304,7 +304,7 @@ impl WorkflowConfig {
             .await
     }
 
-    // --- web-search route and model preferences ---
+    // web-search route and model preferences
 
     async fn set_web_search_route(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let next = req.params.get("next").cloned().unwrap_or(Value::Null);
@@ -351,7 +351,7 @@ impl WorkflowConfig {
             .await
     }
 
-    // --- onboarding ---
+    // onboarding
 
     /// `listWorkflows()`: the catalog with the configured workflow marked active.
     pub async fn list_workflows(&self) -> Result<Value, CoreError> {

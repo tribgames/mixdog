@@ -69,9 +69,7 @@ use sha2::Sha256;
 
 const DOMAIN: &str = "desktop";
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Link paths (transcript-file-links.ts)
-// ---------------------------------------------------------------------------------------------------------------------
 
 /// The path rules of one platform, as Node's `path` module applies them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -270,9 +268,7 @@ pub fn requested_link_path(flavor: PathFlavor, href: &str, cwd: &str) -> Option<
     link_path(href).and_then(|path| resolve_linked_path(flavor, &path, cwd))
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Attachments a conversation names (transcript-file-links.ts `sessionAttachments`)
-// ---------------------------------------------------------------------------------------------------------------------
 
 /// One attachment record; `kind` is whatever the row carried (`image`, `file`, `text`), `file` when it carried none.
 #[derive(Debug, Clone, PartialEq)]
@@ -362,9 +358,7 @@ pub fn session_attachments(snapshot: &Value) -> Vec<SessionAttachment> {
     found
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Session attachments by id (session-attachments.ts)
-// ---------------------------------------------------------------------------------------------------------------------
 
 /// What reading a session's attachments needs of the core.
 #[async_trait]
@@ -496,9 +490,7 @@ pub fn stage_session_attachment(temp: &Path, meta: &SessionAttachment, bytes: &[
     Ok(file)
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // JSONC settings (workflow-config.ts)
-// ---------------------------------------------------------------------------------------------------------------------
 
 const JSONC_MAX_UTF16: usize = 2_000_000;
 
@@ -614,9 +606,7 @@ pub fn read_jsonc_file(path: &Path) -> Result<Option<Map<String, Value>>, String
     Ok(object_record(parse_jsonc(&text)?))
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Installed font families (system-fonts.ts)
-// ---------------------------------------------------------------------------------------------------------------------
 
 const LIST_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_BUFFER: usize = 4 * 1024 * 1024;
@@ -711,9 +701,7 @@ pub fn list_system_fonts() -> &'static [String] {
     CACHED.get_or_init(|| list_system_fonts_uncached(host_platform()))
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // The service
-// ---------------------------------------------------------------------------------------------------------------------
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

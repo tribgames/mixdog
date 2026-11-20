@@ -34,7 +34,6 @@ static FLOAT_NAN: LazyLock<JsRegex> = LazyLock::new(|| re(r"^(?:[-+]?\.(?:inf|In
 static FLOAT_EXP: LazyLock<JsRegex> = LazyLock::new(|| re(r"^[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)[eE][-+]?[0-9]+$"));
 static FLOAT: LazyLock<JsRegex> = LazyLock::new(|| re(r"^[-+]?(?:\.[0-9]+|[0-9]+\.[0-9]*)$"));
 
-// ---------------------------------------------------------------------------------------------
 // Nodes.
 
 #[derive(Clone, Copy)]
@@ -115,7 +114,6 @@ impl Node {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Parsing.
 
 fn invalid(message: &str) -> SkillDocumentError {
@@ -514,7 +512,6 @@ fn retype(scalar: &mut Scalar, tag: &str) {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Printing.
 
 /// The stringify context: the scalar printer's plus the collection state.
@@ -777,7 +774,6 @@ fn stringify_pair(pair: &Pair, ctx: &Fc) -> Result<String, SkillDocumentError> {
     Ok(text)
 }
 
-// ---------------------------------------------------------------------------------------------
 // The document.
 
 /// Parses `front` (a flow mapping), sets name, description and trigger the way `document.set`

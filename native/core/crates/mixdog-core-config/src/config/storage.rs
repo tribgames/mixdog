@@ -36,7 +36,7 @@ const CODEX_CREDENTIALS_FILE: &str = "openai-oauth.json";
 const DAYBREAK_BLUE_PROGRAM: &str = "daybreak_blue";
 const STANDARD_PROGRAM: &str = "standard";
 
-// ---- the saved openai-oauth catalog -----------------------------------------------------------------
+// the saved openai-oauth catalog
 
 /// `loadSavedCodexCatalog()`: the models of the last saved catalog, stale or not; none when no catalog was
 /// ever fetched or the file is not a catalog of this version (`makeModelCache(...).loadSync({ allowStale })`).
@@ -141,7 +141,7 @@ fn superseded_settings_key(key: &str, models: &[Value], now_ms: i64) -> bool {
     key.strip_prefix("openai-oauth/").is_some_and(|model| successor(models, model, now_ms).is_some())
 }
 
-// ---- the canonical section ----------------------------------------------------------------------
+// the canonical section
 
 fn is_retired_local_route(route: &Value) -> bool {
     RETIRED_LOCAL_PROVIDER_IDS.contains(&provider_of(route).as_str())

@@ -230,6 +230,45 @@ fn push_source(fields: &mut Vec<(&'static str, Value)>, source: Option<&str>) {
     }
 }
 
+/// gcloud login: nothing is stored; connected while enabled and the login is readable.
+fn vertex_adc_setup(world: &dyn SetupWorld, p: &ApiProvider, configured: &Value, configured_enabled: bool, check_secrets: bool) -> Value {
+    let (location, location_source) = vertex_row_location(world, configured);
+    let project = text(configured.get("projectId"));
+    let adc = if check_secrets { world.vertex_adc(project.as_deref()) } else { None };
+    if adc.as_ref().and_then(|adc| adc.get("state")).and_then(Value::as_str) == Some("missing") {
+        world.probe_vertex_metadata();
+    }
+    let ready = configured_enabled && adc.as_ref().is_none_or(|adc| adc.get("state").and_then(Value::as_str) == Some("ready"));
+    let adc_status = if ready {
+        "Set"
+    } else if configured_enabled {
+        "Not connected"
+    } else {
+        "Off"
+    };
+    let project_id = adc.as_ref().and_then(|adc| text(adc.get("projectId"))).or(project);
+    let mut fields = vec![
+        ("group", json!("api")),
+        ("type", json!("api-key")),
+        ("authKind", json!("adc")),
+        ("authMode", json!(VERTEX_ADC_MODE)),
+        ("enabled", json!(configured_enabled)),
+        ("authenticated", json!(ready)),
+        ("stored", json!(false)),
+        ("env", json!(false)),
+        ("envName", Value::Null),
+        ("status", json!(adc_status)),
+        ("detail", json!(vertex_adc_detail(adc.as_ref(), &location))),
+        ("location", json!(location)),
+        ("locationSource", json!(location_source)),
+        ("projectId", json!(project_id)),
+    ];
+    if let Some(adc) = adc {
+        fields.push(("adc", adc));
+    }
+    api_row(p, fields)
+}
+
 fn api_provider_setup(world: &dyn SetupWorld, p: &ApiProvider, providers: &Value, check_secrets: bool, keychain: Option<&Value>) -> Value {
     let null = Value::Null;
     let configured = providers.get(p.id).filter(|value| truthy(Some(value))).unwrap_or(&null);
@@ -267,42 +306,7 @@ fn api_provider_setup(world: &dyn SetupWorld, p: &ApiProvider, providers: &Value
     }
 
     if p.id == "vertex-ai" && configured.get("authMode").and_then(Value::as_str) == Some(VERTEX_ADC_MODE) {
-        // gcloud login: nothing is stored; connected while enabled and the login is readable.
-        let (location, location_source) = vertex_row_location(world, configured);
-        let project = text(configured.get("projectId"));
-        let adc = if check_secrets { world.vertex_adc(project.as_deref()) } else { None };
-        if adc.as_ref().and_then(|adc| adc.get("state")).and_then(Value::as_str) == Some("missing") {
-            world.probe_vertex_metadata();
-        }
-        let ready = configured_enabled && adc.as_ref().is_none_or(|adc| adc.get("state").and_then(Value::as_str) == Some("ready"));
-        let adc_status = if ready {
-            "Set"
-        } else if configured_enabled {
-            "Not connected"
-        } else {
-            "Off"
-        };
-        let project_id = adc.as_ref().and_then(|adc| text(adc.get("projectId"))).or(project);
-        let mut fields = vec![
-            ("group", json!("api")),
-            ("type", json!("api-key")),
-            ("authKind", json!("adc")),
-            ("authMode", json!(VERTEX_ADC_MODE)),
-            ("enabled", json!(configured_enabled)),
-            ("authenticated", json!(ready)),
-            ("stored", json!(false)),
-            ("env", json!(false)),
-            ("envName", Value::Null),
-            ("status", json!(adc_status)),
-            ("detail", json!(vertex_adc_detail(adc.as_ref(), &location))),
-            ("location", json!(location)),
-            ("locationSource", json!(location_source)),
-            ("projectId", json!(project_id)),
-        ];
-        if let Some(adc) = adc {
-            fields.push(("adc", adc));
-        }
-        return api_row(p, fields);
+        return vertex_adc_setup(world, p, configured, configured_enabled, check_secrets);
     }
 
     if p.id == "vertex-ai" {

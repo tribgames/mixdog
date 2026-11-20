@@ -97,7 +97,7 @@ impl RoutineRuntime {
     /// Carries out one fire of routine `name` with sub-agent `agent_id` and resolves its final
     /// report (trimmed). Rejects when the executor is no longer valid, fails, is cancelled, or
     /// `cancel` fires.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "one fire's whole input")]
     pub(super) async fn run_executor_fire(
         &self,
         agent_id: &str,

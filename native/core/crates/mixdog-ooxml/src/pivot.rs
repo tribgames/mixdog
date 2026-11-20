@@ -486,7 +486,7 @@ mod tests {
         list.iter().map(|text| (*text).to_owned()).collect()
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "one pivot probe's own facts")]
     fn write(zip: &mut Package, fields: &[PivotField], records: &[Vec<Value>], source_ref: &str, row: i64, column: i64, values: &[usize]) -> PivotWritten {
         let layout = PivotLayout { fields, row_field: row, column_field: column, value_fields: values };
         let request = PivotRequest {

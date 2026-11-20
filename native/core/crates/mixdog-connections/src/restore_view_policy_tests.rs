@@ -35,7 +35,7 @@ use crate::restore::{Restore, RestoreLinks, RestoreWindows};
 use crate::view::{ConnectionsFeed, FeedLink, FeedLinks};
 use crate::window_restore_store::WindowRestoreStore;
 
-// ---- policy
+// policy
 
 #[derive(Clone, Copy, Debug)]
 enum Kind {
@@ -150,7 +150,7 @@ fn restore_view_policy_host_only_endpoint() {
     assert!(policy::require_host(&context(Kind::Host), "connections/endpoint").is_ok());
 }
 
-// ---- restore
+// restore
 
 fn record(id: &str, target: &str) -> SshHostRecord {
     SshHostRecord { id: id.to_owned(), name: format!("name-{id}"), target: target.to_owned(), last_connected_at: None, settings: None }
@@ -228,7 +228,7 @@ fn restore_view_policy_attempt_context_writes_the_target_diagnostics_ring() {
     assert!(context.askpass.is_none(), "batch mode");
 }
 
-// ---- the feed
+// the feed
 
 /// Creates mock feeds and keeps each one in the order it was made (every feed of the connections feed has the same id).
 struct Recording {

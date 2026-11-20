@@ -18,7 +18,7 @@ fn sha(bytes: &[u8]) -> String {
     hex(&Sha256::digest(bytes))
 }
 
-// ---- transcript-file-links.test.mjs ----------------------------------------------------------------------------------
+// transcript-file-links.test.mjs
 
 #[test]
 fn an_href_is_decoded_the_way_markdown_link_decodes_it_and_a_web_link_names_no_file() {
@@ -82,7 +82,7 @@ fn a_task_reports_and_a_room_speechs_returned_files_are_attachments_and_other_no
     assert_eq!(ids, [id, "c".repeat(64)]);
 }
 
-// ---- session-attachments.test.mjs ------------------------------------------------------------------------------------
+// session-attachments.test.mjs
 
 struct Fixture {
     ids: HashMap<&'static str, String>,
@@ -250,7 +250,7 @@ fn an_attachment_stages_under_the_temp_directory_with_a_previewable_name() {
     assert_eq!(stage_session_attachment(Path::new(""), &meta("a", "x/y"), b"").unwrap_err(), "Unable to open file: no temporary directory.");
 }
 
-// ---- workflow-config.ts ----------------------------------------------------------------------------------------------
+// workflow-config.ts
 
 #[test]
 fn jsonc_comments_and_trailing_commas_are_read_and_strings_are_left_alone() {
@@ -281,7 +281,7 @@ fn a_jsonc_file_that_is_missing_empty_or_nul_filled_holds_no_settings() {
     assert!(read_jsonc_file(dir.path()).is_err());
 }
 
-// ---- system-fonts.test.mjs -------------------------------------------------------------------------------------------
+// system-fonts.test.mjs
 
 #[test]
 fn font_listings_become_sorted_unique_family_names() {
@@ -318,7 +318,7 @@ fn a_session_id_is_trimmed_and_holds_only_id_characters() {
     assert!(required_session_id(&"x".repeat(256)).is_some());
 }
 
-// ---- the service -----------------------------------------------------------------------------------------------------
+// the service
 
 fn service(host: Fixture) -> DesktopResidualService {
     DesktopResidualService::new(Arc::new(host), &mixdog_rt::testing::tokens())

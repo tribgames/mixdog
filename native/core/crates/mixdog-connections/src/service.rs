@@ -128,9 +128,7 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-// ---------------------------------------------------------------------------------------------
 // What the service reaches through
-// ---------------------------------------------------------------------------------------------
 
 /// The desktop host's windows (`host/window/*`).
 #[async_trait]
@@ -664,9 +662,7 @@ pub fn ssh_config_hosts(env: &SshEnv) -> Vec<SshConfigHost> {
         .collect()
 }
 
-// ---------------------------------------------------------------------------------------------
 // The service
-// ---------------------------------------------------------------------------------------------
 
 /// Everything the service works over; each module is built once by the composition root over the same stores and pool.
 pub struct ConnectionsDeps {
@@ -1016,9 +1012,7 @@ impl Inner {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // The methods
-// ---------------------------------------------------------------------------------------------
 
 fn value<T: Serialize>(result: T) -> Result<Reply, CoreError> {
     serde_json::to_value(result).map(Reply::Value).map_err(|error| failed(DOMAIN, error.to_string()))
