@@ -148,12 +148,12 @@ finally {
     }
 }
 
-$profile = $Configuration.ToLowerInvariant()
+$profileDirectoryName = $Configuration.ToLowerInvariant()
 $targetProfileDirectory = if ($cargoTarget) {
-    Join-Path $cargoTargetRoot "$cargoTarget\$profile"
+    Join-Path $cargoTargetRoot "$cargoTarget\$profileDirectoryName"
 }
 else {
-    Join-Path $cargoTargetRoot $profile
+    Join-Path $cargoTargetRoot $profileDirectoryName
 }
 $importer = Join-Path $targetProfileDirectory 'mixdog-browser-import.exe'
 $helper = Join-Path $targetProfileDirectory 'bitwarden_chromium_import_helper.exe'
